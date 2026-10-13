@@ -1,38 +1,135 @@
-.App {
+* {
   text-align: center;
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
+.App {
+  margin: 70px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
+.buttons {
+  cursor: pointer;
+  border: 1px solid #000;
+  border-radius: 6px;
+  transition: all 300ms ease;
 }
 
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
+.buttons:hover {
+  background-color: #f0f0f0;
+  transform: scale(1.05);
+}
+
+.game-content {
+  width: 75%;
+  height: 80vh;
+  margin: 0 auto;
+}
+
+.game-screen {
+  width: 100%;
+  height: 70vh;
+  margin: 20px auto;
+  border: 2px solid #000;
+  border-radius: 10px;
+  overflow-y: auto;
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+.message {
+  max-width: 70%;
+  margin: 6px 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+
+.message.game {
+  background: #e8e8f5;
+  margin-right: auto;
+  text-align: left;
+}
+
+.message.player {
+  background: #cfe8cf;
+  margin-left: auto;
+  text-align: right;
+}
+
+.game-controls {
+  width: 100%;
+  min-height: 10vh;
+  margin: 0 auto;
+  border: 2px solid #000;
+  border-radius: 10px;
+  padding: 10px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.input-buttons {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  justify-content: center;
+}
+
+.input-form {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 4px 0;
+  width: 50%;
+}
+
+.input-field {
+  padding: 6px;
+  border: 1px solid #000;
+  border-radius: 12px;
+  width: 100%;
+}
+
+.input-button {
+  padding: 6px 12px;
+}
+
+.game-form {
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.form-fields {
+  display: flex;
+  flex-wrap: wrap;
   justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+  gap: 12px 24px;
 }
 
-.App-link {
-  color: #61dafb;
+.form-field {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.stepper {
+  display: flex;
+  gap: 4px;
+  align-items: center;
 }
+
+.number-input {
+  width: 60px;
+}
+
+.pool.over {
+  color: #b00020;
+}
+
