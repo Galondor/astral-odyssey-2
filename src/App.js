@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import GameForm from "./GameForm";
+import Tooltip from "./Tooltip";
+import RichText from "./RichText";
 import {
   INPUT_MODES,
   getInputMode,
@@ -64,7 +66,7 @@ function App() {
         <div className='game-screen' ref={screenRef}>
           {messages.map((m, i) => (
             <div key={i} className={`message ${m.sender}`}>
-              {m.text}
+              {m.sender === "game" ? <RichText text={m.text} /> : m.text}
             </div>
           ))}
         </div>
@@ -75,9 +77,11 @@ function App() {
           {showButtons && (
             <div className='input-buttons'>
               {getVisibleOptions(scenes[sceneId]).map((o) => (
-                <button key={o.label} className='buttons input-button' type='button' onClick={() => pressButton(o.label)}>
-                  {o.label}
-                </button>
+                <Tooltip key={o.label} content={o.tooltip}>
+                  <button className='buttons input-button' type='button' onClick={() => pressButton(o.label)}>
+                    {o.label}
+                  </button>
+                </Tooltip>
               ))}
             </div>
           )}

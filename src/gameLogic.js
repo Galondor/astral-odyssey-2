@@ -1,8 +1,10 @@
 import { Player, getPlayer, setPlayer } from "./player";
+import { runTravelEvent } from "./events";
 
 export const INPUT_MODES = ["buttons", "text", "both", "form"];
 export const INPUT_MATCHING = ["strict", "open"];
 export const INPUT_TYPE = ["numbers", "letters", "both"];
+const DYNAMIC_SCENE = "dynamic";
 export const getInputMode = (scene) => scene.input || INPUT_MODES[0];
 
 /*
@@ -10,8 +12,10 @@ export const getInputMode = (scene) => scene.input || INPUT_MODES[0];
    label, keywords, next      - basic navigation to scene `next`
    when: () => boolean        - optional; hide the button/answer when false
    onSelect: (ctx) => result  - optional; runs when chosen. ctx = { player, setPlayer, option, scene }
-       result (all optional): { next: "sceneId", reply: string | string[] }
+       result (all optional): { next: "sceneId", reply: string | string[], options: [...], input }
        `next` overrides option.next; `reply` messages show before the next scene's text.
+       `options` (same shape as option fields) shows a follow-up choice instead of going to `next`;
+       option handlers may return `options` again for branching dialogue.
        Returning nothing falls back to option.next; with no next the scene stays.
 */
 export const scenes = {
@@ -26,7 +30,10 @@ export const scenes = {
   },
   createCharacter: {
     input: INPUT_MODES[3],
-    text: () => `What do you excel at, ${getPlayer().name}?`,
+    text: () => `Where do you excel most at, ${getPlayer().name}?` +
+      "\nStrength: Increases melee damage and health." +
+      "\nDexterity: Increases melee damage and agility." +
+      "\nIntelligence: Increases magic damage and power.",
     form: {
       pool: { total: 6, label: "Points" },
       submitLabel: "Create character",
@@ -45,20 +52,121 @@ export const scenes = {
             playerClass = "Tactician";
         } else if (intelligence > strength && intelligence > dexterity) {
             playerClass = "Spellcaster";
-        } else if (strength == dexterity && strength > intelligence) {
+        } else if (strength === dexterity && strength > intelligence) {
             playerClass = "Duelist"; // Strength/Dexterity
-        } else if (strength == intelligence && strength > dexterity) {
+        } else if (strength === intelligence && strength > dexterity) {
             playerClass = "Spellblade"; // Strength/Intelligence
-        } else if (dexterity == intelligence && dexterity > strength) {
+        } else if (dexterity === intelligence && dexterity > strength) {
             playerClass = "Trickster"; // Dexterity/Intelligence
-        } else if (strength == dexterity && strength == intelligence) {
+        } else if (strength === dexterity && strength === intelligence) {
             playerClass = "Specialist"; // Strength/Dexterity/Intelligence
         }
 
-        setPlayer({ class: playerClass, astra: 0, stats: values });
-        return { reply: `Ah, you're a ${playerClass}.`, next: "town" };
+        let exp = 0;
+        let expToLevel = 100;
+        let vitality = 1 + Math.floor(strength / 2); // Every point increases max health by 10
+        let resilience = 1; // Every point increases defense by 1
+        let agility = 1 + Math.floor(dexterity / 2); // Every point increases speed by 3
+        let luck = 1; // Every point increases critical hit chance by 1% and drop rates.
+        let attackMin = 1;
+        let attackMax = 5;
+        let defense = resilience;
+        let speed = (agility * 3);
+        let criticalHitChance = 0.05 + (luck * 0.01);
+        let criticalDamageBonus = 1.5;
+        let maxHealth = 90 + (vitality * 10);
+        let health = maxHealth;
+        let maxStamina = 4 + Math.floor((vitality + agility) / 2); // The average between vitality, and agility
+        let stamina = maxStamina;
+        let maxPower = 5 + Math.floor(intelligence / 2);
+        let power = maxPower;
+
+        const derivedStats = {
+          strength,
+          dexterity,
+          intelligence,
+          exp,
+          expToLevel,
+          vitality,
+          resilience,
+          agility,
+          luck,
+          attackMin,
+          attackMax,
+          defense,
+          speed,
+          criticalHitChance,
+          criticalDamageBonus,
+          maxHealth,
+          health,
+          maxStamina,
+          stamina,
+          maxPower,
+          power
+        };
+
+        setPlayer({ 
+          level: 1,
+          class: playerClass, 
+          astra: 0,
+          region: "Meadowlands", 
+          stats: derivedStats,
+        });
+        return { reply: `Ah, you're a ${playerClass}.`, next: "menu" };
       },
     },
+  },
+  menu: {
+    input: INPUT_MODES[0],
+    text: () => {
+      const p = getPlayer();
+      return `Main Menu`;
+    },
+    options: [
+      {
+        label: "Logout",
+        keywords: ["logout", "1"],
+        next: "start"
+      },
+      {
+        label: "Travel",
+        tooltip: () => {
+          const p = getPlayer();
+          return { title: "Travel", subtitle: `${p ? p.region : "Unknown"}`, description: "Venture out and face random events.", tags: ["Risky"] };
+        },
+        keywords: ["travel", "2"],
+        next: "travel"
+      },
+      {
+        label: "Town",
+        tooltip: { title: "Town", description: "Visit the town to access various services.", tags: ["Haven"] },
+        keywords: ["town", "3"],
+        next: "town"
+      },
+      {
+        label: "Character",
+        tooltip: () => {
+          const p = getPlayer();
+          return { title: `${p.name} the ${p ? p.class : ""}`, subtitle: `Level ${p ? p.level : 0} Exp: ${p ? p.stats.exp : 0}/${p ? p.stats.expToLevel : 0}`, description: "View your character."};
+        },
+        keywords: ["character", "4"],
+        next: "menu"
+      }
+    ]
+  },
+  travel: {
+    input: INPUT_MODES[0],
+    text: () => {
+      const p = getPlayer();
+      return `You are traveling...`;
+    },
+    options: [
+      {
+        label: "Continue",
+        keywords: ["continue", "1"],
+        onSelect: ({ player, setPlayer }) => runTravelEvent({ player, setPlayer })
+      }
+    ]
   },
   town: {
     input: INPUT_MODES[2],
@@ -69,7 +177,8 @@ export const scenes = {
     options: [
       {
         label: "Leave",
-        keywords: ["leave", "1"]
+        keywords: ["leave", "1"],
+        next: "menu"
       },
       {
         label: "General Store",
@@ -106,8 +215,20 @@ export const initialMessages = () => [
 
 // Shared navigation: applies a handler result ({ next, reply }) and builds the replies.
 function navigate(sceneId, result, fallbackNext) {
-  const next = result.next || fallbackNext;
   const replies = [].concat(result.reply || []);
+  // `options` in a result builds a temporary scene so any handler can ask a follow-up question.
+  if (result.options && result.options.length) {
+    const input = result.input || INPUT_MODES[0];
+    scenes[DYNAMIC_SCENE] = {
+      input,
+      match: INPUT_MATCHING[0],
+      text: replies[replies.length - 1] || "What do you do?",
+      options: result.options,
+    };
+    if (replies.length === 0) replies.push(scenes[DYNAMIC_SCENE].text);
+    return { sceneId: DYNAMIC_SCENE, replies };
+  }
+  const next = result.next || fallbackNext;
   if (next && scenes[next]) {
     replies.push(sceneText(next));
     return { sceneId: next, replies };
@@ -159,7 +280,7 @@ export const getPointsRemaining = (form, values) =>
   form.pool ? form.pool.total - getPointsSpent(form, values) : 0;
 
 // Returns an error message, or null if the values are valid.
-export function validateForm(form, values) {
+export function validateForm(form, values, sceneId) {
   for (const f of form.fields) {
     const v = values[f.key];
     const type = f.type || "number";
@@ -174,6 +295,7 @@ export function validateForm(form, values) {
       return `${f.label} is required.`;
     }
   }
+  if (sceneId === "createCharacter") return null;
   if (form.pool) {
     const left = getPointsRemaining(form, values);
     if (left < 0) return `You've used ${-left} too many ${form.pool.label.toLowerCase()}.`;
@@ -186,7 +308,7 @@ export function validateForm(form, values) {
 export function processForm(sceneId, values) {
   const scene = scenes[sceneId];
   const form = scene.form;
-  const error = validateForm(form, values);
+  const error = validateForm(form, values, sceneId);
   if (error) return { sceneId, replies: [error], error: true };
   const clean = Object.fromEntries(
     form.fields.map((f) => [

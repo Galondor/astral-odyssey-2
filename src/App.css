@@ -47,8 +47,8 @@
 
 .message.game {
   background: #e8e8f5;
-  margin-right: auto;
   text-align: left;
+  white-space: pre-wrap;
 }
 
 .message.player {
@@ -133,3 +133,29 @@
   color: #b00020;
 }
 
+
+.tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: 280px;
+  padding: 8px 10px;
+  background: #1c1c24;
+  color: #eee;
+  border: 1px solid #555;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  text-align: left;
+}
+.tooltip-title { font-weight: bold; font-size: 14px; color: #ffd866; }
+.tooltip-subtitle { font-size: 11px; color: #aaa; margin-bottom: 4px; }
+.tooltip-description { margin: 4px 0; }
+.tooltip-stats { margin-top: 4px; }
+.tooltip-stat { display: flex; justify-content: space-between; gap: 16px; }
+.tooltip-list { margin: 4px 0 0; padding-left: 16px; }
+.tooltip-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.tooltip-tag { background: #333; border-radius: 3px; padding: 1px 5px; font-size: 11px; }
+.tooltip-section { margin-top: 6px; padding-top: 6px; border-top: 1px solid #444; }
+.tooltip-footer { margin-top: 6px; font-size: 11px; font-style: italic; color: #999; }
