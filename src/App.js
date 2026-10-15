@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import "./App.css";
 import GameForm from "./GameForm";
 import Tooltip from "./Tooltip";
-import RichText from "./RichText";
+import { GLOSSARY } from "./glossary";
+import { getPlayer } from "./player";
+import { DEFAULT_SCREEN, SCREENS } from "./screens";
 import {
   INPUT_MODES,
   getInputMode,
@@ -18,29 +20,24 @@ function App() {
   const [messages, setMessages] = useState(initialMessages);
   const [sceneId, setSceneId] = useState("start");
   const [input, setInput] = useState("");
-  const screenRef = useRef(null);
+  const [viewOverride, setViewOverride] = useState(null);
 
-  useEffect(() => {
-    const el = screenRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages]);
-
-  const apply = (playerText, result) => {
+  const apply = (result) => {
     setMessages((prev) => [
-      ...prev,
-      { sender: "player", text: playerText },
+      ...(result.clearLog ? [] : prev),
       ...result.replies.map((text) => ({ sender: "game", text })),
     ]);
     setSceneId(result.sceneId);
+    setViewOverride(null);
     setInput("");
   };
 
   const send = (text) => {
     if (!text.trim()) return;
-    apply(text.trim(), processInput(sceneId, text));
+    apply(processInput(sceneId, text));
   };
 
-  const pressButton = (label) => apply(label, processButton(sceneId, label));
+  const pressButton = (label) => apply(processButton(sceneId, label));
 
   const submitForm = (values) => {
     const result = processForm(sceneId, values);
@@ -48,7 +45,7 @@ function App() {
       setMessages((prev) => [...prev, { sender: "game", text: result.replies[0] }]);
       return;
     }
-    apply(result.summary, result);
+    apply(result);
   };
 
   const handleSubmit = (e) => {
@@ -60,16 +57,60 @@ function App() {
   const showButtons = mode === INPUT_MODES[0] || mode === INPUT_MODES[2];
   const showText = mode === INPUT_MODES[1] || mode === INPUT_MODES[2];
 
+  const scene = scenes[sceneId];
+  const player = getPlayer();
+  const sceneScreen = SCREENS[scene.screen] ? scene.screen : DEFAULT_SCREEN;
+  const activeScreen = SCREENS[viewOverride] ? viewOverride : sceneScreen;
+  const Screen = SCREENS[activeScreen].component;
+  const screenData = activeScreen === sceneScreen && scene.screenData ? scene.screenData() : undefined;
+
   return (
     <div className='App'>
-      <div className='game-content'>
-        <div className='game-screen' ref={screenRef}>
-          {messages.map((m, i) => (
-            <div key={i} className={`message ${m.sender}`}>
-              {m.sender === "game" ? <RichText text={m.text} /> : m.text}
-            </div>
-          ))}
-        </div>
+      <header className='navbar'>
+        <span className='nav-title'>Astral Odyssey 2</span>
+        {player && (
+          <div className='nav-info'>
+            <Tooltip content={{ title: player.name, subtitle: `Level ${player.level} ${player.class}` }}>
+              <span className='nav-item'>{player.name}</span>
+            </Tooltip>
+            <Tooltip content={{
+              title: "Level",
+              ...(player.stats?.exp != null && player.stats?.expToLevel != null
+                ? { description: `Exp: ${player.stats.exp}/${player.stats.expToLevel}` }
+                : {}),
+            }}>
+              <span className='nav-item'>Lvl {player.level}</span>
+            </Tooltip>
+            <Tooltip content={GLOSSARY[player.region]}>
+              <span className='nav-item'>{player.region}</span>
+            </Tooltip>
+            <Tooltip content={GLOSSARY.astra}>
+              <span className='nav-item'>{player.astra} astra</span>
+            </Tooltip>
+          </div>
+        )}
+      </header>
+      <div className='App-body'>
+        <nav className='sidebar'>
+          {Object.entries(SCREENS).map(([key, s]) => {
+            const enabled = !!player && (s.link || key === sceneScreen);
+            return (
+              <button
+                key={key}
+                type='button'
+                disabled={!enabled}
+                className={`sidebar-link ${key === activeScreen ? "active" : ""}`}
+                onClick={() => setViewOverride(key === sceneScreen ? null : key)}
+              >
+                {s.label}
+              </button>
+            );
+          })}
+        </nav>
+        <div className='game-content'>
+          <div className='game-screen'>
+            <Screen messages={messages} data={screenData} player={player} />
+          </div>
         <div className='game-controls'>
           {mode === INPUT_MODES[3] && (
             <GameForm key={sceneId} form={scenes[sceneId].form} onSubmit={submitForm} />
@@ -96,6 +137,7 @@ function App() {
               <button className='buttons input-button' type='submit'>Send</button>
             </form>
           )}
+        </div>
         </div>
       </div>
     </div>

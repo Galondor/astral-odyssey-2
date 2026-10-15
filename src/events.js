@@ -1,3 +1,5 @@
+import { startCombat } from "./combat";
+
 /*
  Travel events. Add or remove entries in `travelEvents` to change the pool.
 
@@ -52,7 +54,7 @@ export const travelEvents = [
     run: ({ player, setPlayer, region }) => {
       const amount = Math.max(1, (player.level || 1) * 2);
       setPlayer({ astra: (player.astra || 0) + amount });
-      return { reply: `You find a glowing shard in the ${REGIONS[region].name}: +${amount} astra.` };
+      return { reply: `You find a glowing shard in the {{${REGIONS[region].name}|${REGIONS[region].name}}}: +${amount} {{astra|astra}}.` };
     },
   },
   {
@@ -60,14 +62,14 @@ export const travelEvents = [
     weight: 1,
     minLevel: 3,
     run: () => ({
-      reply: "A shimmering portal hangs in the air ahead of you.",
+      reply: "A shimmering {{portal|portal}} hangs in the air ahead of you.",
       options: [
         {
           label: "Step through",
           keywords: ["step", "enter", "1"],
           onSelect: ({ setPlayer }) => {
             setPlayer({ region: "Ashen Peaks" });
-            return { reply: "The world lurches. You arrive in the Ashen Peaks.", next: "travel" };
+            return { reply: "The world lurches. You arrive in the {{Ashen Peaks|Ashen Peaks}}.", next: "travel" };
           },
         },
         {
@@ -85,11 +87,42 @@ export const travelEvents = [
     }),
   },
   {
+    id: "slimeAmbush",
+    weight: 3,
+    maxLevel: 10,
+    regions: ["Meadowlands"],
+    run: () => ({
+      reply: "A gelatinous slime oozes onto the road.",
+      options: [
+        {
+          label: "Fight",
+          keywords: ["fight", "1"],
+          onSelect: () => {
+            startCombat({ name: "Green Slime", maxHp: 8, attack: [1, 4], reward: 4 });
+            return { next: "combat" };
+          },
+        },
+      ],
+    }),
+  },
+  {
     id: "wolfPack",
     weight: 3,
     minLevel: 2,
     regions: ["Darkwood"],
-    run: () => ({ reply: "A pack of wolves stalks you through the trees, then loses interest." }),
+    run: () => ({
+      reply: "A pack of {{wolves|wolves}} stalks you through the trees.",
+      options: [
+        {
+          label: "Fight",
+          keywords: ["fight", "1"],
+          onSelect: () => {
+            startCombat({ name: "Dire Wolf", maxHp: 12, attack: [3, 7], reward: 8 });
+            return { next: "combat" };
+          },
+        },
+      ],
+    }),
   },
   {
     id: "rockSlide",

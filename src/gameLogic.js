@@ -1,5 +1,12 @@
 import { Player, getPlayer, setPlayer } from "./player";
 import { runTravelEvent } from "./events";
+import { attackRound, getEnemy } from "./combat";
+
+// Crafting recipes shown on the crafting screen. `apply` mutates a copy of the player's stats.
+const RECIPES = [
+  { name: "Iron Dagger", cost: 10, description: "+1 maximum attack.", apply: (s) => { s.attackMax += 1; } },
+  { name: "Padded Vest", cost: 15, description: "+1 defense.", apply: (s) => { s.defense += 1; } },
+];
 
 export const INPUT_MODES = ["buttons", "text", "both", "form"];
 export const INPUT_MATCHING = ["strict", "open"];
@@ -12,11 +19,16 @@ export const getInputMode = (scene) => scene.input || INPUT_MODES[0];
    label, keywords, next      - basic navigation to scene `next`
    when: () => boolean        - optional; hide the button/answer when false
    onSelect: (ctx) => result  - optional; runs when chosen. ctx = { player, setPlayer, option, scene }
-       result (all optional): { next: "sceneId", reply: string | string[], options: [...], input }
+       result (all optional): { next: "sceneId", reply: string | string[], options: [...], input, clearLog }
+       `clearLog: true` wipes the log before this result's replies are shown.
        `next` overrides option.next; `reply` messages show before the next scene's text.
        `options` (same shape as option fields) shows a follow-up choice instead of going to `next`;
        option handlers may return `options` again for branching dialogue.
        Returning nothing falls back to option.next; with no next the scene stays.
+ Scene fields for the game screen:
+   screen: "adventure" (default) | "combat" | "crafting" | any key of SCREENS in screens.js
+   screenData: () => object   - optional live data passed to that screen
+   clearLog: true             - optional; clears the log whenever the player enters this scene
 */
 export const scenes = {
   start: {
@@ -30,10 +42,17 @@ export const scenes = {
   },
   createCharacter: {
     input: INPUT_MODES[3],
+    clearLog: true,
     text: () => `Where do you excel most at, ${getPlayer().name}?` +
-      "\nStrength: Increases melee damage and health." +
-      "\nDexterity: Increases melee damage and agility." +
-      "\nIntelligence: Increases magic damage and power.",
+    `\n{{Strength|strength}} {{Dexterity|dexterity}} {{Intelligence|intelligence}}`+
+    `\nThese core stats define your overall class` +
+    `\n{{Swordsman|swordsman}}`+
+    `\n{{Tactician|tactician}}`+
+    `\n{{Spellcaster|spellcaster}}`+
+    `\n{{Duelist|duelist}}`+
+    `\n{{Spellblade|spellblade}}`+
+    `\n{{Trickster|trickster}}`+
+    `\n{{Specialist|specialist}}`,
     form: {
       pool: { total: 6, label: "Points" },
       submitLabel: "Create character",
@@ -76,7 +95,7 @@ export const scenes = {
         let criticalDamageBonus = 1.5;
         let maxHealth = 90 + (vitality * 10);
         let health = maxHealth;
-        let maxStamina = 4 + Math.floor((vitality + agility) / 2); // The average between vitality, and agility
+        let maxStamina = 8 + Math.floor((vitality + agility) / 2); // The average between vitality, and agility
         let stamina = maxStamina;
         let maxPower = 5 + Math.floor(intelligence / 2);
         let power = maxPower;
@@ -112,50 +131,38 @@ export const scenes = {
           region: "Meadowlands", 
           stats: derivedStats,
         });
-        return { reply: `Ah, you're a ${playerClass}.`, next: "menu" };
+        return { next: "menu" };
       },
     },
   },
   menu: {
     input: INPUT_MODES[0],
-    text: () => {
-      const p = getPlayer();
-      return `Main Menu`;
-    },
+    clearLog: true,
+    text: "Where would you like to go?",
     options: [
-      {
-        label: "Logout",
-        keywords: ["logout", "1"],
-        next: "start"
-      },
       {
         label: "Travel",
         tooltip: () => {
           const p = getPlayer();
-          return { title: "Travel", subtitle: `${p ? p.region : "Unknown"}`, description: "Venture out and face random events.", tags: ["Risky"] };
+          return { title: "Travel", subtitle: `${p ? p.region : "Unknown"}`, description: "Venture out and face random events." };
         },
         keywords: ["travel", "2"],
         next: "travel"
       },
       {
         label: "Town",
-        tooltip: { title: "Town", description: "Visit the town to access various services.", tags: ["Haven"] },
-        keywords: ["town", "3"],
-        next: "town"
-      },
-      {
-        label: "Character",
         tooltip: () => {
           const p = getPlayer();
-          return { title: `${p.name} the ${p ? p.class : ""}`, subtitle: `Level ${p ? p.level : 0} Exp: ${p ? p.stats.exp : 0}/${p ? p.stats.expToLevel : 0}`, description: "View your character."};
+          return { title: "Town", description: "Visit the town to access various services." };
         },
-        keywords: ["character", "4"],
-        next: "menu"
+        keywords: ["town", "3"],
+        next: "town"
       }
     ]
   },
   travel: {
     input: INPUT_MODES[0],
+    clearLog: true,
     text: () => {
       const p = getPlayer();
       return `You are traveling...`;
@@ -170,6 +177,7 @@ export const scenes = {
   },
   town: {
     input: INPUT_MODES[2],
+    clearLog: true,
     text: () => {
       const p = getPlayer();
       return `You have arrived in town.`;
@@ -190,12 +198,57 @@ export const scenes = {
       },
       {
         label: "Blacksmith",
-        keywords: ["blacksmith", "4"]
+        keywords: ["blacksmith", "4"],
+        next: "crafting"
       },
       {
         label: "Bank",
         keywords: ["bank", "5"]
       }
+    ],
+  },
+  crafting: {
+    screen: "crafting",
+    clearLog: true,
+    input: INPUT_MODES[0],
+    text: "The blacksmith nods toward the forge. What would you like to craft?",
+    screenData: () => ({ recipes: RECIPES, astra: getPlayer()?.astra || 0 }),
+    options: [
+      {
+        label: "Leave forge",
+        keywords: ["leave", "1"],
+        next: "town"
+      },
+      ...RECIPES.map((r, i) => ({
+        label: `Craft ${r.name}`,
+        keywords: [r.name.toLowerCase(), String(i + 2)],
+        tooltip: { title: r.name, description: r.description, stats: [{ label: "Cost", value: `${r.cost} astra` }] },
+        onSelect: ({ player, setPlayer }) => {
+          if ((player.astra || 0) < r.cost) return { reply: `You need ${r.cost} {{astra|astra}} to craft the ${r.name}.` };
+          const stats = { ...player.stats };
+          r.apply(stats);
+          setPlayer({ astra: player.astra - r.cost, stats });
+          return { reply: `The blacksmith hands you a ${r.name}. ${r.description}` };
+        },
+      })),
+    ],
+  },
+  combat: {
+    screen: "combat",
+    clearLog: true,
+    input: INPUT_MODES[0],
+    text: () => (getEnemy() ? `A ${getEnemy().name} blocks your path!` : "There is nothing to fight."),
+    screenData: () => ({ enemy: getEnemy(), stats: getPlayer()?.stats }),
+    options: [
+      {
+        label: "Attack",
+        keywords: ["attack", "1"],
+        onSelect: () => {
+          if (!getEnemy()) return { next: "menu" };
+          const { replies, over } = attackRound();
+          return over ? { reply: replies, next: "menu" } : { reply: replies };
+        },
+      },
     ],
   },
 };
@@ -213,9 +266,11 @@ export const initialMessages = () => [
   { sender: "game", text: sceneText("start") },
 ];
 
-// Shared navigation: applies a handler result ({ next, reply }) and builds the replies.
+// Shared navigation: applies a handler result ({ next, reply, clearLog }) and builds the replies.
+// The returned `clearLog` is true when the handler asked for it or the destination scene has `clearLog: true`.
 function navigate(sceneId, result, fallbackNext) {
   const replies = [].concat(result.reply || []);
+  const clearLog = !!result.clearLog;
   // `options` in a result builds a temporary scene so any handler can ask a follow-up question.
   if (result.options && result.options.length) {
     const input = result.input || INPUT_MODES[0];
@@ -226,16 +281,16 @@ function navigate(sceneId, result, fallbackNext) {
       options: result.options,
     };
     if (replies.length === 0) replies.push(scenes[DYNAMIC_SCENE].text);
-    return { sceneId: DYNAMIC_SCENE, replies };
+    return { sceneId: DYNAMIC_SCENE, replies, clearLog };
   }
   const next = result.next || fallbackNext;
   if (next && scenes[next]) {
     replies.push(sceneText(next));
-    return { sceneId: next, replies };
+    return { sceneId: next, replies, clearLog: clearLog || !!scenes[next].clearLog };
   }
   // Stay in the current scene; re-show its text if there was no custom reply.
   if (replies.length === 0) replies.push(sceneText(sceneId));
-  return { sceneId, replies };
+  return { sceneId, replies, clearLog };
 }
 
 // Runs a chosen option and returns { sceneId, replies: string[] }.
