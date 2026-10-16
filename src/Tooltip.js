@@ -20,10 +20,10 @@ const MARGIN = 8;
 export function TooltipContent({ data }) {
   if (data == null || data === false) return null;
   if (typeof data !== "object" || data.$$typeof) return <>{data}</>;
-  const { title, subtitle, description, stats, list, tags, sections, footer } = data;
+  const { title, titleColor, subtitle, description, stats, list, tags, sections, footer } = data;
   return (
     <>
-      {title && <div className='tooltip-title'>{title}</div>}
+      {title && <div className='tooltip-title' style={titleColor ? { color: titleColor } : undefined}>{title}</div>}
       {subtitle && <div className='tooltip-subtitle'>{subtitle}</div>}
       {description && <div className='tooltip-description'>{description}</div>}
       {stats?.length > 0 && (

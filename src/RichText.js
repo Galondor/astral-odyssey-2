@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import Tooltip from "./Tooltip";
 import { GLOSSARY } from "./glossary";
+import { RARITY_COLORS, findItem, itemTooltip } from "./items";
 
 /*
  * Simple message formatting (rendered as React elements, never raw HTML):
@@ -8,6 +9,7 @@ import { GLOSSARY } from "./glossary";
  *   **bold**  *italic*  __underline__  ~~strike~~
  *   [red]text[/red]   colors: see COLORS
  *   {{word|key}}  hoverable highlighted word; key is a GLOSSARY entry or a plain tooltip string
+ *   {{name|item:ID}}  item link: rarity-colored name with the item's tooltip (ID from item.id)
  * Tags can be nested, e.g. **[gold]Rare[/gold] item**
  */
 const COLORS = {
@@ -40,12 +42,23 @@ function parse(text, keyPrefix = "") {
     if (m.index > 0) out.push(rest.slice(0, m.index));
     const key = `${keyPrefix}${i++}`;
     if (m[1] !== undefined) {
-      const tip = GLOSSARY[m[2].trim()] ?? m[2];
-      out.push(
-        <Tooltip key={key} content={tip}>
-          <span className='tip-word' tabIndex={0}>{parse(m[1], key + ".")}</span>
-        </Tooltip>
-      );
+      const itemId = m[2].trim().startsWith("item:") ? m[2].trim().slice(5) : null;
+      if (itemId) {
+        // Item links resolve on hover so the tooltip stays accurate (e.g. after the item is equipped)
+        const item = findItem(itemId);
+        out.push(
+          <Tooltip key={key} content={() => itemTooltip(findItem(itemId)) || "This item is gone."}>
+            <span className='tip-word' tabIndex={0} style={item ? { color: RARITY_COLORS[item.rarity] } : undefined}>{parse(m[1], key + ".")}</span>
+          </Tooltip>
+        );
+      } else {
+        const tip = GLOSSARY[m[2].trim()] ?? m[2];
+        out.push(
+          <Tooltip key={key} content={tip}>
+            <span className='tip-word' tabIndex={0}>{parse(m[1], key + ".")}</span>
+          </Tooltip>
+        );
+      }
     }
     else if (m[3] !== undefined) out.push(<strong key={key}>{parse(m[3], key + ".")}</strong>);
     else if (m[4] !== undefined) out.push(<u key={key}>{parse(m[4], key + ".")}</u>);

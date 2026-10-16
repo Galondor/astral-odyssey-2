@@ -1,4 +1,8 @@
 import { getPlayer, setPlayer } from "./player";
+import { generateRandomSlotItem } from "./items";
+import { gainExp } from "./stats";
+
+const BASE_DROP_CHANCE = 0.25;
 
 // Simple turn-based combat state, shown by the "combat" game screen.
 let enemy = null;
@@ -22,9 +26,21 @@ export function attackRound() {
   replies.push(`You strike the ${enemy.name} for [red]${hit}[/red] damage.`);
 
   if (enemy.hp <= 0) {
-    s.exp += enemy.reward * 2;
-    setPlayer({ stats: s, astra: (p.astra || 0) + enemy.reward });
+    const patch = { astra: (p.astra || 0) + enemy.reward };
     replies.push(`The ${enemy.name} falls! You gain ${enemy.reward * 2} exp and ${enemy.reward} {{astra|astra}}.`);
+    const leveled = gainExp(p, enemy.reward * 2);
+    Object.assign(patch, leveled.patch);
+    replies.push(...leveled.messages);
+    // Luck improves drop chance by 1% per point
+    const dropChance = (enemy.dropChance ?? BASE_DROP_CHANCE) + (s.luck || 0) * 0.01;
+    if (Math.random() < dropChance) {
+      const item = generateRandomSlotItem();
+      if (item) {
+        patch.inventory = [...(p.inventory || []), item];
+        replies.push(`The ${enemy.name} dropped {{${item.name}|item:${item.id}}}!`);
+      }
+    }
+    setPlayer(patch);
     enemy = null;
     return { replies, over: true };
   }

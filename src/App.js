@@ -4,6 +4,7 @@ import GameForm from "./GameForm";
 import Tooltip from "./Tooltip";
 import { GLOSSARY } from "./glossary";
 import { getPlayer } from "./player";
+import { getEnemy } from "./combat";
 import { DEFAULT_SCREEN, SCREENS } from "./screens";
 import {
   INPUT_MODES,
@@ -21,6 +22,7 @@ function App() {
   const [sceneId, setSceneId] = useState("start");
   const [input, setInput] = useState("");
   const [viewOverride, setViewOverride] = useState(null);
+  const [, setTick] = useState(0);
 
   const apply = (result) => {
     setMessages((prev) => [
@@ -92,24 +94,27 @@ function App() {
       </header>
       <div className='App-body'>
         <nav className='sidebar'>
-          {Object.entries(SCREENS).map(([key, s]) => {
+          {Object.entries(SCREENS).filter(([key, s]) => !s.hideUnlessActive || key === sceneScreen).map(([key, s]) => {
             const enabled = !!player && (s.link || key === sceneScreen);
+            const badge = player && s.badge ? s.badge(player) : 0;
+            const attention = s.hideUnlessActive && key !== activeScreen;
             return (
               <button
                 key={key}
                 type='button'
                 disabled={!enabled}
-                className={`sidebar-link ${key === activeScreen ? "active" : ""}`}
+                className={`sidebar-link ${key === activeScreen ? "active" : ""} ${s.hideUnlessActive ? "highlight" : ""} ${attention ? "attention" : ""}`}
                 onClick={() => setViewOverride(key === sceneScreen ? null : key)}
               >
                 {s.label}
+                {badge > 0 && <span className='sidebar-badge'>{badge}</span>}
               </button>
             );
           })}
         </nav>
         <div className='game-content'>
           <div className='game-screen'>
-            <Screen messages={messages} data={screenData} player={player} />
+            <Screen messages={messages} data={screenData} player={player} inCombat={sceneScreen === "combat" || !!getEnemy()} onChange={() => setTick((t) => t + 1)} />
           </div>
         <div className='game-controls'>
           {mode === INPUT_MODES[3] && (

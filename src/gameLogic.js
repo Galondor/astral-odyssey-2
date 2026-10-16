@@ -1,11 +1,13 @@
 import { Player, getPlayer, setPlayer } from "./player";
 import { runTravelEvent } from "./events";
 import { attackRound, getEnemy } from "./combat";
+import { createStarterInventory } from "./items";
+import { recalculateStats } from "./stats";
 
-// Crafting recipes shown on the crafting screen. `apply` mutates a copy of the player's stats.
+// Crafting recipes shown on the crafting screen. `bonus` is added permanently to player.bonusStats.
 const RECIPES = [
-  { name: "Iron Dagger", cost: 10, description: "+1 maximum attack.", apply: (s) => { s.attackMax += 1; } },
-  { name: "Padded Vest", cost: 15, description: "+1 defense.", apply: (s) => { s.defense += 1; } },
+  { name: "Iron Dagger", cost: 10, description: "+1 maximum attack.", bonus: { attackMax: 1 } },
+  { name: "Padded Vest", cost: 15, description: "+1 defense.", bonus: { defense: 1 } },
 ];
 
 export const INPUT_MODES = ["buttons", "text", "both", "form"];
@@ -81,56 +83,17 @@ export const scenes = {
             playerClass = "Specialist"; // Strength/Dexterity/Intelligence
         }
 
-        let exp = 0;
-        let expToLevel = 100;
-        let vitality = 1 + Math.floor(strength / 2); // Every point increases max health by 10
-        let resilience = 1; // Every point increases defense by 1
-        let agility = 1 + Math.floor(dexterity / 2); // Every point increases speed by 3
-        let luck = 1; // Every point increases critical hit chance by 1% and drop rates.
-        let attackMin = 1;
-        let attackMax = 5;
-        let defense = resilience;
-        let speed = (agility * 3);
-        let criticalHitChance = 0.05 + (luck * 0.01);
-        let criticalDamageBonus = 1.5;
-        let maxHealth = 90 + (vitality * 10);
-        let health = maxHealth;
-        let maxStamina = 8 + Math.floor((vitality + agility) / 2); // The average between vitality, and agility
-        let stamina = maxStamina;
-        let maxPower = 5 + Math.floor(intelligence / 2);
-        let power = maxPower;
-
-        const derivedStats = {
-          strength,
-          dexterity,
-          intelligence,
-          exp,
-          expToLevel,
-          vitality,
-          resilience,
-          agility,
-          luck,
-          attackMin,
-          attackMax,
-          defense,
-          speed,
-          criticalHitChance,
-          criticalDamageBonus,
-          maxHealth,
-          health,
-          maxStamina,
-          stamina,
-          maxPower,
-          power
-        };
-
-        setPlayer({ 
+        // All derived stats (vitality, attack, health, etc.) are calculated in stats.js
+        setPlayer(recalculateStats({}, {
           level: 1,
-          class: playerClass, 
+          class: playerClass,
           astra: 0,
-          region: "Meadowlands", 
-          stats: derivedStats,
-        });
+          region: "Meadowlands",
+          baseStats: { strength, dexterity, intelligence },
+          bonusStats: {},
+          inventory: createStarterInventory(),
+          equipment: {},
+        }));
         return { next: "menu" };
       },
     },
@@ -225,9 +188,9 @@ export const scenes = {
         tooltip: { title: r.name, description: r.description, stats: [{ label: "Cost", value: `${r.cost} astra` }] },
         onSelect: ({ player, setPlayer }) => {
           if ((player.astra || 0) < r.cost) return { reply: `You need ${r.cost} {{astra|astra}} to craft the ${r.name}.` };
-          const stats = { ...player.stats };
-          r.apply(stats);
-          setPlayer({ astra: player.astra - r.cost, stats });
+          const bonusStats = { ...player.bonusStats };
+          for (const [k, v] of Object.entries(r.bonus)) bonusStats[k] = (bonusStats[k] || 0) + v;
+          setPlayer(recalculateStats(player, { astra: player.astra - r.cost, bonusStats }));
           return { reply: `The blacksmith hands you a ${r.name}. ${r.description}` };
         },
       })),

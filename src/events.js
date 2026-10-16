@@ -38,100 +38,106 @@ const OPTIONS_RETURN = [
 export const travelEvents = [
   {
     id: "quietRoad",
-    weight: 5,
+    weight: 3,
     run: () => ({ reply: "The road is quiet. You travel without incident.", options: OPTIONS_RETURN }),
   },
-  {
-    id: "wanderingMerchant",
-    weight: 2,
-    maxLevel: 10,
-    regions: ["Meadowlands"],
-    run: () => ({ reply: "A wandering merchant waves as you pass, but has nothing you need." }),
-  },
+  // {
+  //   id: "wanderingMerchant",
+  //   weight: 2,
+  //   maxLevel: 10,
+  //   regions: ["Meadowlands"],
+  //   run: () => ({ reply: "A wandering merchant waves as you pass, but has nothing you need." }),
+  // },
   {
     id: "astraShard",
     weight: 2,
     run: ({ player, setPlayer, region }) => {
       const amount = Math.max(1, (player.level || 1) * 2);
       setPlayer({ astra: (player.astra || 0) + amount });
-      return { reply: `You find a glowing shard in the {{${REGIONS[region].name}|${REGIONS[region].name}}}: +${amount} {{astra|astra}}.` };
+      return { reply: `You find a glowing shard and gain +${amount} {{astra|astra}}.` };
     },
   },
+  // {
+  //   id: "strangePortal",
+  //   weight: 1,
+  //   minLevel: 3,
+  //   run: () => ({
+  //     reply: "A shimmering {{portal|portal}} hangs in the air ahead of you.",
+  //     options: [
+  //       {
+  //         label: "Step through",
+  //         keywords: ["step", "enter", "1"],
+  //         onSelect: ({ setPlayer }) => {
+  //           setPlayer({ region: "Ashen Peaks" });
+  //           return { reply: "The world lurches. You arrive in the {{Ashen Peaks|Ashen Peaks}}.", next: "travel" };
+  //         },
+  //       },
+  //       {
+  //         label: "Inspect it",
+  //         keywords: ["inspect", "2"],
+  //         onSelect: () => ({
+  //           reply: "Something moves inside the light.",
+  //           options: [
+  //             { label: "Walk away", keywords: ["walk", "1"], next: "travel", onSelect: () => ({ reply: "You leave it behind." }) },
+  //           ],
+  //         }),
+  //       },
+  //       { label: "Ignore it", keywords: ["ignore", "3"], next: "travel" },
+  //     ],
+  //   }),
+  // },
   {
-    id: "strangePortal",
-    weight: 1,
-    minLevel: 3,
+    id: "enemyEncounter",
+    weight: 5,
     run: () => ({
-      reply: "A shimmering {{portal|portal}} hangs in the air ahead of you.",
-      options: [
-        {
-          label: "Step through",
-          keywords: ["step", "enter", "1"],
-          onSelect: ({ setPlayer }) => {
-            setPlayer({ region: "Ashen Peaks" });
-            return { reply: "The world lurches. You arrive in the {{Ashen Peaks|Ashen Peaks}}.", next: "travel" };
-          },
-        },
-        {
-          label: "Inspect it",
-          keywords: ["inspect", "2"],
-          onSelect: () => ({
-            reply: "Something moves inside the light.",
-            options: [
-              { label: "Walk away", keywords: ["walk", "1"], next: "travel", onSelect: () => ({ reply: "You leave it behind." }) },
-            ],
-          }),
-        },
-        { label: "Ignore it", keywords: ["ignore", "3"], next: "travel" },
-      ],
-    }),
-  },
-  {
-    id: "slimeAmbush",
-    weight: 3,
-    maxLevel: 10,
-    regions: ["Meadowlands"],
-    run: () => ({
-      reply: "A gelatinous slime oozes onto the road.",
+      reply: `An enemy appears!`,
       options: [
         {
           label: "Fight",
           keywords: ["fight", "1"],
           onSelect: () => {
-            startCombat({ name: "Green Slime", maxHp: 8, attack: [1, 4], reward: 4 });
+            startCombat(getRandomEnemy());
             return { next: "combat" };
           },
         },
       ],
     }),
   },
-  {
-    id: "wolfPack",
-    weight: 3,
-    minLevel: 2,
-    regions: ["Darkwood"],
-    run: () => ({
-      reply: "A pack of {{wolves|wolves}} stalks you through the trees.",
-      options: [
-        {
-          label: "Fight",
-          keywords: ["fight", "1"],
-          onSelect: () => {
-            startCombat({ name: "Dire Wolf", maxHp: 12, attack: [3, 7], reward: 8 });
-            return { next: "combat" };
-          },
-        },
-      ],
-    }),
-  },
-  {
-    id: "rockSlide",
-    weight: 3,
-    minLevel: 5,
-    regions: ["Ashen Peaks"],
-    run: () => ({ reply: "A rockslide forces you to take a long detour." }),
-  },
+  // {
+  //   id: "wolfPack",
+  //   weight: 3,
+  //   minLevel: 2,
+  //   regions: ["Darkwood"],
+  //   run: () => ({
+  //     reply: "A pack of {{wolves|wolves}} stalks you through the trees.",
+  //     options: [
+  //       {
+  //         label: "Fight",
+  //         keywords: ["fight", "1"],
+  //         onSelect: () => {
+  //           startCombat({ name: "Dire Wolf", maxHp: 12, attack: [3, 7], reward: 8 });
+  //           return { next: "combat" };
+  //         },
+  //       },
+  //     ],
+  //   }),
+  // },
+  // {
+  //   id: "rockSlide",
+  //   weight: 3,
+  //   minLevel: 5,
+  //   regions: ["Ashen Peaks"],
+  //   run: () => ({ reply: "A rockslide forces you to take a long detour." }),
+  // },
 ];
+
+export const getRandomEnemy = () => {
+  const enemies = [
+    { name: "Green Slime", maxHp: 8, attack: [1, 4], reward: 4 },
+    { name: "Dire Wolf", maxHp: 12, attack: [3, 7], reward: 8 },
+  ];
+  return enemies[Math.floor(Math.random() * enemies.length)];
+};
 
 export const isEventEligible = (event, ctx) => {
   const level = ctx.player?.level || 1;
