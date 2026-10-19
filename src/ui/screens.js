@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { getPlayer, setPlayer } from "../character/player";
+import {
+  getInventoryItemKey,
+  getPlayer,
+  markInventoryItemViewed,
+  setPlayer,
+} from "../character/player";
 import {
   RARITY_COLORS,
   SLOTS,
@@ -74,7 +79,9 @@ import {
   turnInQuest,
 } from "../world/quests";
 import Tooltip from "./Tooltip";
-
+import InboxScreen from "./InboxScreen";
+import AdminScreen from "./AdminScreen";
+import { getUnreadCount } from "../world/inbox";
 /*
  Game screens. A scene picks one with `screen: "<key>"` (and optional `screenData`); the sidebar can
  also open the ones with `link: true` at any time. To add a screen, add an entry here.
@@ -82,6 +89,7 @@ import Tooltip from "./Tooltip";
    link      - always available from the sidebar (otherwise only enabled while a scene uses it)
    hideUnlessActive - hidden from the sidebar unless a scene is using it (highlighted when shown)
    badge     - (player) => number, shown as a notification on the tab when above 0
+   adminOnly - only shown to players listed under admins/{uid} in the database
    component - React component receiving { messages, data, player }
 */
 const MOBILE_QUERY = "(max-width: 800px)";
@@ -574,7 +582,14 @@ const Inventory = ({ player, onChange, locked }) => {
     keyItems: keyItems.length,
   };
   const use = (key) => {
+    markInventoryItemViewed("consumables", key);
     drinkConsumable(key);
+    onChange();
+  };
+  const isNew = (category, key) =>
+    (player.unseenInventoryItems?.[category] || []).includes(key);
+  const viewItem = (category, key) => {
+    markInventoryItemViewed(category, key);
     onChange();
   };
   return (
@@ -593,7 +608,12 @@ const Inventory = ({ player, onChange, locked }) => {
               className={`inventory-tab ${tab === t.key ? "active" : ""}`}
               onClick={() => setTab(t.key)}
             >
-              {t.label} <span className='equip-count'>{counts[t.key]}</span>
+              {t.label}
+              {player.unseenInventoryItems?.[t.key]?.length > 0 && (
+                <span className='inventory-new-dot' aria-label='New items' />
+              )}
+              {" "}
+              <span className='equip-count'>{counts[t.key]}</span>
             </button>
           ))}
         </div>
@@ -606,6 +626,7 @@ const Inventory = ({ player, onChange, locked }) => {
               {gear.map((item, i) => (
                 <Tooltip
                   key={item.id || i}
+                  onView={() => viewItem("gear", getInventoryItemKey(item))}
                   content={() =>
                     itemComparisonTooltip(
                       item,
@@ -620,10 +641,14 @@ const Inventory = ({ player, onChange, locked }) => {
                     disabled={locked}
                     className={`inventory-item ${canEquip(item, player.level) ? "" : "too-high"}`}
                     onClick={() => {
+                      markInventoryItemViewed("gear", getInventoryItemKey(item));
                       equipItem(i);
                       onChange();
                     }}
                   >
+                    {isNew("gear", getInventoryItemKey(item)) && (
+                      <span className='inventory-new-dot' aria-label='New item' />
+                    )}
                     <strong style={{ color: RARITY_COLORS[item.rarity] }}>
                       {item.name}
                     </strong>
@@ -642,6 +667,7 @@ const Inventory = ({ player, onChange, locked }) => {
               {consumables.map((c) => (
                 <Tooltip
                   key={c.key}
+                  onView={() => viewItem("consumables", c.key)}
                   content={consumableTooltip(
                     c.key,
                     locked ? "Use items from the combat menu" : "Click to use ",
@@ -653,6 +679,9 @@ const Inventory = ({ player, onChange, locked }) => {
                     className='inventory-item'
                     onClick={() => use(c.key)}
                   >
+                    {isNew("consumables", c.key) && (
+                      <span className='inventory-new-dot' aria-label='New item' />
+                    )}
                     <strong>
                       {c.name} x{c.count}
                     </strong>
@@ -671,8 +700,15 @@ const Inventory = ({ player, onChange, locked }) => {
             )}
             <div className='inventory-list'>
               {materials.map((m) => (
-                <Tooltip key={m.key} content={materialTooltip(m.key, m.count)}>
+                <Tooltip
+                  key={m.key}
+                  onView={() => viewItem("materials", m.key)}
+                  content={materialTooltip(m.key, m.count)}
+                >
                   <div className='inventory-item'>
+                    {isNew("materials", m.key) && (
+                      <span className='inventory-new-dot' aria-label='New item' />
+                    )}
                     <strong style={{ color: MATERIAL_TIERS[m.tier].color }}>
                       {m.name} x{m.count}
                     </strong>
@@ -689,8 +725,15 @@ const Inventory = ({ player, onChange, locked }) => {
             )}
             <div className='inventory-list'>
               {keyItems.map((k) => (
-                <Tooltip key={k.key} content={keyItemTooltip(k.key)}>
+                <Tooltip
+                  key={k.key}
+                  onView={() => viewItem("keyItems", k.key)}
+                  content={keyItemTooltip(k.key)}
+                >
                   <div className='inventory-item'>
+                    {isNew("keyItems", k.key) && (
+                      <span className='inventory-new-dot' aria-label='New item' />
+                    )}
                     <strong>{k.name}</strong>
                   </div>
                 </Tooltip>
@@ -1228,6 +1271,13 @@ export const SCREENS = {
     component: QuestsScreen,
     badge: (p) => getReadyQuestCount(p),
   },
+  inbox: {
+    label: "Inbox",
+    link: true,
+    component: InboxScreen,
+    badge: () => getUnreadCount(),
+  },
+  admin: { label: "Admin", link: true, adminOnly: true, component: AdminScreen },
   combat: { label: "Combat", component: CombatScreen, hideUnlessActive: true },
   crafting: {
     label: "Workshop",

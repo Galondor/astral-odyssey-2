@@ -9,6 +9,7 @@ import { GLOSSARY } from "./ui/glossary";
 import { getPlayer, loadPlayer, unloadPlayer } from "./character/player";
 import { getRep, getRepRank } from "./world/quests";
 import { getEnemy } from "./combat/combat";
+import { isAdmin, startInbox } from "./world/inbox";
 import { DEFAULT_SCREEN, SCREENS } from "./ui/screens";
 import {
   INPUT_MODES,
@@ -49,16 +50,17 @@ function App() {
 
   if (uid === undefined) return <div className='auth-page'><p className='auth-subtitle'>Loading...</p></div>;
   if (uid === null) return <AuthScreen />;
-  return <Game key={uid} onLogout={logout} />;
+  return <Game key={uid} uid={uid} onLogout={logout} />;
 }
 
-function Game({ onLogout }) {
+function Game({ uid, onLogout }) {
   const [sceneId, setSceneId] = useState(() => getPlayer() ? "menu" : "start");
   const [messages, setMessages] = useState(() => initialMessages(sceneId));
   const [input, setInput] = useState("");
   const [viewOverride, setViewOverride] = useState(null);
   const [, setTick] = useState(0);
 
+  useEffect(() => startInbox(uid, () => setTick((t) => t + 1)), [uid]);
   const apply = (result) => {
     setMessages((prev) => [
       ...(result.clearLog ? [] : prev),
@@ -130,7 +132,7 @@ function Game({ onLogout }) {
       </header>
       <div className='App-body'>
         <nav className='sidebar'>
-          {Object.entries(SCREENS).filter(([key, s]) => !s.hideUnlessActive || key === sceneScreen).map(([key, s]) => {
+          {Object.entries(SCREENS).filter(([key, s]) => (!s.hideUnlessActive || key === sceneScreen) && (!s.adminOnly || isAdmin())).map(([key, s]) => {
             const enabled = !!player && (s.link || key === sceneScreen);
             const badge = player && s.badge ? s.badge(player) : 0;
             const attention = s.hideUnlessActive && key !== activeScreen;

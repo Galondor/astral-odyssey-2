@@ -490,6 +490,9 @@ export const generateRandomItem = (slot, minRarity = 0) => {
   };
 };
 
+export const GEAR_SLOT_TYPES = Object.keys(SLOT_CONFIG);
+export const RARITY_NAMES = RARITIES.map((r) => r.name);
+
 export const generateRandomSlotItem = (minRarity = 0) =>
   generateRandomItem(pick(Object.keys(SLOT_CONFIG)), minRarity);
 

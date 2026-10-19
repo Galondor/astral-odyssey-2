@@ -139,6 +139,9 @@
 .equip-empty { color: #888; font-size: 14px; }
 .inventory-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: 6px; }
 .inventory-item { padding: 8px 6px; font-size: 12px; min-height: 0; overflow: hidden; justify-content: center; }
+.inventory-item { position: relative; }
+.inventory-new-dot { display: inline-block; flex: 0 0 8px; width: 8px; height: 8px; margin: 0 5px; border-radius: 50%; background: #e04848; vertical-align: middle; }
+.inventory-item > .inventory-new-dot { position: absolute; top: 7px; right: 5px; }
 .inventory-item strong { font-weight: normal; overflow: hidden; text-overflow: ellipsis; }
 .inventory-tabs { display: flex; gap: 4px; margin-bottom: 8px; border-bottom: 1px solid #333; }
 .inventory-tab { background: none; color: #aaa; border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
@@ -349,6 +352,31 @@
 .quest-entry.completed, .quest-entry.abandoned { opacity: 0.6; }
 .quest-status { color: #aaa; }
 
+.inbox-layout { display: flex; gap: 12px; align-items: flex-start; text-align: left; }
+.inbox-list { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.inbox-detail { flex: 2 1 0; min-width: 0; padding: 0 8px; border-left: 1px solid #333; text-align: left; }
+.inbox-detail h3 { margin: 0 0 4px; color: #ffd866; }
+.inbox-row { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 6px 10px; background: #1a1a24; color: inherit; border: 1px solid #444; border-radius: 6px; font: inherit; font-size: 14px; cursor: pointer; }
+.inbox-row.unread { font-weight: 700; border-color: #6a6a8a; }
+.inbox-row.read { opacity: 0.7; }
+.inbox-row.selected, .inbox-row:hover { border-color: #ffd866; }
+.inbox-subject { overflow-wrap: anywhere; }
+.inbox-dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: #e04848; }
+.inbox-meta { color: #999; font-size: 12px; font-weight: normal; }
+.inbox-attach { color: #ffd866; }
+.inbox-body { margin: 10px 0; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; }
+.inbox-attachments { margin: 10px 0; padding: 8px 10px; border: 1px solid #444; border-radius: 6px; background: #1a1a24; }
+.inbox-attachments ul, .admin-rows { margin: 4px 0 8px; padding-left: 18px; text-align: left; }
+.inbox-attachments li { text-align: left; }
+.inbox-confirm { margin: 10px 0; padding: 8px 10px; border: 1px solid #e04848; border-radius: 6px; background: rgba(224, 72, 72, 0.12); }
+.inbox-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.admin-form { display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.admin-form label { display: flex; flex-direction: column; gap: 4px; text-align: left; }
+.admin-tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid #333; }
+.admin-attach { display: flex; flex-wrap: wrap; gap: 6px; }
+.admin-attach .input-field { width: auto; flex: 1 1 120px; }
+.admin-rows li { text-align: left; margin-bottom: 4px; }
+
 .auth-page {
   min-height: 100vh;
   min-height: 100dvh;
@@ -455,6 +483,9 @@
 }
 
 @media (max-width: 1000px) {
+  .inbox-layout { flex-direction: column; }
+  .inbox-list, .inbox-detail { flex: none; width: 100%; }
+  .inbox-detail { border-left: none; border-top: 1px solid #333; padding: 8px 0 0; }
   .workshop { height: 100%; min-height: 0; overflow-y: auto; }
   .workshop .recipe-grid { flex: none; min-height: auto; }
   .quest-board .recipe-grid { margin-bottom: 8px; }

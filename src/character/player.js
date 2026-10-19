@@ -23,6 +23,53 @@ export const getPlayer = () => {
   return player ? JSON.parse(player) : null;
 };
 
+export const getInventoryItemKey = (item) => item?.id || JSON.stringify(item);
+
+const getNewInventoryItems = (player, patch) => {
+  const additions = {};
+  if (Object.prototype.hasOwnProperty.call(patch, "inventory")) {
+    const previous = new Map();
+    for (const item of player?.inventory || []) {
+      const key = getInventoryItemKey(item);
+      previous.set(key, (previous.get(key) || 0) + 1);
+    }
+    const next = new Map();
+    for (const item of patch.inventory || []) {
+      const key = getInventoryItemKey(item);
+      next.set(key, (next.get(key) || 0) + 1);
+      if (next.get(key) > (previous.get(key) || 0)) {
+        (additions.gear ||= []).push(key);
+      }
+    }
+  }
+  for (const category of ["consumables", "materials"]) {
+    if (!Object.prototype.hasOwnProperty.call(patch, category)) continue;
+    for (const [key, count] of Object.entries(patch[category] || {})) {
+      if (count > (player?.[category]?.[key] || 0)) {
+        (additions[category] ||= []).push(key);
+      }
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "keyItems")) {
+    const previous = new Set(player?.keyItems || []);
+    additions.keyItems = [...new Set(patch.keyItems || [])].filter(
+      (key) => !previous.has(key),
+    );
+  }
+  return additions;
+};
+
+export const markInventoryItemViewed = (category, key) => {
+  const player = getPlayer();
+  const items = player?.unseenInventoryItems?.[category] || [];
+  if (!items.includes(key)) return;
+  const remaining = items.filter((itemKey) => itemKey !== key);
+  const unseenInventoryItems = { ...player.unseenInventoryItems };
+  if (remaining.length) unseenInventoryItems[category] = remaining;
+  else delete unseenInventoryItems[category];
+  setPlayer({ unseenInventoryItems });
+};
+
 const markDirty = () => {
   const meta = getMeta();
   if (!meta.uid) return;
@@ -33,7 +80,22 @@ const markDirty = () => {
 
 // Merge values into the saved player data.
 export const setPlayer = (patch) => {
-  localStorage.setItem(PLAYER_KEY, JSON.stringify({ ...getPlayer(), ...patch }));
+  const player = getPlayer();
+  const additions = getNewInventoryItems(player, patch);
+  const unseenInventoryItems = { ...(player?.unseenInventoryItems || {}) };
+  for (const [category, keys] of Object.entries(additions)) {
+    unseenInventoryItems[category] = [
+      ...new Set([...(unseenInventoryItems[category] || []), ...keys]),
+    ];
+  }
+  localStorage.setItem(
+    PLAYER_KEY,
+    JSON.stringify({
+      ...player,
+      ...patch,
+      ...(Object.keys(additions).length ? { unseenInventoryItems } : {}),
+    }),
+  );
   markDirty();
 };
 
@@ -51,7 +113,12 @@ export const flushPlayer = async () => {
   const player = getPlayer();
   const playerRef = ref(db, `users/${meta.uid}/player`);
   flushing = (player ? set(playerRef, player) : remove(playerRef))
-    .then(() => setMeta({ ...getMeta(), dirty: false }))
+    .then(() => {
+      setMeta({ ...getMeta(), dirty: false });
+      // Lets admins find players by name; best effort.
+      if (player?.name)
+        set(ref(db, `directory/${meta.uid}`), { name: String(player.name), level: player.level || 1 }).catch(() => {});
+    })
     .catch(() => markDirty())
     .finally(() => {
       flushing = null;

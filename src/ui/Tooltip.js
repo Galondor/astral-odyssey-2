@@ -72,7 +72,7 @@ function resolve(content) {
 }
 
 /* Wraps a single element, showing a tooltip on hover/focus. Renders nothing extra if content is empty. */
-export default function Tooltip({ content, delay = 150, children }) {
+export default function Tooltip({ content, delay = 150, onView, children }) {
   const [state, setState] = useState(null); // { data, x, y }
   const [pos, setPos] = useState(null);
   const tipRef = useRef(null);
@@ -85,8 +85,9 @@ export default function Tooltip({ content, delay = 150, children }) {
       const data = resolve(content);
       if (data == null || data === "" || data === false) return;
       setState({ data });
+      onView?.();
     }, delay);
-  }, [content, delay]);
+  }, [content, delay, onView]);
 
   const close = useCallback(() => {
     clearTimeout(timer.current);
