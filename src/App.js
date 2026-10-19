@@ -1,11 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import "./App.css";
-import GameForm from "./GameForm";
-import Tooltip from "./Tooltip";
-import { GLOSSARY } from "./glossary";
-import { getPlayer } from "./player";
-import { getEnemy } from "./combat";
-import { DEFAULT_SCREEN, SCREENS } from "./screens";
+import { auth } from "./firebase";
+import AuthScreen from "./ui/AuthScreen";
+import GameForm from "./ui/GameForm";
+import Tooltip from "./ui/Tooltip";
+import { GLOSSARY } from "./ui/glossary";
+import { getPlayer, loadPlayer, unloadPlayer } from "./character/player";
+import { getRep, getRepRank } from "./world/quests";
+import { getEnemy } from "./combat/combat";
+import { DEFAULT_SCREEN, SCREENS } from "./ui/screens";
 import {
   INPUT_MODES,
   getInputMode,
@@ -15,11 +19,42 @@ import {
   processForm,
   processInput,
   scenes,
-} from "./gameLogic";
+} from "./world/gameLogic";
 
 function App() {
-  const [messages, setMessages] = useState(initialMessages);
-  const [sceneId, setSceneId] = useState("start");
+  // undefined = checking session, null = signed out, string = uid with data loaded
+  const [uid, setUid] = useState(undefined);
+
+  useEffect(
+    () =>
+      onAuthStateChanged(auth, async (user) => {
+        if (!user) {
+          setUid(null);
+          return;
+        }
+        try {
+          await loadPlayer(user.uid);
+        } catch (e) {
+          console.error("Failed to load player data", e);
+        }
+        setUid(user.uid);
+      }),
+    []
+  );
+
+  const logout = async () => {
+    await unloadPlayer();
+    await signOut(auth);
+  };
+
+  if (uid === undefined) return <div className='auth-page'><p className='auth-subtitle'>Loading...</p></div>;
+  if (uid === null) return <AuthScreen />;
+  return <Game key={uid} onLogout={logout} />;
+}
+
+function Game({ onLogout }) {
+  const [sceneId, setSceneId] = useState(() => getPlayer() ? "menu" : "start");
+  const [messages, setMessages] = useState(() => initialMessages(sceneId));
   const [input, setInput] = useState("");
   const [viewOverride, setViewOverride] = useState(null);
   const [, setTick] = useState(0);
@@ -70,9 +105,9 @@ function App() {
     <div className='App'>
       <header className='navbar'>
         <span className='nav-title'>Astral Odyssey 2</span>
-        {player && (
-          <div className='nav-info'>
-            <Tooltip content={{ title: player.name, subtitle: `Level ${player.level} ${player.class}` }}>
+        <div className='nav-info'>
+          {player && (<>
+            <Tooltip content={{ title: player.name, subtitle: `Level ${player.level} ${player.class}`, description: `Health: ${player.stats?.health || 0}/${player.stats?.maxHealth || 0}\nStamina: ${player.stats?.stamina || 0}/${player.stats?.maxStamina || 0}\nGear score: ${player.stats?.gearScore || 0}\nReputation: ${getRepRank(getRep(player))} (${getRep(player)})`}}>
               <span className='nav-item'>{player.name}</span>
             </Tooltip>
             <Tooltip content={{
@@ -89,8 +124,9 @@ function App() {
             <Tooltip content={GLOSSARY.astra}>
               <span className='nav-item'>{player.astra} astra</span>
             </Tooltip>
-          </div>
-        )}
+          </>)}
+          <button type='button' className='buttons' onClick={onLogout}>Log out</button>
+        </div>
       </header>
       <div className='App-body'>
         <nav className='sidebar'>

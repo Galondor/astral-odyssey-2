@@ -38,6 +38,18 @@ export const RARITY_COLORS = {
   Legendary: "#ff8000",
 };
 
+// T0 (common gray) up to T7 (red)
+export const TIER_COLORS = [
+  "#b0b0b0",
+  "#1eff00",
+  "#0070dd",
+  "#a335ee",
+  "#ffd479",
+  "#ff8000",
+  "#ff4d1a",
+  "#ff2020",
+];
+
 let itemCounter = 0;
 const newId = () =>
   `item-${Date.now().toString(36)}-${(itemCounter++).toString(36)}`;
@@ -371,6 +383,18 @@ const rollSubStatValue = (key, iLevel) => {
   return randInt(cap);
 };
 
+// T0 is the lowest possible roll and T7 the highest, based on where the roll sits in its range.
+const SUBSTAT_MAX_TIER = 7;
+const rollTier = (key, value, iLevel) => {
+  const cap = SUBSTAT_CAPS[key] * iLevel;
+  const isCrit = key === "criticalDamage";
+  const min = isCrit ? 0.01 : 1;
+  const max = isCrit ? Math.max(0.01, Math.ceil(cap * 100) / 100) : Math.max(1, Math.ceil(cap));
+  if (max <= min) return SUBSTAT_MAX_TIER;
+  const fraction = Math.min(1, Math.max(0, (value - min) / (max - min)));
+  return Math.round(fraction * SUBSTAT_MAX_TIER);
+};
+
 const scaleValue = (key, value, scale) =>
   key === "criticalDamage"
     ? round(value * scale, 2)
@@ -392,11 +416,13 @@ export const generateRandomItem = (slot, minRarity = 0) => {
   const scale = twoHanded ? TWO_HANDED_MULT : 1;
 
   // Base roll 1-5 plus rarity bonus (not scaled by iLevel); two-handed weapons scale that, then condition applies
+  const mainRoll = randInt(5);
   const mainStat = {
     stat: base.stat,
+    tier: Math.round(((mainRoll - 1) / 4) * SUBSTAT_MAX_TIER),
     value: Math.max(
       0,
-      Math.round((randInt(5) + rarity.mainStatBonus) * scale) +
+      Math.round((mainRoll + rarity.mainStatBonus) * scale) +
         condition.mainStatModifier,
     ),
   };
@@ -404,10 +430,13 @@ export const generateRandomItem = (slot, minRarity = 0) => {
   // Unique substats
   const pool = [...SUBSTAT_POOLS[config.pool]];
   const subStats = {};
+  const subTiers = {};
   const count = Math.min(rarity.substats, pool.length);
   for (let i = 0; i < count; i++) {
     const key = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
-    subStats[key] = scaleValue(key, rollSubStatValue(key, iLevel), scale);
+    const roll = rollSubStatValue(key, iLevel);
+    subTiers[key] = rollTier(key, roll, iLevel);
+    subStats[key] = scaleValue(key, roll, scale);
   }
 
   const abilityPool = ABILITIES.filter((a) => a.slots.includes(slot));
@@ -456,6 +485,7 @@ export const generateRandomItem = (slot, minRarity = 0) => {
     description: "",
     mainStat,
     subStats,
+    subTiers,
     ability,
   };
 };
@@ -479,6 +509,8 @@ export const itemTooltip = (item, extra) => {
       label: STAT_LABELS[item.mainStat.stat] || item.mainStat.stat,
       value: formatValue(item.mainStat.stat, item.mainStat.value),
       color: "#ffd479",
+      tier: item.mainStat.tier !== undefined ? `T${item.mainStat.tier}` : undefined,
+      tierColor: TIER_COLORS[item.mainStat.tier],
     });
   }
   for (const [k, v] of Object.entries(item.subStats || {})) {
@@ -486,6 +518,8 @@ export const itemTooltip = (item, extra) => {
       label: STAT_LABELS[k] || k,
       value: formatValue(k, v),
       color: v < 0 ? "#ff6b6b" : "#7bd88f",
+      tier: item.subTiers?.[k] !== undefined ? `T${item.subTiers[k]}` : undefined,
+      tierColor: TIER_COLORS[item.subTiers?.[k]],
     });
   }
   const slotLabel = slot ? slot.label.replace(/ \d$/, "") : item.slot;
@@ -625,7 +659,8 @@ export const getSellPrice = (item) =>
 
 const BUYBACK_LIMIT = 10;
 const GEAR_TRADER_STOCK_SIZE = 20;
-const getGearTraderHour = () => Math.floor(Date.now() / 3600000);
+export const GEAR_TRADER_REFRESH_MS = 30 * 60 * 1000;
+const getGearTraderHour = () => Math.floor(Date.now() / GEAR_TRADER_REFRESH_MS);
 
 export const getGearTraderStock = (player = getPlayer()) => {
   const hour = getGearTraderHour();

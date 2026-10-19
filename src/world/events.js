@@ -52,7 +52,7 @@ function encounter(id, tier, text, extra) {
           label: "Fight",
           keywords: ["fight", "1"],
           onSelect: () => {
-            const enemy = getRandomEnemy(tier, region, playerLevel(player));
+            const enemy = getRandomEnemy(tier, region, playerLevel(player), player.stats?.gearScore || 0);
             if (!enemy) return { reply: "There are no enemies in this region.", next: "menu" };
             startCombat(enemy);
             return { next: "combat" };

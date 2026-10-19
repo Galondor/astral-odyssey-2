@@ -1,4 +1,4 @@
-import { Player, getPlayer, setPlayer } from "../character/player";
+import { Player, clearPlayer, getPlayer, setPlayer } from "../character/player";
 import { runTravelEvent } from "./events";
 import {
   attackRound,
@@ -8,6 +8,8 @@ import {
   getPlayerStatuses,
   takeOpeningReplies,
   consumeItemRound,
+  passRound,
+  isPlayerStunned,
 } from "../combat/combat";
 import { createStarterInventory, getGearTraderStock } from "../items/items";
 import { CONSUMABLES, addConsumable, consumableTooltip, getConsumables, getKeyItemEffect } from "../items/consumables";
@@ -15,6 +17,14 @@ import { rollRegionLimit } from "./events";
 import { SKILLS, getEquippedSkills, getSkillLevel, skillTooltip } from "../character/skills";
 import { recalculateStats } from "../character/stats";
 import { getClassForStats } from "../character/classes";
+import { bankTransaction, getBank } from "./bank";
+import { getRep, getRepRank } from "./quests";
+import {
+  blackjackHit,
+  blackjackStand,
+  describeHand,
+  startBlackjack,
+} from "./blackjack";
 
 export const INPUT_MODES = ["buttons", "text", "both", "form"];
 export const INPUT_MATCHING = ["strict", "open"];
@@ -196,6 +206,91 @@ export const scenes = {
       {
         label: "Bank",
         keywords: ["bank", "6"],
+        next: "bank",
+      },
+      {
+        label: "Tavern",
+        keywords: ["tavern", "7"],
+        next: "tavern",
+      },
+    ],
+  },
+  tavern: {
+    input: INPUT_MODES[0],
+    clearLog: true,
+    text: () => {
+      const rep = getRep();
+      return `The tavern is loud and warm. Your reputation in town: ${getRepRank(rep)} (${rep}).`;
+    },
+    options: [
+      { label: "Leave", keywords: ["leave", "1"], next: "town" },
+      { label: "Quest Board", keywords: ["quests", "quest board", "2"], next: "questBoard" },
+      { label: "Blackjack", keywords: ["blackjack", "3"], next: "blackjack" },
+    ],
+  },
+  questBoard: {
+    screen: "questBoard",
+    input: INPUT_MODES[0],
+    clearLog: true,
+    text: "The quest board is crowded with notices. Accept work, or hand in what you have finished.",
+    options: [{ label: "Leave Quest Board", keywords: ["leave", "1"], next: "tavern" }],
+  },
+  blackjack: {
+    input: INPUT_MODES[2],
+    match: INPUT_MATCHING[0],
+    clearLog: true,
+    text: () =>
+      `A dealer waves you to the blackjack table. You have ${getPlayer()?.astra || 0} {{astra|astra}}.` +
+      `\nBlackjack pays 3:2 and the dealer stands on 17.` +
+      `\nType "bet <amount>" or "bet all" (shorthand: "b 50", "b50", "b a").`,
+    options: [
+      { label: "Leave Table", keywords: ["leave"], next: "tavern" },
+      {
+        label: "Bet",
+        keywords: ["bet", "b"],
+        tooltip: { title: "Bet", description: 'Type "bet <amount>" or "bet all".' },
+        onSelect: ({ input }) => {
+          const result = startBlackjack(input);
+          if (result.error) return { reply: result.error };
+          return { reply: result.reply, next: result.over ? "blackjack" : "blackjackHand", keepLog: true };
+        },
+      },
+    ],
+  },
+  blackjackHand: {
+    input: INPUT_MODES[0],
+    text: () => describeHand(),
+    get options() {
+      const act = (play) => () => {
+        const result = play();
+        return { reply: result.reply, next: result.over ? "blackjack" : "blackjackHand", keepLog: true };
+      };
+      return [
+        { label: "Hit", keywords: ["hit"], onSelect: act(blackjackHit) },
+        { label: "Stand", keywords: ["stand"], onSelect: act(blackjackStand) },
+      ];
+    },
+  },
+  bank: {
+    input: INPUT_MODES[2],
+    match: INPUT_MATCHING[0],
+    clearLog: true,
+    text: () =>
+      `Welcome to the Bank. Your account holds ${getBank().balance} {{astra|astra}}, earning 2% interest every hour.` +
+      `\nType "deposit <amount>" or "withdraw <amount>" ("all" works too). Shorthand: "d 100", "d100", "w a".`,
+    options: [
+      { label: "Leave", keywords: ["leave"], next: "town" },
+      {
+        label: "Deposit",
+        keywords: ["deposit", "d"],
+        tooltip: { title: "Deposit", description: 'Type "deposit <amount>" or "deposit all".' },
+        onSelect: ({ input }) => ({ reply: bankTransaction("deposit", input) }),
+      },
+      {
+        label: "Withdraw",
+        keywords: ["withdraw", "w"],
+        tooltip: { title: "Withdraw", description: 'Type "withdraw <amount>" or "withdraw all".' },
+        onSelect: ({ input }) => ({ reply: bankTransaction("withdraw", input) }),
       },
     ],
   },
@@ -382,7 +477,21 @@ export const scenes = {
           return { next: "combatSkills", keepLog: true };
         },
       },
-    ],
+      {
+        label: "Pass",
+        keywords: ["pass", "6"],
+        tooltip: {
+          title: "Pass",
+          description: "Skip your turn. While stunned, this is your only action.",
+          footer: "Takes your turn",
+        },
+        onSelect: () => {
+          if (!getEnemy()) return { next: "menu" };
+          const { replies, over } = passRound();
+          return over ? { reply: replies, next: "menu" } : { reply: replies };
+        },
+      },
+    ].map((o) => (o.label === "Pass" ? o : { ...o, when: () => !isPlayerStunned() })),
   },
   combatSkills: {
     screen: "combat",
@@ -500,7 +609,7 @@ function navigate(sceneId, result, fallbackNext) {
 }
 
 // Runs a chosen option and returns { sceneId, replies: string[] }.
-export function selectOption(sceneId, option) {
+export function selectOption(sceneId, option, input = "") {
   const scene = scenes[sceneId];
   const result =
     (option.onSelect &&
@@ -509,6 +618,7 @@ export function selectOption(sceneId, option) {
         setPlayer,
         option,
         scene,
+        input,
       })) ||
     {};
   return navigate(sceneId, result, option.next);
@@ -615,7 +725,8 @@ export function processButton(sceneId, label) {
 // Reads typed input and decides the next scene. Returns { sceneId, replies }.
 export function processInput(sceneId, input) {
   const scene = scenes[sceneId];
-  const text = input.trim().toLowerCase();
+  // "d100" is read as "d 100" so shorthand works without a space
+  const text = input.trim().toLowerCase().replace(/([a-z])(\d)/g, "$1 $2");
   if (scene.match === INPUT_MATCHING[0]) {
     const match = getVisibleOptions(scene).find((o) =>
       (o.keywords || []).some(
@@ -632,7 +743,7 @@ export function processInput(sceneId, input) {
         ],
       };
     }
-    return selectOption(sceneId, match);
+    return selectOption(sceneId, match, text);
   } else {
     // Make sure the input is valid
     switch (scene.filter) {
@@ -660,8 +771,8 @@ export function processInput(sceneId, input) {
   }
   if (sceneId === "start") {
     // Replace any existing player data with the new name
-    localStorage.removeItem("Player");
+    clearPlayer();
     setPlayer({ name: input.trim() });
   }
-  return selectOption(sceneId, scene.options[0]);
+  return selectOption(sceneId, scene.options[0], input.trim());
 }

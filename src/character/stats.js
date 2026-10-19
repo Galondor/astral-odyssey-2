@@ -202,7 +202,7 @@ export const STAT_INFO = {
   criticalDamageBonus: { title: "Critical damage", description: "Damage multiplier applied on a critical hit.", formula: "Base + equipment critical damage." },
   maxHealth: { title: "Maximum health", description: "How much damage you can take before collapsing.", formula: "Base + Vitality × 5." },
   maxStamina: { title: "Maximum stamina", description: "Your energy reserve for actions.", formula: "Base + 1 per level." },
-  gearScore: { title: "Gear score", description: "The overall power of all equipped gear.", formula: "Per item: stats × weights × rarity × 1.5 if two-handed, +25 with an ability." },
+  gearScore: { title: "Gear score", description: "The overall power of all equipped gear.", formula: "Per item: stats × weights × 1.5 if two-handed, +25 with an ability." },
   maxPower: { title: "Maximum power", description: "Your reserve for magical abilities.", formula: "Base + 1 per 5 Intelligence." },
 };
 

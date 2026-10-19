@@ -7,6 +7,7 @@ import {
   buyGearTraderItem,
   canEquip,
   equipItem,
+  GEAR_TRADER_REFRESH_MS,
   getGearTraderStock,
   getSellPrice,
   itemComparisonTooltip,
@@ -52,9 +53,26 @@ import {
   skillTooltip,
   unequipSkill,
 } from "../character/skills";
-import { STAT_INFO, getStatBreakdown } from "../character/stats";
-import { getUnspentPoints, spendStatPoint } from "../character/progression";
+import { STAT_INFO, getBaseStatPoints, getStatBreakdown } from "../character/stats";
+import { getRespecCost, getUnspentPoints, respecSkills, respecStatPoints, spendStatPoint } from "../character/progression";
 import RichText from "./RichText";
+import {
+  MAX_ACTIVE_QUESTS,
+  abandonQuest,
+  acceptQuest,
+  getActiveQuests,
+  getObjective,
+  getQuestBoard,
+  getQuestStatus,
+  getQuestTier,
+  getQuests,
+  getReadyQuestCount,
+  getRep,
+  getRepRank,
+  getRequirementProblem,
+  rewardText,
+  turnInQuest,
+} from "../world/quests";
 import Tooltip from "./Tooltip";
 
 /*
@@ -207,7 +225,7 @@ const CombatScreen = ({ messages, data, player }) => {
           )}
         </div>
       </div>
-      <Log messages={messages} limit={6} />
+      <Log messages={messages} limit={10} />
     </div>
   );
 };
@@ -325,12 +343,12 @@ const GearTraderScreen = ({ data, onChange }) => {
       onChangeRef.current?.();
     };
     const now = Date.now();
-    const untilNextHour = 3600000 - (now % 3600000);
+    const untilNextRefresh = GEAR_TRADER_REFRESH_MS - (now % GEAR_TRADER_REFRESH_MS);
     let interval;
     const timeout = window.setTimeout(() => {
       refreshHourlyStock();
-      interval = window.setInterval(refreshHourlyStock, 3600000);
-    }, untilNextHour);
+      interval = window.setInterval(refreshHourlyStock, GEAR_TRADER_REFRESH_MS);
+    }, untilNextRefresh);
     return () => {
       window.clearTimeout(timeout);
       window.clearInterval(interval);
@@ -343,11 +361,18 @@ const GearTraderScreen = ({ data, onChange }) => {
   );
   const buyback = player.gearTraderBuyback || [];
   const stock = getGearTraderStock(player);
-  const gearButton = (item, label, key, onClick, disabled = false) => (
+  const gearButton = (
+    item,
+    label,
+    key,
+    onClick,
+    disabled = false,
+    isEquipped = false,
+  ) => (
     <Tooltip key={key} content={itemComparisonTooltip(item, label)}>
       <button
         type='button'
-        className='inventory-item'
+        className={`inventory-item ${isEquipped ? "equipped-gear" : ""}`}
         disabled={disabled}
         onClick={onClick}
       >
@@ -411,6 +436,8 @@ const GearTraderScreen = ({ data, onChange }) => {
                     setNote("That gear can no longer be traded.");
                   }
                 },
+                false,
+                true,
               ),
             )}
           </div>
@@ -439,10 +466,10 @@ const GearTraderScreen = ({ data, onChange }) => {
       {tab === "buy" && (
         <div className='gear-trader-list'>
           <div className='recipe-note'>
-            New randomly generated gear arrives every hour.
+            New stock arrives every 30 minutes.
           </div>
           {!stock.length && (
-            <div className='equip-empty'>This hour's stock has sold out.</div>
+            <div className='equip-empty'>This stock has sold out.</div>
           )}
           <div className='inventory-list'>
             {stock.map((item, index) =>
@@ -787,9 +814,34 @@ const PROGRESSION_TABS = [
   { key: "classes", label: "Classes" },
 ];
 
-const StatsTab = ({ player, inCombat, onSpend }) => {
+const RespecButton = ({ player, inCombat, refundable, label, onClick }) => {
+  const cost = getRespecCost(player);
+  return (
+    <div className='respec'>
+      <button
+        type='button'
+        className='buttons class-toggle'
+        disabled={inCombat || refundable < 1 || (player.astra || 0) < cost}
+        onClick={onClick}
+      >
+        {label} ({cost} astra)
+      </button>
+      <span className='equip-empty'>
+        {refundable < 1
+          ? ""
+          : (player.astra || 0) < cost
+            ? ``
+            : ` Refunds ${refundable} point${refundable === 1 ? "" : "s"}.`}
+      </span>
+    </div>
+  );
+};
+
+const StatsTab = ({ player, inCombat, onSpend, onRespec }) => {
   const statPoints = player.statPoints || 0;
   const breakdown = getStatBreakdown(player);
+  const base = getBaseStatPoints(player);
+  const refundable = CORE_STAT_ROWS.reduce((sum, [k]) => sum + Math.max(0, (base[k] || 0) - 1), 0);
   return (
     <>
       <h3>
@@ -798,6 +850,7 @@ const StatsTab = ({ player, inCombat, onSpend }) => {
           {statPoints}
         </span>
       </h3>
+      <RespecButton player={player} inCombat={inCombat} refundable={refundable} label='Reset stat points' onClick={onRespec} />
       <div className='stat-grid'>
         {CORE_STAT_ROWS.map(([key, label]) => (
           <Tooltip key={key} content={statTooltip(breakdown, [key])}>
@@ -841,6 +894,16 @@ const SkillsTab = ({ player, inCombat, onChange }) => {
         You earn a skill point every other level. Equipped skills (
         {equipped.length}/{MAX_EQUIPPED}) can be used in combat for power.
       </div>
+      <RespecButton
+        player={player}
+        inCombat={inCombat}
+        refundable={Object.values(player.skills || {}).reduce((sum, n) => sum + (n || 0), 0)}
+        label='Reset skills'
+        onClick={() => {
+          respecSkills();
+          onChange();
+        }}
+      />
       <div className='skill-list'>
         {Object.entries(SKILLS).map(([key, s]) => {
           const level = getSkillLevel(player, key);
@@ -914,7 +977,6 @@ const ClassesTab = ({ player }) => (
             <strong>{c.bonus.name}:</strong> {c.bonus.description}
           </span>
         )}
-        <span className='class-focus'>Focus: {c.focus.join(", ")}</span>
         <span className='class-req'>{c.requirement}</span>
       </div>
     ))}
@@ -967,12 +1029,172 @@ const ProgressionScreen = ({ player: initial, inCombat, onChange }) => {
         ))}
       </div>
       {tab === "points" && (
-        <StatsTab player={player} inCombat={inCombat} onSpend={spend} />
+        <StatsTab player={player} inCombat={inCombat} onSpend={spend} onRespec={() => { respecStatPoints(); refresh(); }} />
       )}
       {tab === "skills" && (
         <SkillsTab player={player} inCombat={inCombat} onChange={refresh} />
       )}
       {tab === "classes" && <ClassesTab player={player} />}
+    </div>
+  );
+};
+
+const questTooltip = (quest, player) => {
+  const tier = getQuestTier(quest.tier);
+  const problem = getRequirementProblem(quest, player);
+  return {
+    title: quest.title,
+    titleColor: tier.color,
+    subtitle: `${quest.tier}-Rank • Level ${quest.level}`,
+    description: quest.description,
+    stats: [
+      { label: "Reward", value: rewardText(quest.reward), color: "#ffd479" },
+      ...(problem ? [{ label: "Locked", value: problem, color: "#ff6b6b" }] : []),
+    ],
+  };
+};
+
+const QuestBoardScreen = ({ onChange }) => {
+  const [note, setNote] = useState("");
+  const player = getPlayer() || {};
+  const board = getQuestBoard(player);
+  const active = getActiveQuests(player);
+  const rep = getRep(player);
+  const refresh = () => onChange?.();
+  const accept = (quest) => {
+    const result = acceptQuest(quest.id);
+    setNote(result.ok ? `Accepted: ${quest.title}.` : result.message || "That quest is no longer available.");
+    refresh();
+  };
+  const turnIn = (quest) => {
+    const result = turnInQuest(quest.id);
+    setNote(result.ok ? result.messages.join(" ") : "That quest isn't finished yet.");
+    refresh();
+  };
+  return (
+    <div className='workshop quest-board'>
+      <h3>
+        Quest Board{" "}
+        <span className='recipe-astra'>
+          Reputation: {getRepRank(rep)} ({rep}) • Active {active.length}/{MAX_ACTIVE_QUESTS}
+        </span>
+      </h3>
+      {active.length > 0 && (
+        <>
+          <div className='recipe-kind'>Your quests</div>
+          <div className='recipe-grid'>
+            {active.map((q) => {
+              const obj = getObjective(q, player);
+              return (
+                <Tooltip key={q.id} content={questTooltip(q, player)}>
+                  <button type='button' className={`recipe ${obj.done ? "" : "unaffordable"}`} disabled={!obj.done} onClick={() => turnIn(q)}>
+                    <strong style={{ color: getQuestTier(q.tier).color }}>[{q.tier}] {q.title}</strong>
+                    <span>{q.description}</span>
+                    <span className='recipe-cost'>
+                      {obj.progress}/{obj.count} • {obj.done ? "Turn in" : "In progress"}
+                    </span>
+                  </button>
+                </Tooltip>
+              );
+            })}
+          </div>
+        </>
+      )}
+      <div className='recipe-kind'>Available (new notices every 10 minutes)</div>
+      {!board.length && <div className='equip-empty'>No notices left right now.</div>}
+      <div className='recipe-grid'>
+        {board.map((q) => {
+          const problem = getRequirementProblem(q, player);
+          return (
+            <Tooltip key={q.id} content={questTooltip(q, player)}>
+              <button type='button' className={`recipe ${problem ? "unaffordable" : ""}`} disabled={!!problem} onClick={() => accept(q)}>
+                <strong style={{ color: getQuestTier(q.tier).color }}>[{q.tier}] {q.title}</strong>
+                <span>{q.description}</span>
+                <span className='recipe-cost'>{problem || `Reward: ${rewardText(q.reward)}`}</span>
+              </button>
+            </Tooltip>
+          );
+        })}
+      </div>
+      <div className='recipe-note'>
+        <RichText text={note || "Hover over a notice for details, then click it to accept."} />
+      </div>
+    </div>
+  );
+};
+
+const QuestsScreen = ({ onChange }) => {
+  const [, setTick] = useState(0);
+  const [tab, setTab] = useState("active");
+  const player = getPlayer();
+  if (!player) return <div className='panel'>No character yet.</div>;
+  const rep = getRep(player);
+  const quests = getQuests(player);
+  const isActive = (q) => q.status === "active";
+  const sorted = (tab === "active"
+    ? quests.filter(isActive)
+    : quests.filter((q) => !isActive(q)).sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0)));
+  const tabs = [
+    ["active", "Active", quests.filter(isActive).length],
+    ["archived", "Archived", quests.filter((q) => !isActive(q)).length],
+  ];
+  const abandon = (quest) => {
+    abandonQuest(quest.id);
+    setTick((t) => t + 1);
+    onChange?.();
+  };
+  return (
+    <div className='panel'>
+      <h2>Quests</h2>
+      <h3>
+        Reputation: {getRepRank(rep)} ({rep})
+      </h3>
+      <div className='inventory-tabs' role='tablist'>
+        {tabs.map(([key, label, count]) => (
+          <button
+            key={key}
+            type='button'
+            role='tab'
+            aria-selected={tab === key}
+            className={`inventory-tab ${tab === key ? "active" : ""}`}
+            onClick={() => setTab(key)}
+          >
+            {label} ({count})
+          </button>
+        ))}
+      </div>
+      {!sorted.length && (
+        <div className='equip-empty'>
+          {tab === "active"
+            ? "No active quests. Visit the tavern in town."
+            : "No completed or abandoned quests yet."}
+        </div>
+      )}
+      <div className='quest-list'>
+        {sorted.map((q) => {
+          const obj = getObjective(q, player);
+          const status = getQuestStatus(q, player);
+          return (
+            <Tooltip key={q.id} content={questTooltip(q, player)}>
+              <div className={`quest-entry ${q.status}`}>
+                <div>
+                  <strong style={{ color: getQuestTier(q.tier).color }}>[{q.tier}] {q.title}</strong>
+                  <span className='quest-status'> • {status}</span>
+                </div>
+                <div>{q.description}</div>
+                <div className='recipe-kind'>
+                  {q.status === "active" ? `Progress ${obj.progress}/${obj.count} • ` : ""}Reward: {rewardText(q.reward)}
+                </div>
+                {q.status === "active" && (
+                  <button type='button' className='buttons input-button' onClick={() => abandon(q)}>
+                    Abandon
+                  </button>
+                )}
+              </div>
+            </Tooltip>
+          );
+        })}
+      </div>
     </div>
   );
 };
@@ -986,6 +1208,12 @@ export const SCREENS = {
     component: ProgressionScreen,
     badge: (p) => getUnspentPoints(p),
   },
+  quests: {
+    label: "Quests",
+    link: true,
+    component: QuestsScreen,
+    badge: (p) => getReadyQuestCount(p),
+  },
   combat: { label: "Combat", component: CombatScreen, hideUnlessActive: true },
   crafting: {
     label: "Workshop",
@@ -995,6 +1223,11 @@ export const SCREENS = {
   gearTrader: {
     label: "Gear Trader",
     component: GearTraderScreen,
+    hideUnlessActive: true,
+  },
+  questBoard: {
+    label: "Quest Board",
+    component: QuestBoardScreen,
     hideUnlessActive: true,
   },
 };

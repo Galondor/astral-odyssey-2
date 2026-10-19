@@ -1,0 +1,22 @@
+{
+  "hosting": {
+    "public": "build",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ]
+  },
+  "database": {
+    "rules": "database.rules.json"
+  },
+  "auth": {
+    "providers": {
+      "emailPassword": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "astral-odyssey-two",
+        "supportEmail": "support@astral-odyssey-two.firebaseapp.com"
+      }
+    }
+  }
+}

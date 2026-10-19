@@ -34,7 +34,10 @@ export function TooltipContent({ data }) {
         <div className='tooltip-stats'>
           {stats.map((s, i) => (
             <div key={i} className='tooltip-stat'>
-              <span>{s.label}</span>
+              <span>
+                {s.tier && <span className='tooltip-stat-tier' style={s.tierColor ? { color: s.tierColor } : undefined}>{s.tier} </span>}
+                {s.label}
+              </span>
               <span style={s.color ? { color: s.color } : undefined}>{s.value}</span>
             </div>
           ))}

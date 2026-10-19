@@ -1,12 +1,25 @@
 import { getPlayer, setPlayer } from "../character/player";
 import { generateRandomSlotItem } from "../items/items";
 import { applyConsumable, getKeyItemEffect } from "../items/consumables";
-import { SKILLS, getSkillLevel, skillCost, skillMultiplier } from "../character/skills";
+import {
+  SKILLS,
+  getSkillLevel,
+  skillCost,
+  skillMultiplier,
+} from "../character/skills";
 import { gainExp } from "../character/stats";
 import { getAbilityTotals } from "./abilities";
-import { STATUSES, addStatus, hasStatus, healMult, incomingMult, outgoingMult } from "./statuses";
+import {
+  STATUSES,
+  addStatus,
+  hasStatus,
+  healMult,
+  incomingMult,
+  outgoingMult,
+} from "./statuses";
 import { rollMaterialDrops } from "./enemies";
 import { MATERIALS, addToMaterials } from "../items/materials";
+import { recordQuestKill } from "../world/quests";
 
 const BASE_DROP_CHANCE = 0.25;
 
@@ -88,7 +101,9 @@ export const startCombat = (template) => {
   };
 
   // The faster combatant acts first; ties go to the player.
-  const speed = Math.round((p.stats?.speed || 0) * (1 + (fight.ab.speedMult || 0)));
+  const speed = Math.round(
+    (p.stats?.speed || 0) * (1 + (fight.ab.speedMult || 0)),
+  );
   if (enemy.speed > speed) {
     openingReplies.push(`The ${enemy.name} is faster and acts first!`);
     const s = { ...p.stats };
@@ -114,7 +129,9 @@ function inflictOnEnemy(id, opts, replies) {
       return false;
     }
   }
-  const power = (opts?.power ?? def.defaultPower) * (def.kind === "dot" ? enemy.dotResist ?? 1 : 1);
+  const power =
+    (opts?.power ?? def.defaultPower) *
+    (def.kind === "dot" ? (enemy.dotResist ?? 1) : 1);
   addStatus(enemy.statuses, id, { ...opts, power });
   replies.push(`The ${enemy.name} is now ${lower(id)}.`);
   return true;
@@ -132,7 +149,10 @@ function inflictOnPlayer(id, opts, replies) {
 }
 
 function healEnemy(amount, replies) {
-  const healed = Math.min(Math.floor(amount * healMult(enemy.statuses)), enemy.maxHp - enemy.hp);
+  const healed = Math.min(
+    Math.floor(amount * healMult(enemy.statuses)),
+    enemy.maxHp - enemy.hp,
+  );
   if (healed <= 0) return 0;
   enemy.hp += healed;
   replies.push(`The ${enemy.name} recovers ${healed} health.`);
@@ -140,10 +160,15 @@ function healEnemy(amount, replies) {
 }
 
 function healPlayer(s, amount, replies, source) {
-  const healed = Math.min(Math.floor(amount * healMult(playerStatuses)), s.maxHealth - s.health);
+  const healed = Math.min(
+    Math.floor(amount * healMult(playerStatuses)),
+    s.maxHealth - s.health,
+  );
   if (healed <= 0) return 0;
   s.health += healed;
-  replies.push(`${source ? `${source}: you` : "You"} recover [green]${healed}[/green] health.`);
+  replies.push(
+    `${source ? `${source}: you` : "You"} recover [green]${healed}[/green] health.`,
+  );
   return healed;
 }
 
@@ -154,13 +179,17 @@ function damagePlayer(s, amount, replies) {
   if (wind && !fight.secondWindUsed && s.health <= s.maxHealth * 0.1) {
     fight.secondWindUsed = true;
     s.health = Math.min(s.maxHealth, s.health + Math.round(s.maxHealth * wind));
-    replies.push(`[green]Second Wind![/green] You recover to ${s.health} health.`);
+    replies.push(
+      `[green]Second Wind![/green] You recover to ${s.health} health.`,
+    );
   }
 }
 
 function hurtEnemy(amount, replies, source, calculation) {
   enemy.hp = Math.max(0, enemy.hp - amount);
-  replies.push(`${source} hits the ${enemy.name} for ${damageNumber(amount, calculation || [`Damage dealt: ${amount}.`])} damage.`);
+  replies.push(
+    `${source} hits the ${enemy.name} for ${damageNumber(amount, calculation || [`Damage dealt: ${amount}.`])} damage.`,
+  );
 }
 
 // Ticks a status list: damage/healing over time through `apply(amount, label)` (negative = healing), then durations drop.
@@ -176,32 +205,46 @@ const tickStatuses = (list, maxHp, apply) => {
         `Raw damage: ${maxHp} × ${st.power} × ${st.stacks} = ${raw}.`,
         `Round to nearest whole number, minimum 1: ${Math.max(1, Math.round(raw))}.`,
       ]);
-    }
-    else if (kind === "regen") apply(-Math.max(1, Math.round(maxHp * st.power)));
+    } else if (kind === "regen")
+      apply(-Math.max(1, Math.round(maxHp * st.power)));
   }
   return list
-    .map((st) => (STATUSES[st.id].kind === "skip" ? st : { ...st, turns: st.turns - 1 }))
+    .map((st) =>
+      STATUSES[st.id].kind === "skip" ? st : { ...st, turns: st.turns - 1 },
+    )
     .filter((st) => st.turns > 0);
 };
 
 // End of round: damage/healing over time for both sides, then durations tick down.
 // Returns "victory", "collapse" or null.
 function endOfRound(s, replies) {
-  enemy.statuses = tickStatuses(enemy.statuses, enemy.maxHp, (amount, label, calculation) => {
-    if (amount < 0) {
-      healEnemy(-amount, replies);
-      return;
-    }
-    enemy.hp = Math.max(0, enemy.hp - amount);
-    replies.push(`The ${enemy.name} takes ${damageNumber(amount, calculation)} ${label} damage.`);
-  });
+  enemy.statuses = tickStatuses(
+    enemy.statuses,
+    enemy.maxHp,
+    (amount, label, calculation) => {
+      if (amount < 0) {
+        healEnemy(-amount, replies);
+        return;
+      }
+      enemy.hp = Math.max(0, enemy.hp - amount);
+      replies.push(
+        `The ${enemy.name} takes ${damageNumber(amount, calculation)} ${label} damage.`,
+      );
+    },
+  );
   if (enemy.hp <= 0) return "victory";
 
-  playerStatuses = tickStatuses(playerStatuses, s.maxHealth, (amount, label, calculation) => {
-    if (amount < 0) return;
-    damagePlayer(s, amount, replies);
-    replies.push(`You take ${damageNumber(amount, calculation)} ${label} damage.`);
-  });
+  playerStatuses = tickStatuses(
+    playerStatuses,
+    s.maxHealth,
+    (amount, label, calculation) => {
+      if (amount < 0) return;
+      damagePlayer(s, amount, replies);
+      replies.push(
+        `You take ${damageNumber(amount, calculation)} ${label} damage.`,
+      );
+    },
+  );
 
   if (fight.cls === "Spellcaster" && s.power < s.maxPower) s.power += 1;
   return s.health <= 0 ? "collapse" : null;
@@ -211,13 +254,21 @@ function endOfRound(s, replies) {
 
 const chooseEnemyAction = (wasDefending) => {
   const choices = [{ type: "attack", weight: 6 }];
-  if (!wasDefending) choices.push({ type: "defend", weight: enemy.hp / enemy.maxHp < 0.4 ? 3 : 1.5 });
+  if (!wasDefending)
+    choices.push({
+      type: "defend",
+      weight: enemy.hp / enemy.maxHp < 0.4 ? 3 : 1.5,
+    });
   for (const ability of enemy.abilities || []) {
     if ((enemy.cooldowns[ability.name] || 0) > 0) continue;
     if (ability.below && enemy.hp / enemy.maxHp >= ability.below) continue;
     if (ability.self && hasStatus(enemy.statuses, ability.self.id)) continue;
     if (ability.heal && enemy.hp >= enemy.maxHp) continue;
-    choices.push({ type: "skill", skill: ability, weight: ability.weight ?? 2.5 });
+    choices.push({
+      type: "skill",
+      skill: ability,
+      weight: ability.weight ?? 2.5,
+    });
   }
   let r = Math.random() * choices.reduce((sum, c) => sum + c.weight, 0);
   for (const c of choices) {
@@ -231,7 +282,11 @@ const chooseEnemyAction = (wasDefending) => {
 function enemyStrike(s, replies, ability) {
   const used = ability ? `uses ${ability.name}` : null;
   if (Math.random() < (s.evasion || 0)) {
-    replies.push(used ? `The ${enemy.name} ${used}, but you evade it!` : `You evade the ${enemy.name}'s attack!`);
+    replies.push(
+      used
+        ? `The ${enemy.name} ${used}, but you evade it!`
+        : `You evade the ${enemy.name}'s attack!`,
+    );
     return 0;
   }
   if (fight.cls === "Duelist" && Math.random() < PARRY_CHANCE) {
@@ -249,9 +304,14 @@ function enemyStrike(s, replies, ability) {
   }
   const baseRoll = roll(...enemy.attack);
   const abilityMultiplier = ability?.power ?? 1;
-  const calculation = [`Enemy attack roll: ${baseRoll} (range ${enemy.attack[0]}-${enemy.attack[1]}).`];
+  const calculation = [
+    `Enemy attack roll: ${baseRoll} (range ${enemy.attack[0]}-${enemy.attack[1]}).`,
+  ];
   let dmg = baseRoll * abilityMultiplier;
-  if (abilityMultiplier !== 1) calculation.push(`Ability power: ${baseRoll} × ${abilityMultiplier} = ${dmg}.`);
+  if (abilityMultiplier !== 1)
+    calculation.push(
+      `Ability power: ${baseRoll} × ${abilityMultiplier} = ${dmg}.`,
+    );
   let critical = false;
   if (Math.random() < (enemy.critical || 0)) {
     dmg *= 2;
@@ -261,24 +321,35 @@ function enemyStrike(s, replies, ability) {
   if (critical) calculation.push(`Critical hit: ×2 = ${dmg}.`);
   const enemyOutgoing = outgoingMult(enemy.statuses);
   dmg *= enemyOutgoing;
-  if (enemyOutgoing !== 1) calculation.push(`Enemy status effects: ×${enemyOutgoing} = ${dmg}.`);
+  if (enemyOutgoing !== 1)
+    calculation.push(`Enemy status effects: ×${enemyOutgoing} = ${dmg}.`);
   const defenseApplied = s.defense * (1 - (ability?.ignoreDefense || 0));
   const beforeDefense = dmg;
   dmg = Math.max(1, Math.round(dmg - defenseApplied));
-  calculation.push(`Player defense: ${beforeDefense} - ${s.defense} × (1 - ${ability?.ignoreDefense || 0}) = ${dmg} after rounding (minimum 1).`);
+  calculation.push(
+    `Player defense: ${beforeDefense} - ${s.defense} × (1 - ${ability?.ignoreDefense || 0}) = ${dmg} after rounding (minimum 1).`,
+  );
   const blocked = playerDefending;
   if (blocked) {
-    const blockMultiplier = fight.cls === "Swordsman" ? BULWARK_DAMAGE_TAKEN : 0.5;
+    const blockMultiplier =
+      fight.cls === "Swordsman" ? BULWARK_DAMAGE_TAKEN : 0.5;
     const beforeBlock = dmg;
     dmg = Math.max(1, Math.floor(dmg * blockMultiplier));
-    calculation.push(`Defending: floor(${beforeBlock} × ${blockMultiplier}) = ${dmg} (minimum 1).`);
+    calculation.push(
+      `Defending: floor(${beforeBlock} × ${blockMultiplier}) = ${dmg} (minimum 1).`,
+    );
   }
   const playerIncoming = incomingMult(playerStatuses);
   dmg *= playerIncoming;
-  if (playerIncoming !== 1) calculation.push(`Player status effects: ×${playerIncoming} = ${dmg}.`);
-  const reduction = Math.min(DAMAGE_REDUCTION_CAP, fight.ab.damageReduction || 0);
+  if (playerIncoming !== 1)
+    calculation.push(`Player status effects: ×${playerIncoming} = ${dmg}.`);
+  const reduction = Math.min(
+    DAMAGE_REDUCTION_CAP,
+    fight.ab.damageReduction || 0,
+  );
   dmg *= 1 - reduction;
-  if (reduction) calculation.push(`Damage reduction: ×${1 - reduction} = ${dmg}.`);
+  if (reduction)
+    calculation.push(`Damage reduction: ×${1 - reduction} = ${dmg}.`);
   const beforeRounding = dmg;
   dmg = Math.max(1, Math.round(dmg));
   calculation.push(`Final rounding: ${beforeRounding} → ${dmg} (minimum 1).`);
@@ -291,7 +362,10 @@ function enemyStrike(s, replies, ability) {
   );
   if (fight.ab.reflect) {
     const reflected = Math.max(1, Math.round(dmg * fight.ab.reflect));
-    hurtEnemy(reflected, replies, "Your thorns", [`Damage taken: ${dmg}.`, `Thorns reflection: round(${dmg} × ${fight.ab.reflect}) = ${reflected} (minimum 1).`]);
+    hurtEnemy(reflected, replies, "Your thorns", [
+      `Damage taken: ${dmg}.`,
+      `Thorns reflection: round(${dmg} × ${fight.ab.reflect}) = ${reflected} (minimum 1).`,
+    ]);
   }
   if (blocked && fight.cls === "Swordsman" && enemy.hp > 0) {
     const counterRoll = roll(s.attackMin, s.attackMax);
@@ -311,15 +385,19 @@ function enemyStrike(s, replies, ability) {
 // Returns "victory" (the enemy died to a counter), "collapse" (the player fell) or null.
 function enemyTurn(s, replies) {
   for (const [i, phase] of (enemy.phases || []).entries()) {
-    if (enemy.phasesDone.includes(i) || enemy.hp / enemy.maxHp >= phase.below) continue;
+    if (enemy.phasesDone.includes(i) || enemy.hp / enemy.maxHp >= phase.below)
+      continue;
     enemy.phasesDone.push(i);
     replies.push(`[purple]${phase.text}[/purple]`);
     if (phase.self) addStatus(enemy.statuses, phase.self.id, phase.self);
     if (phase.heal) healEnemy(Math.round(enemy.maxHp * phase.heal), replies);
   }
-  for (const k of Object.keys(enemy.cooldowns)) enemy.cooldowns[k] = Math.max(0, enemy.cooldowns[k] - 1);
+  for (const k of Object.keys(enemy.cooldowns))
+    enemy.cooldowns[k] = Math.max(0, enemy.cooldowns[k] - 1);
 
-  const stun = enemy.statuses.findIndex((st) => STATUSES[st.id].kind === "skip");
+  const stun = enemy.statuses.findIndex(
+    (st) => STATUSES[st.id].kind === "skip",
+  );
   if (stun >= 0) {
     enemy.statuses.splice(stun, 1);
     enemy.stunGrace = true;
@@ -349,7 +427,8 @@ function enemyTurn(s, replies) {
 
   if (ability && power <= 0) {
     replies.push(ability.text || `The ${enemy.name} uses ${ability.name}.`);
-    if (ability.heal) healEnemy(Math.round(enemy.maxHp * ability.heal), replies);
+    if (ability.heal)
+      healEnemy(Math.round(enemy.maxHp * ability.heal), replies);
     buffSelf();
     if (ability.status && Math.random() < (ability.status.chance ?? 1)) {
       if (Math.random() < (s.evasion || 0)) replies.push("You evade it!");
@@ -382,8 +461,9 @@ function collapse(p, s, replies, patch) {
   s.power = s.maxPower;
   const astraLost = Math.floor((0.25 + Math.random() * 0.5) * (p.astra || 0));
   patch.astra = Math.max(0, (p.astra || 0) - astraLost);
-  const expLost = s.level > 10 ? Math.floor((s.exp || 0) * 0.1) : 0;
+  const expLost = (p.level || 1) > 10 ? Math.floor((s.exp || 0) * 0.5) : 0;
   if (expLost) s.exp -= expLost;
+  if (s.exp < 0) s.exp = 0;
   replies.push(
     `You Collapse, and wake up back at safety. You lost ${astraLost} astra and ${expLost} exp.`,
   );
@@ -392,18 +472,31 @@ function collapse(p, s, replies, patch) {
 function winCombat(p, s, replies, patch) {
   const astra = Math.round(enemy.astra * (1 + (fight.ab.astraBonus || 0)));
   patch.astra = (p.astra || 0) + astra;
-  replies.push(`The ${enemy.name} falls! You gain ${enemy.exp} exp and ${astra} {{astra|astra}}.`);
+  replies.push(
+    `The ${enemy.name} falls! You gain ${enemy.exp} exp and ${astra} {{astra|astra}}.`,
+  );
   const leveled = gainExp({ ...p, stats: s }, enemy.exp);
   Object.assign(patch, leveled.patch);
   replies.push(...leveled.messages);
 
+  const questKill = recordQuestKill(p.quests, enemy);
+  if (questKill.messages.length) {
+    patch.quests = questKill.quests;
+    replies.push(...questKill.messages);
+  }
+
   // Luck improves drop chance by 1% per 3 points
   const luckBonus = Math.floor((s.luck || 0) / 3) * 0.01;
 
-  const drops = rollMaterialDrops(enemy, luckBonus + getKeyItemEffect(p, "materialChance"));
+  const drops = rollMaterialDrops(
+    enemy,
+    luckBonus + getKeyItemEffect(p, "materialChance"),
+  );
   if (Object.keys(drops).length) {
     patch.materials = addToMaterials(p.materials, drops);
-    const list = Object.entries(drops).map(([k, n]) => `{{${n}x ${MATERIALS[k].name}|material:${k}}}`);
+    const list = Object.entries(drops).map(
+      ([k, n]) => `{{${n}x ${MATERIALS[k].name}|material:${k}}}`,
+    );
     replies.push(`Materials gained: ${list.join(", ")}.`);
   }
 
@@ -411,7 +504,9 @@ function winCombat(p, s, replies, patch) {
     const item = generateRandomSlotItem(enemy.minRarity || 0);
     if (item) {
       patch.inventory = [...(p.inventory || []), item];
-      replies.push(`The ${enemy.name} dropped {{${item.name}|item:${item.id}}}!`);
+      replies.push(
+        `The ${enemy.name} dropped {{${item.name}|item:${item.id}}}!`,
+      );
     }
   }
   setPlayer(patch);
@@ -466,19 +561,33 @@ export function attackRound(type, skillKey) {
   const level = skill ? getSkillLevel(p, skillKey) : 0;
   let cost = 0;
   if (skill) {
-    if (level < 1) return { replies: ["You haven't learned that skill."], over: false, used: false };
+    if (level < 1)
+      return {
+        replies: ["You haven't learned that skill."],
+        over: false,
+        used: false,
+      };
     cost = skillCost(p, skillKey);
     if (s.power < cost)
-      return { replies: [`You need ${cost} power to use ${skill.name}.`], over: false, used: false };
+      return {
+        replies: [`You need ${cost} power to use ${skill.name}.`],
+        over: false,
+        used: false,
+      };
     type = skill.type;
   }
   playerDefending = false;
-  if (loseTurnToStun(replies)) return { ...finishRound(p, s, replies, {}), used: true };
+  if (loseTurnToStun(replies))
+    return { ...finishRound(p, s, replies, {}), used: true };
   s.power -= cost;
 
   const { ab, cls } = fight;
-  const speedAdvantage = Math.round(s.speed * (1 + (ab.speedMult || 0))) - enemy.speed;
-  let hit = type === "melee" ? roll(s.attackMin, s.attackMax) : roll(s.magicAttackMin, s.magicAttackMax);
+  const speedAdvantage =
+    Math.round(s.speed * (1 + (ab.speedMult || 0))) - enemy.speed;
+  let hit =
+    type === "melee"
+      ? roll(s.attackMin, s.attackMax)
+      : roll(s.magicAttackMin, s.magicAttackMax);
   if (skill) hit = Math.round(hit * skillMultiplier(skillKey, level));
 
   const ctx = {
@@ -495,15 +604,24 @@ export function attackRound(type, skillKey) {
 
   const calculation = [];
   const baseHit = hit;
-  calculation.push(`${type === "melee" ? "Melee" : "Magic"} attack roll: ${baseHit} (range ${type === "melee" ? `${s.attackMin}-${s.attackMax}` : `${s.magicAttackMin}-${s.magicAttackMax}`}).`);
-  if (skill) calculation.push(`Skill multiplier: ×${skillMultiplier(skillKey, level)}; rounded hit: ${hit}.`);
+  calculation.push(
+    `${type === "melee" ? "Melee" : "Magic"} attack roll: ${baseHit} (range ${type === "melee" ? `${s.attackMin}-${s.attackMax}` : `${s.magicAttackMin}-${s.magicAttackMax}`}).`,
+  );
+  if (skill)
+    calculation.push(
+      `Skill multiplier: ×${skillMultiplier(skillKey, level)}; rounded hit: ${hit}.`,
+    );
 
-  const rhythm = cls === "Tactician" ? Math.min(RHYTHM_MAX, fight.combo * RHYTHM_CRIT) : 0;
-  const critChance = (s.criticalHitChance || 0) + (skill?.critBonus?.(ctx) || 0) + rhythm;
+  const rhythm =
+    cls === "Tactician" ? Math.min(RHYTHM_MAX, fight.combo * RHYTHM_CRIT) : 0;
+  const critChance =
+    (s.criticalHitChance || 0) + (skill?.critBonus?.(ctx) || 0) + rhythm;
   if (Math.random() < critChance) {
     hit *= s.criticalDamageBonus;
     ctx.crit = true;
-    calculation.push(`Critical multiplier: ×${s.criticalDamageBonus} = ${hit}.`);
+    calculation.push(
+      `Critical multiplier: ×${s.criticalDamageBonus} = ${hit}.`,
+    );
     replies.push("Critical hit!");
   }
 
@@ -512,7 +630,10 @@ export function attackRound(type, skillKey) {
   let bonus = 1 + abilityBonus + skillBonus;
   if (cls === "Specialist") {
     fight.kinds.add(skill ? skillKey : type);
-    const adaptableBonus = Math.min(ADAPTABLE_MAX, fight.kinds.size * ADAPTABLE_PER_KIND);
+    const adaptableBonus = Math.min(
+      ADAPTABLE_MAX,
+      fight.kinds.size * ADAPTABLE_PER_KIND,
+    );
     bonus += adaptableBonus;
     calculation.push(`Specialist bonus: +${adaptableBonus * 100}%.`);
   }
@@ -522,24 +643,35 @@ export function attackRound(type, skillKey) {
     replies.push("Your spellstrike discharges!");
     calculation.push(`Spellstrike bonus: +${SPELLSTRIKE_BONUS * 100}%.`);
   }
-  if (abilityBonus) calculation.push(`Ability damage bonus: +${abilityBonus * 100}%.`);
+  if (abilityBonus)
+    calculation.push(`Ability damage bonus: +${abilityBonus * 100}%.`);
   if (skillBonus) calculation.push(`Skill bonus: +${skillBonus * 100}%.`);
   const outgoing = outgoingMult(playerStatuses);
   const incoming = incomingMult(enemy.statuses);
   const beforeMultipliers = hit;
   hit *= bonus * outgoing * incoming;
-  calculation.push(`Damage modifiers: ${beforeMultipliers} × ${bonus} × ${outgoing} × ${incoming} = ${hit}.`);
-  if (outgoing !== 1) calculation.push(`Attacker status effects: ×${outgoing}.`);
+  calculation.push(
+    `Damage modifiers: ${beforeMultipliers} × ${bonus} × ${outgoing} × ${incoming} = ${hit}.`,
+  );
+  if (outgoing !== 1)
+    calculation.push(`Attacker status effects: ×${outgoing}.`);
   if (incoming !== 1) calculation.push(`Enemy status effects: ×${incoming}.`);
 
-  const ignore = Math.min(1, (skill?.ignoreDefense?.(level) || 0) + (ab.pierce || 0));
+  const ignore = Math.min(
+    1,
+    (skill?.ignoreDefense?.(level) || 0) + (ab.pierce || 0),
+  );
   const beforeDefense = hit - enemy.defense * (1 - ignore);
   let dealt = Math.max(1, Math.round(beforeDefense));
-  calculation.push(`Enemy defense: ${hit} - ${enemy.defense} × (1 - ${ignore}) = ${beforeDefense}; rounded to ${dealt} (minimum 1).`);
+  calculation.push(
+    `Enemy defense: ${hit} - ${enemy.defense} × (1 - ${ignore}) = ${beforeDefense}; rounded to ${dealt} (minimum 1).`,
+  );
   if (enemy.defending) {
     const beforeBlock = dealt;
     dealt = Math.max(1, Math.floor(dealt / 2));
-    calculation.push(`Enemy defending: floor(${beforeBlock} ÷ 2) = ${dealt} (minimum 1).`);
+    calculation.push(
+      `Enemy defending: floor(${beforeBlock} ÷ 2) = ${dealt} (minimum 1).`,
+    );
   }
   ctx.dealt = dealt;
   enemy.hp = Math.max(0, enemy.hp - dealt);
@@ -547,26 +679,54 @@ export function attackRound(type, skillKey) {
     `${skill ? `You use ${skill.name} on` : "You strike"} the ${enemy.name} for ${damageNumber(dealt, calculation, ctx.crit)} damage${enemy.defending ? " (defended)" : ""}.`,
   );
 
-  if (ab.lifesteal) healPlayer(s, Math.max(1, Math.round(dealt * ab.lifesteal)), replies, "Vampiric");
+  if (ab.lifesteal)
+    healPlayer(
+      s,
+      Math.max(1, Math.round(dealt * ab.lifesteal)),
+      replies,
+      "Vampiric",
+    );
   if (ab.surge && ctx.crit && s.power < s.maxPower) {
-    s.power = Math.min(s.maxPower, s.power + Math.round(s.maxPower * ab.surge));
+    s.power = Math.min(
+      s.maxPower,
+      s.power + Math.round((s.maxPower * ab.surge) / 2),
+    );
     replies.push("Arcane Surge: you recover power!");
   }
   if (enemy.hp > 0) {
     skill?.onHit?.(ctx);
-    if (ab.ignite && Math.random() < ab.ignite) inflictOnEnemy("burn", { turns: 3, power: 0.04 }, replies);
+    if (ab.ignite && Math.random() < ab.ignite)
+      inflictOnEnemy("burn", { turns: 3, power: 0.04 }, replies);
     if (cls === "Trickster" && Math.random() < HEX_CHANCE)
-      inflictOnEnemy(Math.random() < 0.5 ? "weaken" : "vulnerable", { turns: 2 }, replies);
+      inflictOnEnemy(
+        Math.random() < 0.5 ? "weaken" : "vulnerable",
+        { turns: 2 },
+        replies,
+      );
   }
   fight.combo += 1;
   if (cls === "Spellblade" && skill) {
     fight.spellstrike = true;
-    replies.push("Your blade crackles with spell energy.");
+    replies.push("Your weapon crackles with energy!");
   }
 
-  if (enemy.hp <= 0) return { ...settle("victory", p, s, replies, {}), used: true };
+  if (enemy.hp <= 0)
+    return { ...settle("victory", p, s, replies, {}), used: true };
   return { ...finishRound(p, s, replies, {}), used: true };
 }
+
+// Skipping your turn: a stun is used up, otherwise you simply wait while the enemy acts.
+export function passRound() {
+  const p = getPlayer();
+  const s = { ...p.stats };
+  const replies = [];
+  playerDefending = false;
+  if (!loseTurnToStun(replies)) replies.push("You pass your turn.");
+  return finishRound(p, s, replies, {});
+}
+
+export const isPlayerStunned = () =>
+  playerStatuses.some((st) => STATUSES[st.id]?.kind === "skip");
 
 // Guarding on your turn reduces the next hit you take.
 export function defendRound() {
@@ -584,12 +744,19 @@ export function defendRound() {
 export function consumeItemRound(key) {
   const p = getPlayer();
   const used = { ...p.stats };
-  const result = applyConsumable(p, key, used, { healScale: healMult(playerStatuses) });
-  if (!result.ok) return { replies: [result.message], over: false, used: false };
+  const result = applyConsumable(p, key, used, {
+    healScale: healMult(playerStatuses),
+  });
+  if (!result.ok)
+    return { replies: [result.message], over: false, used: false };
   playerDefending = false;
   const replies = [];
   // A stunned player loses the turn without spending the item.
-  if (loseTurnToStun(replies)) return { ...finishRound(p, { ...p.stats }, replies, {}), used: true };
+  if (loseTurnToStun(replies))
+    return { ...finishRound(p, { ...p.stats }, replies, {}), used: true };
   replies.push(result.message);
-  return { ...finishRound(p, used, replies, { consumables: result.consumables }), used: true };
+  return {
+    ...finishRound(p, used, replies, { consumables: result.consumables }),
+    used: true,
+  };
 }
