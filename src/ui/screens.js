@@ -84,9 +84,23 @@ import Tooltip from "./Tooltip";
    badge     - (player) => number, shown as a notification on the tab when above 0
    component - React component receiving { messages, data, player }
 */
-const Log = ({ messages, limit }) => {
+const MOBILE_QUERY = "(max-width: 800px)";
+const useIsMobile = () => {
+  const [mobile, setMobile] = useState(() => window.matchMedia(MOBILE_QUERY).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_QUERY);
+    const onChange = (e) => setMobile(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return mobile;
+};
+
+const Log = ({ messages, limit, mobileLimit }) => {
   const ref = useRef(null);
-  const shown = limit ? messages.slice(-limit) : messages;
+  const isMobile = useIsMobile();
+  const effectiveLimit = isMobile && mobileLimit ? mobileLimit : limit;
+  const shown = effectiveLimit ? messages.slice(-effectiveLimit) : messages;
   useEffect(() => {
     const el = ref.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -225,7 +239,7 @@ const CombatScreen = ({ messages, data, player }) => {
           )}
         </div>
       </div>
-      <Log messages={messages} limit={10} />
+      <Log messages={messages} limit={10} mobileLimit={4} />
     </div>
   );
 };

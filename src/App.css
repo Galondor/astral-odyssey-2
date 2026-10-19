@@ -7,6 +7,8 @@
   height: 100dvh;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .navbar {
@@ -388,13 +390,13 @@
 .auth-google { padding: 12px; font-size: 15px; }
 .auth-error { color: #ff6b6b; font-size: 0.9rem; padding: 8px 10px; background: rgba(224, 72, 72, 0.12); border: 1px solid rgba(224, 72, 72, 0.4); border-radius: 8px; }
 
-@media (max-width: 800px) {
+@media (max-width: 1000px) {
   .navbar { flex-direction: column; gap: 6px; padding: 8px 12px; }
   .nav-info { justify-content: center; gap: 8px 12px; font-size: 14px; }
 
   .App-body { flex-direction: column; }
   .sidebar {
-    width: auto;
+    width: auto !important;
     flex-direction: row;
     overflow-x: auto;
     padding: 8px;
@@ -439,4 +441,42 @@
   .nav-title { font-size: 16px; }
   .form-fields { gap: 8px 12px; }
   .auth-card { padding: 24px 18px; }
+  .game-screen { font-size: 15px; line-height: 1.45; }
+  .message { margin-bottom: 8px; }
+  .combat-arena { padding: 4px; gap: 4px; }
+  .combat-vs { font-size: 16px; }
+  .combatant h3 { margin: 2px 0 4px; }
+  .inventory-list { grid-template-columns: repeat(2, 1fr); }
+  .stat-grid { grid-template-columns: 1fr; }
+  .equip-slots { grid-template-columns: 1fr; }
+  .input-button { flex: 1 1 40%; padding: 8px 10px; }
+  .game-controls { max-height: 40vh; }
+  .auth-title { font-size: 24px; }
+}
+
+@media (max-width: 1000px) {
+  .workshop { height: 100%; min-height: 0; overflow-y: auto; }
+  .workshop .recipe-grid { flex: none; min-height: auto; }
+  .quest-board .recipe-grid { margin-bottom: 8px; }
+  .quest-board .recipe-kind { margin-top: 8px; }
+}
+
+@media (min-width: 801px) and (max-width: 1100px) {
+  .sidebar { width: 130px; padding: 8px; }
+  .panel.character-layout, .progression { padding: 16px; }
+  .input-form { width: 80%; }
+  .game-screen { font-size: 16px; }
+}
+
+@media (min-width: 1600px) {
+  .sidebar { width: 190px; }
+  .game-screen { font-size: 18px; }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .navbar { flex-direction: row; padding: 4px 12px; }
+  .game-content { padding: 6px; gap: 6px; }
+  .game-controls { max-height: 35vh; }
+  .combat-arena { flex-direction: row-reverse; }
+  .game-screen { font-size: 14px; line-height: 1.35; }
 }

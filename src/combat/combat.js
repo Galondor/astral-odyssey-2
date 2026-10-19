@@ -597,7 +597,9 @@ export function attackRound(type, skillKey) {
     speedAdvantage,
     dealt: 0,
     crit: false,
-    applyStatus: (id, opts) => inflictOnEnemy(id, opts, replies),
+    applyStatus: (id, opts) => {
+      if (enemy.hp > 0) inflictOnEnemy(id, opts, replies);
+    },
     heal: (amount) => healPlayer(s, amount, replies, skill?.name),
     log: (text) => replies.push(text),
   };
@@ -693,8 +695,8 @@ export function attackRound(type, skillKey) {
     );
     replies.push("Arcane Surge: you recover power!");
   }
+  skill?.onHit?.(ctx);
   if (enemy.hp > 0) {
-    skill?.onHit?.(ctx);
     if (ab.ignite && Math.random() < ab.ignite)
       inflictOnEnemy("burn", { turns: 3, power: 0.04 }, replies);
     if (cls === "Trickster" && Math.random() < HEX_CHANCE)
