@@ -6,6 +6,7 @@ import { deleteBroadcast, describeAttachments, getBroadcasts, getDirectory, send
 
 const KINDS = {
   astra: { label: "Astra" },
+  exp: { label: "Experience" },
   material: { label: "Material", options: Object.entries(MATERIALS).map(([k, v]) => [k, v.name]) },
   consumable: { label: "Consumable", options: Object.entries(CONSUMABLES).map(([k, v]) => [k, v.name]) },
   keyItem: { label: "Key item", options: Object.entries(KEY_ITEMS).map(([k, v]) => [k, v.name]) },
@@ -15,9 +16,10 @@ const KINDS = {
 
 // Collapses the picked rows into the attachments shape stored on a message.
 const buildAttachments = (rows) => {
-  const out = { astra: 0, materials: {}, consumables: {}, keyItems: {}, gear: [], gemstones: [] };
+  const out = { astra: 0, exp: 0, materials: {}, consumables: {}, keyItems: {}, gear: [], gemstones: [] };
   for (const r of rows) {
     if (r.kind === "astra") out.astra += r.amount;
+    else if (r.kind === "exp") out.exp += r.amount;
     else if (r.kind === "material") out.materials[r.key] = (out.materials[r.key] || 0) + r.amount;
     else if (r.kind === "consumable") out.consumables[r.key] = (out.consumables[r.key] || 0) + r.amount;
     else if (r.kind === "keyItem") out.keyItems[r.key] = true;

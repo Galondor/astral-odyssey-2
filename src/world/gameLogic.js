@@ -198,7 +198,7 @@ export const scenes = {
         keywords: ["meadow", "2"],
         tooltip: {
           title: "Meadowlands",
-          description: `Portal fare: ${25 * getPlayer().level} astra.`,
+          description: `Portal fare: ${25 * (getPlayer()?.level ?? 1)} astra.`,
         },
         onSelect: ({ player, setPlayer }) => {
           const fare = 25 * player.level;
@@ -224,7 +224,7 @@ export const scenes = {
         keywords: ["darkwood", "3"],
         tooltip: {
           title: "Darkwood",
-          description: `Portal fare: ${35 * getPlayer().level} astra.`,
+          description: `Portal fare: ${35 * (getPlayer()?.level ?? 1)} astra.`,
         },
         onSelect: ({ player, setPlayer }) => {
           const fare = 35 * player.level;
@@ -250,7 +250,7 @@ export const scenes = {
         keywords: ["ashen", "4"],
         tooltip: {
           title: "Ashen Peaks",
-          description: `Portal fare: ${55 * getPlayer().level} astra.`,
+          description: `Portal fare: ${55 * (getPlayer()?.level ?? 1)} astra.`,
         },
         onSelect: ({ player, setPlayer }) => {
           const fare = 55 * player.level;

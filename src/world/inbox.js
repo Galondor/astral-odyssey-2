@@ -1,6 +1,7 @@
 import { get, onValue, push, ref, remove, runTransaction, set, update } from "firebase/database";
 import { db } from "../firebase";
 import { flushPlayer, getPlayer, setPlayer } from "../character/player";
+import { gainExp } from "../character/stats";
 import { addGemstone, addItem, generateRandomGemstone, generateRandomItem, GEAR_SLOT_TYPES, RARITY_NAMES } from "../items/items";
 import { CONSUMABLES, KEY_ITEMS, addConsumable, addKeyItem } from "../items/consumables";
 import { MATERIALS, addToMaterials } from "../items/materials";
@@ -10,7 +11,7 @@ import { MATERIALS, addToMaterials } from "../items/materials";
    inbox/{uid}/{id}      personal messages (admin-written)
    broadcasts/{id}       messages for every player (admin-written)
    inboxState/{uid}/{id} this player's { read, claimed, deleted } flags for either kind
- attachments: { astra, materials: { key: n }, consumables: { key: n }, keyItems: { key: true }, gear: [{ slot, minRarity, count }], gemstones: [{ minRarity, count }] }
+ attachments: { astra, exp, materials: { key: n }, consumables: { key: n }, keyItems: { key: true }, gear: [{ slot, minRarity, count }], gemstones: [{ minRarity, count }] }
  Gear is generated when claimed to match the claiming player's level; gemstones are generated at the selected minimum rarity.
 */
 
@@ -26,6 +27,7 @@ const asList = (v) => (Array.isArray(v) ? v.filter(Boolean) : Object.values(v ||
 
 export const normalizeAttachments = (a = {}) => ({
   astra: Math.max(0, Math.floor(Number(a.astra) || 0)),
+  exp: Math.max(0, Math.floor(Number(a.exp) || 0)),
   materials: Object.entries(a.materials || {}).filter(([k, n]) => MATERIALS[k] && n > 0),
   consumables: Object.entries(a.consumables || {}).filter(([k, n]) => CONSUMABLES[k] && n > 0),
   keyItems: Object.keys(a.keyItems || {}).filter((k) => KEY_ITEMS[k]),
@@ -40,7 +42,7 @@ export const normalizeAttachments = (a = {}) => ({
 
 export const hasAttachments = (a) => {
   const n = normalizeAttachments(a);
-  return n.astra > 0 || n.materials.length + n.consumables.length + n.keyItems.length + n.gear.length + n.gemstones.length > 0;
+  return n.astra > 0 || n.exp > 0 || n.materials.length + n.consumables.length + n.keyItems.length + n.gear.length + n.gemstones.length > 0;
 };
 
 export const hasUnclaimed = (msg) => !msg.claimed && hasAttachments(msg.attachments);
@@ -50,6 +52,7 @@ export const describeAttachments = (a) => {
   const n = normalizeAttachments(a);
   return [
     ...(n.astra ? [`${n.astra} astra`] : []),
+    ...(n.exp ? [`${n.exp} exp`] : []),
     ...n.materials.map(([k, c]) => `${c}× ${MATERIALS[k].name}`),
     ...n.consumables.map(([k, c]) => `${c}× ${CONSUMABLES[k].name}`),
     ...n.keyItems.map((k) => `Key item: ${KEY_ITEMS[k].name}`),
@@ -112,6 +115,11 @@ function grant(a) {
   const lines = [];
   const p = getPlayer();
   const patch = {};
+  if (n.exp) {
+    const leveled = gainExp(p, n.exp);
+    Object.assign(patch, leveled.patch);
+    lines.push(`${n.exp} exp`, ...leveled.messages);
+  }
   if (n.astra) {
     patch.astra = (p.astra || 0) + n.astra;
     lines.push(`${n.astra} astra`);
@@ -189,6 +197,7 @@ export async function sendMessage({ to, subject, body, attachments }) {
   const n = normalizeAttachments(attachments);
   const clean = {
     ...(n.astra ? { astra: n.astra } : {}),
+    ...(n.exp ? { exp: n.exp } : {}),
     ...(n.materials.length ? { materials: Object.fromEntries(n.materials) } : {}),
     ...(n.consumables.length ? { consumables: Object.fromEntries(n.consumables) } : {}),
     ...(n.keyItems.length ? { keyItems: Object.fromEntries(n.keyItems.map((k) => [k, true])) } : {}),
