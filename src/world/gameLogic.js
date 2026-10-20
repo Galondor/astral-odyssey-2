@@ -12,9 +12,20 @@ import {
   isPlayerStunned,
 } from "../combat/combat";
 import { createStarterInventory, getGearTraderStock } from "../items/items";
-import { CONSUMABLES, addConsumable, consumableTooltip, getConsumables, getKeyItemEffect } from "../items/consumables";
+import {
+  CONSUMABLES,
+  addConsumable,
+  consumableTooltip,
+  getConsumables,
+  getKeyItemEffect,
+} from "../items/consumables";
 import { rollRegionLimit } from "./events";
-import { SKILLS, getEquippedSkills, getSkillLevel, skillTooltip } from "../character/skills";
+import {
+  SKILLS,
+  getEquippedSkills,
+  getSkillLevel,
+  skillTooltip,
+} from "../character/skills";
 import { recalculateStats } from "../character/stats";
 import { getClassForStats } from "../character/classes";
 import { bankTransaction, getBank } from "./bank";
@@ -81,7 +92,11 @@ export const scenes = {
       onSubmit: (values, { setPlayer }) => {
         // Determine the player's initial class and stats based on the form values.
         const { strength, dexterity, intelligence } = values;
-        const playerClass = getClassForStats({ strength, dexterity, intelligence });
+        const playerClass = getClassForStats({
+          strength,
+          dexterity,
+          intelligence,
+        });
 
         // All derived stats (vitality, attack, health, etc.) are calculated in stats.js
         setPlayer(
@@ -122,11 +137,13 @@ export const scenes = {
             description: "Venture out and face random events.",
             footer: "Cost 1 Stamina",
             ...(getKeyItemEffect(p, "compass") && p.regionLimit
-              ? { description: `Venture out and face random events. Trips until the region changes: ${Math.max(0, p.regionLimit - (p.regionSteps || 0))}.` }
+              ? {
+                  description: `Venture out and face random events. Trips until the region changes: ${Math.max(0, p.regionLimit - (p.regionSteps || 0))}.`,
+                }
               : {}),
           };
         },
-        keywords: ["travel", "2"],
+        keywords: ["travel", "1"],
         onSelect: ({ player, setPlayer }) => {
           const stamina = player.stats.stamina;
           if (stamina < 1) return { reply: "You need 1 stamina to travel." };
@@ -136,7 +153,11 @@ export const scenes = {
             stats: { ...player.stats, stamina: free ? stamina : stamina - 1 },
           });
           return free
-            ? { next: "travel", reply: "Your Traveler's Pack lightens the journey. No stamina spent." }
+            ? {
+                next: "travel",
+                reply:
+                  "Your Traveler's Pack lightens the journey. No stamina spent.",
+              }
             : { next: "travel" };
         },
       },
@@ -149,8 +170,106 @@ export const scenes = {
             description: "Visit the town to access various services.",
           };
         },
-        keywords: ["town", "3"],
+        keywords: ["town", "2"],
         next: "town",
+      },
+      {
+        label: "Portal",
+        keywords: ["portal", "3"],
+        next: "portal",
+      },
+    ],
+  },
+  portal: {
+    input: INPUT_MODES[0],
+    clearLog: true,
+    text: () => {
+      const p = getPlayer();
+      return `You have arrived at the portal.`;
+    },
+    options: [
+      {
+        label: "Leave",
+        keywords: ["leave", "1"],
+        next: "menu",
+      },
+      {
+        label: "Meadowlands",
+        keywords: ["meadow", "2"],
+        tooltip: {
+          title: "Meadowlands",
+          description: `Portal fare: ${25 * getPlayer().level} astra.`,
+        },
+        onSelect: ({ player, setPlayer }) => {
+          const fare = 25 * player.level;
+          if ((player.astra || 0) < fare)
+            return {
+              reply: `You need ${fare} {{astra|astra}} to use the portal.`,
+            };
+          setPlayer({
+            ...player,
+            astra: player.astra - fare,
+            region: "Meadowlands",
+            regionSteps: 0,
+            regionLimit: rollRegionLimit(),
+          });
+          return {
+            reply: "You step through the portal to the Meadowlands.",
+            next: "menu",
+          };
+        },
+      },
+      {
+        label: "Darkwood",
+        keywords: ["darkwood", "3"],
+        tooltip: {
+          title: "Darkwood",
+          description: `Portal fare: ${35 * getPlayer().level} astra.`,
+        },
+        onSelect: ({ player, setPlayer }) => {
+          const fare = 35 * player.level;
+          if ((player.astra || 0) < fare)
+            return {
+              reply: `You need ${fare} {{astra|astra}} to use the portal.`,
+            };
+          setPlayer({
+            ...player,
+            astra: player.astra - fare,
+            region: "Darkwood",
+            regionSteps: 0,
+            regionLimit: rollRegionLimit(),
+          });
+          return {
+            reply: "You step through the portal to Darkwood.",
+            next: "menu",
+          };
+        },
+      },
+      {
+        label: "Ashen Peaks",
+        keywords: ["ashen", "4"],
+        tooltip: {
+          title: "Ashen Peaks",
+          description: `Portal fare: ${55 * getPlayer().level} astra.`,
+        },
+        onSelect: ({ player, setPlayer }) => {
+          const fare = 55 * player.level;
+          if ((player.astra || 0) < fare)
+            return {
+              reply: `You need ${fare} {{astra|astra}} to use the portal.`,
+            };
+          setPlayer({
+            ...player,
+            astra: player.astra - fare,
+            region: "Ashen Peaks",
+            regionSteps: 0,
+            regionLimit: rollRegionLimit(),
+          });
+          return {
+            reply: "You step through the portal to Ashen Peaks.",
+            next: "menu",
+          };
+        },
       },
     ],
   },
@@ -179,40 +298,61 @@ export const scenes = {
     },
     options: [
       {
+        label: "Travel",
+        keywords: ["travel", "1"],
+        next: "travel",
+      },
+      {
         label: "Leave",
-        keywords: ["leave", "1"],
+        keywords: ["leave", "2"],
         next: "menu",
       },
       {
         label: "Apothecary",
-        keywords: ["apothecary", "2"],
+        keywords: ["apothecary", "3"],
         next: "apothecary",
       },
       {
         label: "Lodging",
-        keywords: ["lodging", "3"],
+        keywords: ["lodging", "4"],
         next: "lodging",
       },
       {
         label: "Workshop",
-        keywords: ["workshop", "4"],
+        keywords: ["workshop", "5"],
         next: "workshop",
       },
       {
         label: "Gear Trader",
-        keywords: ["gear trader", "5"],
+        keywords: ["gear trader", "6"],
         next: "gearTrader",
       },
       {
         label: "Bank",
-        keywords: ["bank", "6"],
+        keywords: ["bank", "7"],
         next: "bank",
       },
       {
         label: "Tavern",
-        keywords: ["tavern", "7"],
+        keywords: ["tavern", "8"],
         next: "tavern",
       },
+      {
+        label: "Marketplace",
+        keywords: ["marketplace", "9"],
+        next: "marketplace",
+      },
+    ],
+  },
+  marketplace: {
+    input: INPUT_MODES[2],
+    clearLog: true,
+    text: () => {
+      const p = getPlayer();
+      return `You have arrived at the marketplace.` + "\nComing Soon!";
+    },
+    options: [
+      { label: "Leave", keywords: ["leave", "1"], next: "town" },
     ],
   },
   tavern: {
@@ -224,7 +364,11 @@ export const scenes = {
     },
     options: [
       { label: "Leave", keywords: ["leave", "1"], next: "town" },
-      { label: "Quest Board", keywords: ["quests", "quest board", "2"], next: "questBoard" },
+      {
+        label: "Quest Board",
+        keywords: ["quests", "quest board", "2"],
+        next: "questBoard",
+      },
       { label: "Blackjack", keywords: ["blackjack", "3"], next: "blackjack" },
     ],
   },
@@ -233,7 +377,9 @@ export const scenes = {
     input: INPUT_MODES[0],
     clearLog: true,
     text: "The quest board is crowded with notices. Accept work, or hand in what you have finished.",
-    options: [{ label: "Leave Quest Board", keywords: ["leave", "1"], next: "tavern" }],
+    options: [
+      { label: "Leave Quest Board", keywords: ["leave", "1"], next: "tavern" },
+    ],
   },
   blackjack: {
     input: INPUT_MODES[2],
@@ -248,11 +394,18 @@ export const scenes = {
       {
         label: "Bet",
         keywords: ["bet", "b"],
-        tooltip: { title: "Bet", description: 'Type "bet <amount>" or "bet all".' },
+        tooltip: {
+          title: "Bet",
+          description: 'Type "bet <amount>" or "bet all".',
+        },
         onSelect: ({ input }) => {
           const result = startBlackjack(input);
           if (result.error) return { reply: result.error };
-          return { reply: result.reply, next: result.over ? "blackjack" : "blackjackHand", keepLog: true };
+          return {
+            reply: result.reply,
+            next: result.over ? "blackjack" : "blackjackHand",
+            keepLog: true,
+          };
         },
       },
     ],
@@ -263,7 +416,11 @@ export const scenes = {
     get options() {
       const act = (play) => () => {
         const result = play();
-        return { reply: result.reply, next: result.over ? "blackjack" : "blackjackHand", keepLog: true };
+        return {
+          reply: result.reply,
+          next: result.over ? "blackjack" : "blackjackHand",
+          keepLog: true,
+        };
       };
       return [
         { label: "Hit", keywords: ["hit"], onSelect: act(blackjackHit) },
@@ -279,18 +436,30 @@ export const scenes = {
       `Welcome to the Bank. Your account holds ${getBank().balance} {{astra|astra}}, earning 2% interest every hour.` +
       `\nType "deposit <amount>" or "withdraw <amount>" ("all" works too). Shorthand: "d 100", "d100", "w a".`,
     options: [
-      { label: "Leave", keywords: ["leave"], next: "town" },
+      { label: "Leave", keywords: ["leave", "1"], next: "town" },
       {
-        label: "Deposit",
+        label: "Deposit All",
+        keywords: ["deposit all", "d all"],
+        onSelect: ({ input }) => ({ reply: bankTransaction("deposit", "all") }),
+      },
+      {
+        label: "Withdraw All",
+        keywords: ["withdraw all", "w all"],
+        onSelect: ({ input }) => ({
+          reply: bankTransaction("withdraw", "all"),
+        }),
+      },
+      {
+        hidden: true,
         keywords: ["deposit", "d"],
-        tooltip: { title: "Deposit", description: 'Type "deposit <amount>" or "deposit all".' },
         onSelect: ({ input }) => ({ reply: bankTransaction("deposit", input) }),
       },
       {
-        label: "Withdraw",
+        hidden: true,
         keywords: ["withdraw", "w"],
-        tooltip: { title: "Withdraw", description: 'Type "withdraw <amount>" or "withdraw all".' },
-        onSelect: ({ input }) => ({ reply: bankTransaction("withdraw", input) }),
+        onSelect: ({ input }) => ({
+          reply: bankTransaction("withdraw", input),
+        }),
       },
     ],
   },
@@ -315,10 +484,14 @@ export const scenes = {
             },
             onSelect: ({ player }) => {
               if ((player.astra || 0) < c.price)
-                return { reply: `You need ${c.price} {{astra|astra}} to buy a ${c.name}.` };
+                return {
+                  reply: `You need ${c.price} {{astra|astra}} to buy a ${c.name}.`,
+                };
               setPlayer({ astra: player.astra - c.price });
               addConsumable(key);
-              return { reply: `You buy a ${c.name} for ${c.price} {{astra|astra}}.` };
+              return {
+                reply: `You buy a ${c.name} for ${c.price} {{astra|astra}}.`,
+              };
             },
           })),
       ];
@@ -383,7 +556,9 @@ export const scenes = {
     input: INPUT_MODES[0],
     text: "The Workshop hums with activity. Bring materials and astra, and the craftsmen will make something lasting.",
     screenData: () => ({ player: getPlayer() }),
-    options: [{ label: "Leave Workshop", keywords: ["leave", "1"], next: "town" }],
+    options: [
+      { label: "Leave Workshop", keywords: ["leave", "1"], next: "town" },
+    ],
   },
   combat: {
     screen: "combat",
@@ -442,7 +617,8 @@ export const scenes = {
         keywords: ["defend", "3"],
         tooltip: {
           title: "Defend",
-          description: "Brace yourself, taking half damage from the next attack.",
+          description:
+            "Brace yourself, taking half damage from the next attack.",
           footer: "Takes your turn",
         },
         onSelect: () => {
@@ -482,7 +658,8 @@ export const scenes = {
         keywords: ["pass", "6"],
         tooltip: {
           title: "Pass",
-          description: "Skip your turn. While stunned, this is your only action.",
+          description:
+            "Skip your turn. While stunned, this is your only action.",
           footer: "Takes your turn",
         },
         onSelect: () => {
@@ -491,7 +668,9 @@ export const scenes = {
           return over ? { reply: replies, next: "menu" } : { reply: replies };
         },
       },
-    ].map((o) => (o.label === "Pass" ? o : { ...o, when: () => !isPlayerStunned() })),
+    ].map((o) =>
+      o.label === "Pass" ? o : { ...o, when: () => !isPlayerStunned() },
+    ),
   },
   combatSkills: {
     screen: "combat",
@@ -514,7 +693,12 @@ export const scenes = {
         ...getEquippedSkills(player).map((key) => ({
           label: SKILLS[key].name,
           keywords: [SKILLS[key].name.toLowerCase()],
-          tooltip: () => skillTooltip(key, getSkillLevel(getPlayer(), key), "Takes your turn"),
+          tooltip: () =>
+            skillTooltip(
+              key,
+              getSkillLevel(getPlayer(), key),
+              "Takes your turn",
+            ),
           onSelect: () => {
             if (!getEnemy()) return { next: "menu" };
             const { replies, over, used } = attackRound(null, key);
@@ -569,7 +753,7 @@ const sceneText = (id) => {
 };
 
 export const getVisibleOptions = (scene) =>
-  (scene.options || []).filter((o) => !o.when || o.when());
+  (scene.options || []).filter((o) => !o.hidden && (!o.when || o.when()));
 
 export const initialMessages = (sceneId = "start") => [
   { sender: "game", text: sceneText(sceneId) },
@@ -726,13 +910,18 @@ export function processButton(sceneId, label) {
 export function processInput(sceneId, input) {
   const scene = scenes[sceneId];
   // "d100" is read as "d 100" so shorthand works without a space
-  const text = input.trim().toLowerCase().replace(/([a-z])(\d)/g, "$1 $2");
+  const text = input
+    .trim()
+    .toLowerCase()
+    .replace(/([a-z])(\d)/g, "$1 $2");
   if (scene.match === INPUT_MATCHING[0]) {
-    const match = getVisibleOptions(scene).find((o) =>
-      (o.keywords || []).some(
-        (k) => text === k || text.split(/\s+/).includes(k),
-      ),
-    );
+    const match = (scene.options || [])
+      .filter((o) => !o.when || o.when())
+      .find((o) =>
+        (o.keywords || []).some(
+          (k) => text === k || text.split(/\s+/).includes(k),
+        ),
+      );
     if (!match) {
       return {
         sceneId,

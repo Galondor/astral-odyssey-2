@@ -146,6 +146,13 @@ const Bar = ({ label, value, max, color }) => (
 
 const AdventureScreen = ({ messages }) => <Log messages={messages} />;
 
+const DungeonsScreen = () => (
+  <div className='panel'>
+    <h2>Dungeons</h2>
+    <p>Coming soon!</p>
+  </div>
+);
+
 const CombatScreen = ({ messages, data, player }) => {
   const { enemy, stats, defending, playerStatuses = [] } = data || {};
   const analyzerUnlocked = getKeyItemEffect(player, "analyzer") > 0;
@@ -1258,6 +1265,7 @@ const QuestsScreen = ({ onChange }) => {
 
 export const SCREENS = {
   adventure: { label: "Adventure", link: true, component: AdventureScreen },
+  dungeons: { label: "Dungeons", link: true, component: DungeonsScreen },
   character: { label: "Character", link: true, component: CharacterScreen },
   progression: {
     label: "Progression",

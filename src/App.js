@@ -6,7 +6,7 @@ import AuthScreen from "./ui/AuthScreen";
 import GameForm from "./ui/GameForm";
 import Tooltip from "./ui/Tooltip";
 import { GLOSSARY } from "./ui/glossary";
-import { getPlayer, loadPlayer, unloadPlayer } from "./character/player";
+import { getPlayer, getSaveStatus, loadPlayer, subscribeSaveStatus, unloadPlayer } from "./character/player";
 import { getRep, getRepRank } from "./world/quests";
 import { getEnemy } from "./combat/combat";
 import { isAdmin, startInbox } from "./world/inbox";
@@ -51,6 +51,29 @@ function App() {
   if (uid === undefined) return <div className='auth-page'><p className='auth-subtitle'>Loading...</p></div>;
   if (uid === null) return <AuthScreen />;
   return <Game key={uid} uid={uid} onLogout={logout} />;
+}
+
+function SaveStatus() {
+  const [, setTick] = useState(0);
+  useEffect(() => subscribeSaveStatus(() => setTick((t) => t + 1)), []);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 15000);
+    return () => clearInterval(id);
+  }, []);
+  const { savedAt, dirty, saving } = getSaveStatus();
+  let text;
+  if (saving) text = "Saving...";
+  else if (!savedAt) text = dirty ? "Unsaved changes" : "Not saved yet";
+  else {
+    const secs = Math.max(0, Math.floor((Date.now() - savedAt) / 1000));
+    const ago = secs < 60 ? "just now" : secs < 3600 ? `${Math.floor(secs / 60)}m ago` : `${Math.floor(secs / 3600)}h ago`;
+    text = `${dirty ? "Unsaved changes · " : ""}Saved ${ago}`;
+  }
+  return (
+    <span className='nav-item save-status' title={savedAt ? `Last saved ${new Date(savedAt).toLocaleString()}` : undefined}>
+      {text}
+    </span>
+  );
 }
 
 function Game({ uid, onLogout }) {
@@ -127,6 +150,7 @@ function Game({ uid, onLogout }) {
               <span className='nav-item'>{player.astra} astra</span>
             </Tooltip>
           </>)}
+          <SaveStatus />
           <button type='button' className='buttons' onClick={onLogout}>Log out</button>
         </div>
       </header>

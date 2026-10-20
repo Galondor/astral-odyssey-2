@@ -11,6 +11,8 @@
   overflow-x: hidden;
 }
 
+.save-status { opacity: 0.7; font-size: 0.85em; }
+
 .navbar {
   display: flex;
   justify-content: space-between;
@@ -373,6 +375,11 @@
 .admin-form { display: flex; flex-direction: column; gap: 10px; text-align: left; }
 .admin-form label { display: flex; flex-direction: column; gap: 4px; text-align: left; }
 .admin-tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid #333; }
+.player-combobox { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.player-combobox-list { position: absolute; top: 100%; left: 0; right: 0; z-index: 20; margin: 2px 0 0; padding: 0; list-style: none; max-height: 360px; overflow-y: auto; background: #111827; border: 1px solid #4b5563; border-radius: 6px; }
+.player-combobox-list li { padding: 10px 12px; font-size: 1.05em; cursor: pointer; }
+.player-combobox-list li:hover, .player-combobox-list li.selected { background: #1f2937; }
+.player-combobox-empty { color: #9ca3af; cursor: default !important; }
 .admin-attach { display: flex; flex-wrap: wrap; gap: 6px; }
 .admin-attach .input-field { width: auto; flex: 1 1 120px; }
 .admin-rows li { text-align: left; margin-bottom: 4px; }

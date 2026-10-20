@@ -32,6 +32,7 @@ const AdminScreen = () => {
   const [players, setPlayers] = useState([]);
   const [broadcasts, setBroadcasts] = useState([]);
   const [to, setTo] = useState("");
+  const [search, setSearch] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [rows, setRows] = useState([]);
@@ -47,6 +48,23 @@ const AdminScreen = () => {
     getBroadcasts().then(setBroadcasts).catch(() => {});
   };
   useEffect(load, []);
+
+  const playerLabel = (p) => `${p.name} - ${p.uid}`;
+  const [listOpen, setListOpen] = useState(false);
+  const term = search.trim().toLowerCase();
+  const matches = players.filter(
+    (p) => !term || String(p.name).toLowerCase().includes(term) || String(p.uid).toLowerCase().includes(term)
+  );
+  const onPlayerInput = (value) => {
+    setSearch(value);
+    setTo("");
+    setListOpen(true);
+  };
+  const pickPlayer = (p) => {
+    setTo(p.uid);
+    setSearch(playerLabel(p));
+    setListOpen(false);
+  };
 
   const options = KINDS[kind].options;
   const selectedKey = options ? key || options[0][0] : "";
@@ -104,7 +122,7 @@ const AdminScreen = () => {
           className={`inventory-tab ${activeTab === "other" ? "active" : ""}`}
           onClick={() => setActiveTab("other")}
         >
-          Other controls
+          Individual Message
         </button>
       </div>
       <section
@@ -115,17 +133,40 @@ const AdminScreen = () => {
         <h3>{activeTab === "broadcasting" ? "Send a broadcast" : "Send a player message"}</h3>
         <form className='admin-form' onSubmit={send}>
           {activeTab === "other" && (
-            <label>
-              Player
-              <select className='input-field' value={to} onChange={(e) => setTo(e.target.value)}>
-                <option value=''>Select a player</option>
-                {players.map((p) => (
-                  <option key={p.uid} value={p.uid}>
-                    {p.name} (Lv {p.level}) - {p.uid}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className='player-combobox' onBlur={() => setListOpen(false)}>
+              <label htmlFor='admin-player-input'>Player</label>
+              <input
+                id='admin-player-input'
+                className='input-field'
+                role='combobox'
+                aria-expanded={listOpen}
+                aria-controls='admin-player-list'
+                placeholder='Search by name or ID'
+                autoComplete='off'
+                value={search}
+                onFocus={() => setListOpen(true)}
+                onChange={(e) => onPlayerInput(e.target.value)}
+              />
+              {listOpen && (
+                <ul id='admin-player-list' className='player-combobox-list' role='listbox'>
+                  {!matches.length && <li className='player-combobox-empty'>No matching players</li>}
+                  {matches.map((p) => (
+                    <li
+                      key={p.uid}
+                      role='option'
+                      aria-selected={p.uid === to}
+                      className={p.uid === to ? "selected" : ""}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        pickPlayer(p);
+                      }}
+                    >
+                      {p.name} (Lv {p.level}) - {p.uid}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
           <label>
             Subject

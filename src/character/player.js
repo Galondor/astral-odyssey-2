@@ -15,7 +15,23 @@ const getMeta = () => {
     return {};
   }
 };
-const setMeta = (meta) => localStorage.setItem(META_KEY, JSON.stringify(meta));
+const setMeta = (meta) => {
+  localStorage.setItem(META_KEY, JSON.stringify(meta));
+  statusListeners.forEach((fn) => fn());
+};
+
+const statusListeners = new Set();
+
+// { savedAt (ms timestamp or null), dirty, saving } for the save status indicator.
+export const getSaveStatus = () => {
+  const meta = getMeta();
+  return { savedAt: meta.savedAt || null, dirty: !!meta.dirty, saving: !!flushing };
+};
+
+export const subscribeSaveStatus = (fn) => {
+  statusListeners.add(fn);
+  return () => statusListeners.delete(fn);
+};
 
 // Gameplay reads/writes only touch localStorage (the buffer).
 export const getPlayer = () => {
@@ -114,7 +130,7 @@ export const flushPlayer = async () => {
   const playerRef = ref(db, `users/${meta.uid}/player`);
   flushing = (player ? set(playerRef, player) : remove(playerRef))
     .then(() => {
-      setMeta({ ...getMeta(), dirty: false });
+      setMeta({ ...getMeta(), dirty: false, savedAt: Date.now() });
       // Lets admins find players by name; best effort.
       if (player?.name)
         set(ref(db, `directory/${meta.uid}`), { name: String(player.name), level: player.level || 1 }).catch(() => {});
@@ -122,7 +138,9 @@ export const flushPlayer = async () => {
     .catch(() => markDirty())
     .finally(() => {
       flushing = null;
+      statusListeners.forEach((fn) => fn());
     });
+  statusListeners.forEach((fn) => fn());
   await flushing;
 };
 
