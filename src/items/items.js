@@ -21,9 +21,10 @@ export const SLOTS = [
   { key: "gauntlets", label: "Gauntlets", type: "gauntlets" },
   { key: "legs", label: "Leg Armor", type: "legs" },
   { key: "boots", label: "Boots", type: "boots" },
+  { key: "necklace", label: "Necklace", type: "necklace" },
   { key: "ring1", label: "Ring 1", type: "ring" },
   { key: "ring2", label: "Ring 2", type: "ring" },
-  { key: "necklace", label: "Necklace", type: "necklace" },
+
 ];
 
 export const ITEMS = {};
@@ -68,6 +69,12 @@ export const createItem = (key) => {
 };
 
 export const createStarterInventory = () => [];
+
+const GEMSTONES = {
+  ruby: { name: "Ruby", stat: "strength" },
+  emerald: { name: "Emerald", stat: "dexterity" },
+  sapphire: { name: "Sapphire", stat: "intelligence" },
+};
 
 const PERCENT_STATS = ["criticalHitChance", "evasion", "criticalDamage"];
 const STAT_LABELS = {
@@ -496,6 +503,35 @@ export const RARITY_NAMES = RARITIES.map((r) => r.name);
 export const generateRandomSlotItem = (minRarity = 0) =>
   generateRandomItem(pick(Object.keys(SLOT_CONFIG)), minRarity);
 
+export const generateRandomGemstone = (minRarity = 0) => {
+  const [type, gemstone] = pick(Object.entries(GEMSTONES));
+  const rarity = rollRarity(minRarity);
+  return {
+    id: newId(),
+    name: gemstone.name,
+    type,
+    stat: gemstone.stat,
+    value: rarity.mainStatBonus,
+    rarity: rarity.name,
+  };
+};
+
+export const gemstoneTooltip = (gemstone) => {
+  if (!gemstone) return null;
+  return {
+    title: gemstone.name,
+    titleColor: RARITY_COLORS[gemstone.rarity],
+    subtitle: `${gemstone.rarity} Gemstone`,
+    description: "Socket into a gear piece to increase its core stat. Can be safely removed for an astra cost.",
+    stats: [{
+      label: STAT_LABELS[gemstone.stat] || gemstone.stat,
+      value: formatValue(gemstone.stat, gemstone.value),
+      color: "#7bd88f",
+    }],
+    footer: `Value: ${getGemstoneValue(gemstone) ?? 0}`,
+  };
+};
+
 const formatValue = (stat, v) => {
   const n = PERCENT_STATS.includes(stat)
     ? `${round(Math.abs(v) * 100, 1)}%`
@@ -507,6 +543,13 @@ export const itemTooltip = (item, extra) => {
   if (!item) return null;
   const slot = SLOTS.find((s) => s.type === item.slot);
   const stats = [];
+  if (item.gemstone) {
+    stats.push({
+      label: `${GEMSTONES[item.gemstone.type]?.name || item.gemstone.name.replace(/^(Common|Uncommon|Rare|Epic|Legendary)\s+/, "")} (${STAT_LABELS[item.gemstone.stat] || item.gemstone.stat})`,
+      value: formatValue(item.gemstone.stat, item.gemstone.value),
+      color: "#7bd88f",
+    });
+  }
   if (item.mainStat) {
     stats.push({
       label: STAT_LABELS[item.mainStat.stat] || item.mainStat.stat,
@@ -577,6 +620,8 @@ const getComparedItems = (item) => {
 const sumStats = (items) => {
   const out = {};
   for (const it of items) {
+    if (it.gemstone)
+      out[it.gemstone.stat] = (out[it.gemstone.stat] || 0) + it.gemstone.value;
     if (it.mainStat)
       out[it.mainStat.stat] = (out[it.mainStat.stat] || 0) + it.mainStat.value;
     for (const [k, v] of Object.entries(it.subStats || {}))
@@ -648,6 +693,14 @@ export const findItem = (id) =>
     (i) => i?.id === id,
   ) || null;
 
+export const findGemstone = (id) => {
+  const player = getPlayer();
+  return [
+    ...(player?.gemstones || []),
+    ...Object.values(player?.equipment || {}).map((item) => item?.gemstone),
+  ].find((gemstone) => gemstone?.id === id) || null;
+};
+
 // Accepts an item object, or a key from ITEMS
 export const addItem = (item) => {
   const obj = typeof item === "string" ? createItem(item) : item;
@@ -655,10 +708,112 @@ export const addItem = (item) => {
   setPlayer({ inventory: [...getInventory(), obj] });
 };
 
+export const addGemstone = (gemstone) => {
+  if (!gemstone?.id || !GEMSTONES[gemstone.type]) return;
+  const player = getPlayer();
+  setPlayer({ gemstones: [...(player?.gemstones || []), gemstone] });
+};
+
+const GEMSTONE_VALUES = Object.fromEntries(
+  RARITIES.map((rarity, index) => [rarity.name, (index + 1) * 200]),
+);
+
+export const getGemstoneValue = (gemstone) =>
+  GEMSTONE_VALUES[gemstone?.rarity] ?? null;
+
+export function sellGemstone(index) {
+  const player = getPlayer();
+  if (!player || getEnemy()) return { ok: false };
+  const gemstones = [...(player.gemstones || [])];
+  const gemstone = gemstones[index];
+  const value = getGemstoneValue(gemstone);
+  if (!gemstone || value === null) return { ok: false };
+  gemstones.splice(index, 1);
+  setPlayer({ gemstones, astra: (player.astra || 0) + value });
+  return { ok: true, item: gemstone, value };
+}
+
 export const getSellPrice = (item) =>
   Number.isFinite(item?.price) && item.price >= 0
     ? Math.floor(item.price / 2)
     : null;
+
+const GEMSTONE_RARITY_COSTS = Object.fromEntries(
+  RARITIES.map((rarity, index) => [rarity.name, (index + 1) * 100]),
+);
+
+export const getGemstoneRemovalCost = (gemstone) =>
+  GEMSTONE_RARITY_COSTS[gemstone?.rarity] || null;
+
+const getGemstoneTarget = (player, target) => {
+  if (target?.kind === "inventory") {
+    const inventory = [...(player.inventory || [])];
+    const item = inventory[target.index];
+    return item && !item.twoHandedOf
+      ? { item, inventory, location: "inventory" }
+      : null;
+  }
+  if (target?.kind === "equipment") {
+    const equipment = { ...(player.equipment || {}) };
+    const item = equipment[target.slotKey];
+    return item && !item.twoHandedOf
+      ? { item, equipment, location: "equipment" }
+      : null;
+  }
+  return null;
+};
+
+export function socketGemstone(gemstoneId, target) {
+  const player = getPlayer();
+  if (!player || getEnemy()) return { ok: false, reason: "combat" };
+  const gemstones = [...(player.gemstones || [])];
+  const gemstoneIndex = gemstones.findIndex((gemstone) => gemstone.id === gemstoneId);
+  const gemstone = gemstones[gemstoneIndex];
+  const targetItem = getGemstoneTarget(player, target);
+  if (!gemstone || !targetItem) return { ok: false, reason: "invalid" };
+  if (targetItem.item.gemstone) return { ok: false, reason: "occupied" };
+
+  gemstones.splice(gemstoneIndex, 1);
+  const item = { ...targetItem.item, gemstone };
+  const changes = { gemstones };
+  if (targetItem.location === "inventory") {
+    targetItem.inventory[target.index] = item;
+    changes.inventory = targetItem.inventory;
+  } else {
+    targetItem.equipment[target.slotKey] = item;
+    changes.equipment = targetItem.equipment;
+  }
+  setPlayer(recalculateStats(player, changes));
+  return { ok: true };
+}
+
+export function removeGemstone(target) {
+  const player = getPlayer();
+  if (!player || getEnemy()) return { ok: false, reason: "combat" };
+  const targetItem = getGemstoneTarget(player, target);
+  if (!targetItem?.item.gemstone) return { ok: false, reason: "invalid" };
+  const gemstone = targetItem.item.gemstone;
+  const cost = getGemstoneRemovalCost(gemstone);
+  if (cost === null) return { ok: false, reason: "invalid" };
+  if ((player.astra || 0) < cost)
+    return { ok: false, reason: "astra", cost };
+
+  const item = { ...targetItem.item };
+  delete item.gemstone;
+  const changes = {
+    astra: (player.astra || 0) - cost,
+    gemstones: [...(player.gemstones || []), gemstone],
+  };
+  if (targetItem.location === "inventory") {
+    targetItem.inventory[target.index] = item;
+    changes.inventory = targetItem.inventory;
+  } else {
+    targetItem.equipment[target.slotKey] = item;
+    changes.equipment = targetItem.equipment;
+  }
+  setPlayer(recalculateStats(player, changes));
+  return { ok: true, cost };
+}
 
 const BUYBACK_LIMIT = 10;
 const GEAR_TRADER_STOCK_SIZE = 20;

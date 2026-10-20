@@ -1,6 +1,8 @@
-import { startCombat } from "../combat/combat";
+import { collapse, startCombat } from "../combat/combat";
 import { getRandomEnemy, hasEnemy } from "../combat/enemies";
-import { getKeyItemEffect } from "../items/consumables";
+import { addConsumable, getKeyItemEffect } from "../items/consumables";
+import { MATERIALS, addMaterial, getMaterials, spendMaterials } from "../items/materials";
+import { getPlayer, setPlayer as savePlayer } from "../character/player";
 
 /*
  Travel events. Add or remove entries in `travelEvents` to change the pool.
@@ -10,7 +12,7 @@ import { getKeyItemEffect } from "../items/consumables";
    weight    - relative chance of being picked (default 1)
    minLevel  - optional, lowest player level that can see it
    maxLevel  - optional, highest player level that can see it
-   regions   - optional array of region ids; omit for every region
+   regions   - "all" or an array of region ids (e.g. ["Darkwood"]); required on every event
    when      - optional (ctx) => boolean for custom conditions
    run       - (ctx) => { reply?, next?, options? }
                ctx = { player, setPlayer, region }
@@ -26,8 +28,12 @@ export const REGIONS = {
 };
 export const DEFAULT_REGION = "Meadowlands";
 
-export const getRegion = (player) =>
-  REGIONS[player?.region] ? player.region : DEFAULT_REGION;
+export const getRegion = (player) => {
+  const saved = player?.region;
+  if (REGIONS[saved]) return saved;
+  // Older saves stored the display name (e.g. "Ashen Peaks").
+  return Object.keys(REGIONS).find((id) => REGIONS[id].name === saved) || DEFAULT_REGION;
+};
 
 const OPTIONS_RETURN = [
   {
@@ -43,26 +49,429 @@ const playerLevel = (player) => Math.max(1, Number(player?.level) || 1);
 function encounter(id, tier, text, extra) {
   return {
     id,
+    regions: "all",
     when: ({ player, region }) => hasEnemy(tier, region, playerLevel(player)),
     ...extra,
-    run: ({ player, region }) => ({
+    run: (ctx) => ({
       reply: text,
-      options: [
-        {
-          label: "Fight",
-          keywords: ["fight", "1"],
-          onSelect: () => {
-            const enemy = getRandomEnemy(tier, region, playerLevel(player), player.stats?.gearScore || 0);
-            if (!enemy) return { reply: "There are no enemies in this region.", next: "menu" };
-            startCombat(enemy);
-            return { next: "combat" };
-          },
-        },
-        ...(tier === "basic" ? [] : [{ label: "Flee", keywords: ["flee", "2"], next: "menu", onSelect: () => ({ reply: "You slip away.", next: "menu" }) }]),
-      ],
+      options: tier === "basic" ? [fightOption(tier, ctx)] : [fightOption(tier, ctx), fleeOption(tier, ctx)],
     }),
   };
 }
+
+// ---- Shared helpers for events ----
+
+export const FLEE_BASE = 0.3;
+export const FLEE_PER_5_SPEED = 0.01;
+export const getFleeChance = (player) =>
+  Math.min(1, FLEE_BASE + Math.floor((player?.stats?.speed || 0) / 5) * FLEE_PER_5_SPEED);
+
+const rnd = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
+const chance = (p) => Math.random() < p;
+const percent = (n) => `${Math.round(n * 100)}%`;
+
+// A numbered choice button; keywords are the lowercase label and its position.
+const choice = (label, n, onSelect, extra) => ({ label, keywords: [label.toLowerCase(), String(n)], onSelect, ...extra });
+const leave = (label, n, reply) => choice(label, n, () => ({ reply, next: "menu" }));
+
+// Starts a fight against an enemy of `tier` from the player's current region.
+// `enemyId` forces a specific enemy template; `enemyFirst` makes the enemy take the opening turn.
+function startFight(tier, { player, region }, { enemyId, enemyFirst } = {}) {
+  const enemy = getRandomEnemy(tier, region, playerLevel(player), player.stats?.gearScore || 0, enemyId);
+  if (!enemy) return { reply: "There are no enemies in this region.", next: "menu" };
+  startCombat(enemy, { enemyFirst });
+  return { next: "combat" };
+}
+
+const fightOption = (tier, ctx, label = "Fight", n = 1, opts) => choice(label, n, () => startFight(tier, ctx, opts));
+
+// Fleeing succeeds with FLEE_BASE plus 1% per 5 speed; on failure the enemy gets the first move.
+const fleeOption = (tier, ctx, label = "Flee", n = 2, opts) =>
+  choice(
+    label,
+    n,
+    () => {
+      const current = getPlayer() || ctx.player;
+      if (chance(getFleeChance(current))) return { reply: "You slip away.", next: "menu" };
+      return { ...startFight(tier, ctx, { ...opts, enemyFirst: true }), reply: "You fail to escape!" };
+    },
+    {
+      tooltip: () => {
+        const p = getPlayer() || ctx.player;
+        const speed = p?.stats?.speed || 0;
+        return {
+          title: "Flee",
+          description: `Escape chance: ${percent(getFleeChance(p))}\nBase ${percent(FLEE_BASE)} + 1% per 5 speed (${speed} speed: +${Math.floor(speed / 5)}%).`,
+          footer: "If you fail, the fight begins and the enemy acts first.",
+        };
+      },
+    },
+  );
+
+// Restores a fraction of max health/stamina; returns the amounts actually gained.
+function restore({ health = 0, stamina = 0 }) {
+  const s = { ...getPlayer().stats };
+  const gainedHealth = Math.min(s.maxHealth - s.health, Math.max(health ? 1 : 0, Math.round(s.maxHealth * health)));
+  const gainedStamina = Math.min(s.maxStamina - s.stamina, Math.max(stamina ? 1 : 0, Math.round(s.maxStamina * stamina)));
+  s.health += gainedHealth;
+  s.stamina += gainedStamina;
+  savePlayer({ stats: s });
+  return { health: gainedHealth, stamina: gainedStamina };
+}
+
+// Removes a fraction of max health. Reaching 0 triggers a collapse, same as losing a fight.
+// Returns { text, died } where text describes the loss (and the collapse).
+function hurt(fraction) {
+  const p = getPlayer();
+  const s = { ...p.stats };
+  const lost = Math.max(1, Math.round(s.maxHealth * fraction));
+  s.health -= lost;
+  if (s.health > 0) {
+    savePlayer({ stats: s });
+    return { text: `You lose [red]${lost}[/red] health.`, died: false };
+  }
+  const replies = [];
+  const patch = {};
+  collapse(p, s, replies, patch);
+  savePlayer({ ...patch, stats: s });
+  return { text: `You lose [red]${lost}[/red] health. ${replies.join(" ")}`, died: true };
+}
+
+const spendStamina = (n) => {
+  const s = { ...getPlayer().stats };
+  s.stamina = Math.max(0, s.stamina - n);
+  savePlayer({ stats: s });
+};
+const hasStamina = (n) => (getPlayer()?.stats?.stamina || 0) >= n;
+
+const gainAstra = (amount) => savePlayer({ astra: (getPlayer().astra || 0) + amount });
+
+// Grants `amount` of a random material from `keys` and returns a description of it.
+function gainMaterial(keys, min, max = min) {
+  const key = pick(keys);
+  const amount = rnd(min, max);
+  addMaterial(key, amount);
+  return `${amount} ${MATERIALS[key].name}`;
+}
+
+const restoreText = (r) =>
+  [r.health && `[green]${r.health}[/green] health`, r.stamina && `[green]${r.stamina}[/green] stamina`]
+    .filter(Boolean)
+    .join(" and ") || "nothing, you were already fully rested";
+
+const MEADOW_MATERIALS = ["slime_gel", "wolf_pelt", "boar_tusk", "goblin_scrap"];
+const DARKWOOD_MATERIALS = ["rotwood_bark", "spider_silk"];
+const PEAKS_MATERIALS = ["obsidian_shard", "ember_core"];
+
+const regionalEvents = [
+  // ---- Meadowlands: gentle ----
+  {
+    id: "wildflowerGlade",
+    regions: ["Meadowlands"],
+    weight: 1.5,
+    run: () => ({
+      reply: "You stumble upon a sunlit glade full of wildflowers. It's the perfect place to catch your breath.",
+      options: [
+        choice("Rest", 1, () => ({
+          reply: `You rest among the flowers and recover ${restoreText(restore({ stamina: 0.25 }))}.`,
+          next: "menu",
+        })),
+        choice("Tend wounds", 2, () => ({
+          reply: `You bind your wounds with soothing petals and recover ${restoreText(restore({ health: 0.15 }))}.`,
+          next: "menu",
+        })),
+      ],
+    }),
+  },
+  {
+    id: "abandonedCart",
+    regions: ["Meadowlands"],
+    weight: 1.5,
+    run: () => ({
+      reply: "An abandoned cart sits tilted at the side of the road, its cargo half spilled.",
+      options: [
+        choice("Quick search", 1, () => ({
+          reply: `You rummage through the spilled cargo and find ${gainMaterial(MEADOW_MATERIALS, 1, 2)}.`,
+          next: "menu",
+        })),
+        choice("Thorough search", 2, () => {
+          spendStamina(1);
+          return { reply: `You spend some effort searching every crate and find ${gainMaterial(MEADOW_MATERIALS, 2, 4)}.`, next: "menu" };
+        }, { when: () => hasStamina(1), tooltip: { title: "Thorough search", description: "More materials.", footer: "Cost 1 Stamina" } }),
+        leave("Leave", 3, "You leave the cart behind."),
+      ],
+    }),
+  },
+  {
+    id: "peddlersWager",
+    regions: ["Meadowlands"],
+    weight: 1.5,
+    run: ({ player }) => {
+      const cost = Math.max(5, playerLevel(player) * 5);
+      return {
+        reply: `A cheerful peddler waves you down. "A mystery pouch for just ${cost} {{astra|astra}}! Could be a treasure, could be pebbles!"`,
+        options: [
+          choice("Buy", 1, () => {
+            if ((getPlayer().astra || 0) < cost) return { reply: "You can't afford the pouch.", next: "menu" };
+            gainAstra(-cost);
+            const roll = Math.random();
+            if (roll < 0.4) {
+              addConsumable("minorPotion", 1);
+              return { reply: "Inside the pouch is a Minor Health Potion!", next: "menu" };
+            }
+            if (roll < 0.75) return { reply: `Inside the pouch you find ${gainMaterial(MEADOW_MATERIALS, 2, 3)}.`, next: "menu" };
+            return { reply: "The pouch is full of pebbles. The peddler is already gone.", next: "menu" };
+          }, {
+            when: () => (getPlayer().astra || 0) >= cost,
+            tooltip: { title: "Mystery pouch", description: "A Minor Health Potion, a few materials, or just pebbles.", footer: `Cost ${cost} Astra` },
+          }),
+          leave("Decline", 2, "You politely decline and continue on."),
+        ],
+      };
+    },
+  },
+  {
+    id: "scarecrowPrank",
+    regions: ["Meadowlands"],
+    weight: 1.5,
+    when: ({ player, region }) => hasEnemy("basic", region, playerLevel(player)),
+    run: (ctx) => ({
+      reply: "A scarecrow stands in the middle of a field. As you pass, it twitches... and lunges at you!",
+      options: [fightOption("basic", ctx), fleeOption("basic", ctx, "Sneak away")],
+    }),
+  },
+
+  // ---- Darkwood: a step up ----
+  {
+    id: "hollowStump",
+    regions: ["Darkwood"],
+    weight: 1.5,
+    run: () => {
+      const search = (trapChance, trapDamage) => {
+        if (chance(trapChance)) {
+          return { reply: `A hidden trap snaps shut! ${hurt(trapDamage).text}`, next: "menu" };
+        }
+        return { reply: `You pull out a hidden cache: ${gainMaterial(DARKWOOD_MATERIALS, 2, 3)}.`, next: "menu" };
+      };
+      return {
+        reply: "A hollow stump holds something glinting inside. It could be trapped.",
+        options: [
+          choice("Reach in", 1, () => search(0.4, 0.1), { tooltip: { title: "Reach in", description: "40% chance of a trap." } }),
+          choice("Pry carefully", 2, () => {
+            spendStamina(1);
+            return search(0.15, 0.1);
+          }, { when: () => hasStamina(1), tooltip: { title: "Pry carefully", description: "15% chance of a trap.", footer: "Cost 1 Stamina" } }),
+          leave("Leave", 3, "You decide it isn't worth the risk."),
+        ],
+      };
+    },
+  },
+  {
+    id: "glowcapGrove",
+    regions: ["Darkwood"],
+    weight: 1.5,
+    run: () => ({
+      reply: "A grove of softly glowing mushrooms fills the air with a sweet smell.",
+      options: [
+        choice("Eat", 1, () => {
+          const roll = Math.random();
+          if (roll < 0.4) return { reply: `The glowcaps are delicious and invigorating! You recover ${restoreText(restore({ health: 0.4 }))}.`, next: "menu" };
+          if (roll < 0.7) return { reply: `Your stomach lurches. ${hurt(0.1).text}`, next: "menu" };
+          return { reply: "The mushrooms taste of nothing at all.", next: "menu" };
+        }, { tooltip: { title: "Eat", description: "Might heal you, might make you sick.", footer: "40% heal • 30% sick • 30% nothing" } }),
+        leave("Leave", 2, "You leave the glowing grove alone."),
+      ],
+    }),
+  },
+  {
+    id: "poachersSnare",
+    regions: ["Darkwood"],
+    weight: 1.5,
+    run: (ctx) => {
+      const harm = hurt(0.1);
+      if (harm.died) return { reply: `You trigger a poacher's snare! ${harm.text}`, next: "menu" };
+      const poacher = { enemyId: "poacher" };
+      return {
+        reply: `You trigger a poacher's snare! ${harm.text} The poacher who set it steps out of the trees, crossbow raised.`,
+        options: [fightOption("basic", ctx, "Fight", 1, poacher), fleeOption("basic", ctx, "Flee", 2, poacher)],
+      };
+    },
+  },
+  {
+    id: "hermitsFire",
+    regions: ["Darkwood"],
+    weight: 1.5,
+    run: () => ({
+      reply: 'A hermit tends a small fire. "Share some scraps, and I will share my stew," he rasps.',
+      options: [
+        choice("Share a meal", 1, () => {
+          const owned = getMaterials();
+          if (!owned.length) return { reply: "You have nothing to share.", next: "menu" };
+          const m = pick(owned);
+          savePlayer({ materials: spendMaterials(getPlayer(), { [m.key]: 1 }) });
+          return {
+            reply: `You hand over 1 ${m.name}. The stew restores ${restoreText(restore({ health: 0.3, stamina: 0.25 }))}.`,
+            next: "menu",
+          };
+        }, {
+          when: () => getMaterials().length > 0,
+          tooltip: { title: "Share a meal", description: "Give 1 random material to restore 30% health and 25% stamina." },
+        }),
+        leave("Decline", 2, "You nod to the hermit and move on."),
+      ],
+    }),
+  },
+
+  // ---- Ashen Peaks: much harsher ----
+  {
+    id: "cinderVent",
+    regions: ["AshenPeaks"],
+    weight: 1.5,
+    run: () => ({
+      reply: "A glowing vent spits embers. Heat-forged minerals lie scattered around its rim.",
+      options: [
+        choice("Loot", 1, () => {
+          if (chance(0.4)) return { reply: `The vent erupts! You are scorched. ${hurt(0.25).text}`, next: "menu" };
+          return { reply: `You snatch ${gainMaterial(PEAKS_MATERIALS, 2, 3)} from the rim.`, next: "menu" };
+        }, { tooltip: { title: "Loot", description: "40% chance the vent erupts for 25% of your max health." } }),
+        leave("Back away", 2, "You back away from the heat."),
+      ],
+    }),
+  },
+  {
+    id: "rockslideLedge",
+    regions: ["AshenPeaks"],
+    weight: 1.5,
+    run: ({ player }) => {
+      const reward = Math.max(1, playerLevel(player) * 4);
+      return {
+        reply: "A narrow ledge is strewn with loose rocks. Pebbles skitter down the cliff above you.",
+        options: [
+          choice("Cross quickly", 1, () => {
+            if (chance(0.5)) {
+              return { reply: `The ledge collapses behind you! ${hurt(0.2).text}`, next: "menu" };
+            }
+            gainAstra(reward);
+            return { reply: `You dash across and find ${reward} {{astra|astra}} on the far side.`, next: "menu" };
+          }, { tooltip: { title: "Cross quickly", description: "50% chance of a rockslide costing 20% of your max health, otherwise a bonus reward." } }),
+          choice("Clear the route", 2, () => {
+            spendStamina(1);
+            return { reply: `You carefully clear the rocks and gather ${gainMaterial(["obsidian_shard"], 1, 2)}.`, next: "menu" };
+          }, { when: () => hasStamina(1), tooltip: { title: "Clear the route", description: "Safe, with a small reward.", footer: "Cost 1 Stamina" } }),
+        ],
+      };
+    },
+  },
+  {
+    id: "fallenExpedition",
+    regions: ["AshenPeaks"],
+    weight: 1.5,
+    run: (ctx) => ({
+      reply: "You find the remains of an expedition, their packs still strapped to their bodies.",
+      options: [
+        choice("Loot packs", 1, () => {
+          const lines = [];
+          if (chance(0.5)) {
+            addConsumable("healthPotion", 1);
+            lines.push("You find a Health Potion.");
+          } else {
+            lines.push(`You find ${gainMaterial(["ember_core", "primal_essence"], 1, 2)}.`);
+          }
+          if (hasEnemy("elite", ctx.region, playerLevel(ctx.player)) && chance(0.5)) {
+            lines.push("A scavenger lurking nearby attacks to claim the spoils!");
+            return { reply: lines, options: [fightOption("elite", ctx), fleeOption("elite", ctx)] };
+          }
+          return { reply: lines, next: "menu" };
+        }, { tooltip: { title: "Loot packs", description: "A Health Potion or rare materials, but a scavenger elite may ambush you." } }),
+        leave("Leave", 2, "You leave the dead to rest."),
+      ],
+    }),
+  },
+  {
+    id: "emberShrine",
+    regions: ["AshenPeaks"],
+    weight: 1.5,
+    run: ({ player }) => {
+      const reward = Math.max(1, playerLevel(player) * 8);
+      return {
+        reply: "A blackened shrine glows with an inner fire. An altar waits for an offering of blood.",
+        options: [
+          choice("Offer blood", 1, () => {
+            const harm = hurt(0.3);
+            if (harm.died) return { reply: `The shrine takes everything. ${harm.text}`, next: "menu" };
+            gainAstra(reward);
+            return {
+              reply: `${harm.text} The shrine rewards you with ${reward} {{astra|astra}} and ${gainMaterial(["ember_core"], 2)}.`,
+              next: "menu",
+            };
+          }, {
+            tooltip: { title: "Offer blood", description: `Lose 30% of your max health for ${reward} Astra and 2 Ember Cores. This can kill you.` },
+          }),
+          leave("Ignore", 2, "You ignore the shrine and press on."),
+        ],
+      };
+    },
+  },
+];
+
+const globalEvents = [
+  {
+    id: "loneCampsite",
+    regions: "all",
+    weight: 1.5,
+    run: () => ({
+      reply: "You find a small abandoned campsite with a still-warm fire pit.",
+      options: [
+        choice("Rest", 1, () => ({
+          reply: `You rest by the fire and recover ${restoreText(restore({ stamina: 0.25, health: 0.1 }))}.`,
+          next: "menu",
+        })),
+        leave("Move on", 2, "You don't linger."),
+      ],
+    }),
+  },
+  {
+    id: "forkInTheRoad",
+    regions: "all",
+    weight: 1.5,
+    run: (ctx) => {
+      const level = playerLevel(ctx.player);
+      return {
+        reply: "The road splits in two. One path is winding but well traveled, the other is short and overgrown.",
+        options: [
+          choice("Safe path", 1, () => {
+            gainAstra(level);
+            return { reply: `You take the long way and pick up ${level} {{astra|astra}} along the road.`, next: "menu" };
+          }),
+          choice("Short path", 2, () => {
+            if (chance(0.5) || !hasEnemy("basic", ctx.region, level)) {
+              gainAstra(level * 4);
+              return { reply: `The shortcut pays off! You find ${level * 4} {{astra|astra}}.`, next: "menu" };
+            }
+            return { reply: "Something was waiting along the overgrown path!", options: [fightOption("basic", ctx), fleeOption("basic", ctx)] };
+          }, { tooltip: { title: "Short path", description: "50% chance of a larger reward, 50% chance of an ambush." } }),
+        ],
+      };
+    },
+  },
+  {
+    id: "shadowTail",
+    regions: "all",
+    weight: 1.5,
+    when: ({ player, region }) => hasEnemy("basic", region, playerLevel(player)),
+    run: (ctx) => ({
+      reply: "You get the feeling you're being followed. Something keeps pace just out of sight.",
+      options: [
+        fightOption("basic", ctx, "Turn and fight"),
+        choice("Hurry on", 2, () => {
+          spendStamina(1);
+          return { reply: "You quicken your pace and lose your pursuer, but the effort tires you. (-1 Stamina)", next: "menu" };
+        }, { tooltip: { title: "Hurry on", description: "Lose your pursuer without a fight.", footer: "Cost 1 Stamina" } }),
+      ],
+    }),
+  },
+];
 
 export const REGION_TRIPS_MIN = 10;
 export const REGION_TRIPS_MAX = 20;
@@ -72,7 +481,9 @@ export const rollRegionLimit = () =>
 export const travelEvents = [
   {
     id: "quietRoad",
+    regions: "all",
     weight: 3,
+    clearLog: true,
     run: () => ({
       reply: "The road is quiet. You travel without incident.",
       options: OPTIONS_RETURN,
@@ -80,7 +491,9 @@ export const travelEvents = [
   },
   {
     id: "astraShard",
+    regions: "all",
     weight: 2,
+    clearLog: true,
     run: ({ player, setPlayer, region }) => {
       const amount = Math.max(1, (player.level || 1) * 2);
       setPlayer({ astra: (player.astra || 0) + amount });
@@ -99,13 +512,15 @@ export const travelEvents = [
     minLevel: 5,
     weight: ({ player }) => 0.6 * (1 + 2 * getKeyItemEffect(player, "huntBonus")),
   }),
+  ...globalEvents,
+  ...regionalEvents,
 ];
 
 export const isEventEligible = (event, ctx) => {
   const level = ctx.player?.level || 1;
   if (event.minLevel !== undefined && level < event.minLevel) return false;
   if (event.maxLevel !== undefined && level > event.maxLevel) return false;
-  if (event.regions && !event.regions.includes(ctx.region)) return false;
+  if (Array.isArray(event.regions) && !event.regions.includes(ctx.region)) return false;
   return !event.when || event.when(ctx);
 };
 

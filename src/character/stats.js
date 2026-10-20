@@ -26,6 +26,8 @@ const getGearSources = (equipment = {}) => {
   };
   for (const item of Object.values(equipment)) {
     if (!item) continue;
+    if (item.gemstone)
+      add(item.gemstone.stat, `${item.name} (${item.gemstone.name})`, item.gemstone.value);
     if (item.mainStat) add(item.mainStat.stat, item.name, item.mainStat.value);
     for (const [k, v] of Object.entries(item.subStats || {})) add(k, item.name, v);
   }

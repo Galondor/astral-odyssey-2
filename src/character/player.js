@@ -58,6 +58,13 @@ const getNewInventoryItems = (player, patch) => {
       }
     }
   }
+  if (Object.prototype.hasOwnProperty.call(patch, "gemstones")) {
+    const previous = new Set((player?.gemstones || []).map(getInventoryItemKey));
+    const gemstones = (patch.gemstones || [])
+      .map(getInventoryItemKey)
+      .filter((key) => !previous.has(key));
+    if (gemstones.length) additions.gemstones = gemstones;
+  }
   for (const category of ["consumables", "materials"]) {
     if (!Object.prototype.hasOwnProperty.call(patch, category)) continue;
     for (const [key, count] of Object.entries(patch[category] || {})) {

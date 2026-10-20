@@ -24,7 +24,7 @@ export const RECIPES = {
     name: "Arcane Battery",
     type: "upgrade",
     description: "+5 maximum magic attack.",
-    cost: { astra: 50, materials: { wraith_essence: 6 } },
+    cost: { astra: 50, materials: { rotwood_bark: 6 } },
     bonus: { magicAttackMax: 5 },
     limit: 5,
   },

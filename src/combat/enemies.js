@@ -221,7 +221,10 @@ export const ENEMIES = [
         text: "The boar lowers its head and bristles.",
       },
     ],
-    drops: [{ key: "boar_tusk", chance: 0.6, min: 1, max: 2 }],
+    drops: [
+      { key: "boar_tusk", chance: 0.6, min: 1, max: 2 },
+      { key: "leather", chance: 0.8, min: 2, max: 4 }
+    ],
   },
   {
     id: "goblinScavenger",
@@ -244,7 +247,41 @@ export const ENEMIES = [
       },
       { name: "Sling Shot", power: 1.4 },
     ],
-    drops: [{ key: "goblin_scrap", chance: 0.75, min: 1, max: 3 }],
+    drops: [
+      { key: "goblin_scrap", chance: 0.75, min: 1, max: 3 },
+      { key: "leather", chance: 0.5, min: 1, max: 2 },
+      { key: "metal_scraps", chance: 0.3, min: 1, max: 1 },
+    ],
+  },
+  {
+    id: "poacher",
+    name: "Poacher",
+    tier: "basic",
+    eventOnly: true,
+    regions: ["Darkwood"],
+    level: 3,
+    maxHp: 50,
+    attack: [3, 9],
+    defense: 3,
+    speed: 6,
+    critical: 0.1,
+    astra: 16,
+    exp: 26,
+    abilities: [
+      { name: "Crossbow Shot", power: 1.5, cooldown: 2 },
+      {
+        name: "Barbed Bolt",
+        power: 1,
+        status: { id: "bleed", turns: 3, power: 0.04, chance: 0.6 },
+      },
+    ],
+    drops: [
+      { key: "metal_scraps", chance: 0.6, min: 1, max: 2 },
+      { key: "leather", chance: 0.5, min: 1, max: 2 },
+      { key: "wolf_pelt", chance: 0.4, min: 1, max: 2 },
+      { key: "boar_tusk", chance: 0.3, min: 1, max: 1 },
+      { key: "beast_fang", chance: 0.2, min: 1, max: 1 },
+    ],
   },
   {
     id: "giantSpider",
@@ -466,6 +503,8 @@ export const ENEMIES = [
     drops: [
       { key: "goblin_scrap", chance: 1, min: 3, max: 5 },
       { key: "primal_essence", chance: 0.3, min: 1, max: 1 },
+      { key: "leather", chance: 0.5, min: 1, max: 3 },
+      { key: "metal_scraps", chance: 0.3, min: 1, max: 3 },
     ],
   },
   {
@@ -751,6 +790,7 @@ const randBetween = (min, max) =>
 export const getEnemyCandidates = (tier, region, playerLevel) =>
   ENEMIES.filter(
     (e) =>
+      !e.eventOnly &&
       e.tier === tier &&
       e.regions.includes(region) &&
       e.level <= playerLevel + 4,
@@ -783,9 +823,13 @@ export const getRandomEnemy = (
   region,
   playerLevel = 1,
   gearScore = 0,
+  templateId = null,
 ) => {
   const level0 = getEffectiveLevel(playerLevel, gearScore);
-  const candidates = getEnemyCandidates(tier, region, level0);
+  // A specific template (including event-only enemies) can be requested by id.
+  const candidates = templateId
+    ? ENEMIES.filter((e) => e.id === templateId)
+    : getEnemyCandidates(tier, region, level0);
   if (!candidates.length) return null;
   const template = candidates[Math.floor(Math.random() * candidates.length)];
   const t = TIERS[template.tier];

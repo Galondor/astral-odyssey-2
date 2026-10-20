@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import Tooltip from "./Tooltip";
 import { GLOSSARY } from "./glossary";
-import { RARITY_COLORS, findItem, itemTooltip } from "../items/items";
+import { RARITY_COLORS, findGemstone, findItem, gemstoneTooltip, itemTooltip } from "../items/items";
 import { MATERIAL_TIERS, getMaterialCount, MATERIALS, materialTooltip } from "../items/materials";
 import { getPlayer } from "../character/player";
 
@@ -50,6 +50,7 @@ function parse(text, keyPrefix = "") {
     if (m[1] !== undefined) {
       const target = m[2].trim();
       const itemId = target.startsWith("item:") ? target.slice(5) : null;
+      const gemstoneId = target.startsWith("gemstone:") ? target.slice(9) : null;
       const materialKey = target.startsWith("material:") ? target.slice(9) : null;
       const criticalDamage = target.startsWith("damage-critical:");
       const damageCalculation = target.startsWith("damage:")
@@ -68,6 +69,13 @@ function parse(text, keyPrefix = "") {
         out.push(
           <Tooltip key={key} content={() => materialTooltip(materialKey, getMaterialCount(getPlayer(), materialKey))}>
             <span className='tip-word' tabIndex={0} style={{ color: MATERIAL_TIERS[material.tier].color }}>{parse(m[1], key + ".")}</span>
+          </Tooltip>
+        );
+      } else if (gemstoneId) {
+        const gemstone = findGemstone(gemstoneId);
+        out.push(
+          <Tooltip key={key} content={() => gemstoneTooltip(findGemstone(gemstoneId)) || "This gemstone is gone."}>
+            <span className='tip-word' tabIndex={0} style={gemstone ? { color: RARITY_COLORS[gemstone.rarity] } : undefined}>{parse(m[1], key + ".")}</span>
           </Tooltip>
         );
       } else if (itemId) {

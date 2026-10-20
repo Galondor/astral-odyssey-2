@@ -19,7 +19,7 @@ import {
   getConsumables,
   getKeyItemEffect,
 } from "../items/consumables";
-import { rollRegionLimit } from "./events";
+import { getRegion, REGIONS, rollRegionLimit } from "./events";
 import {
   SKILLS,
   getEquippedSkills,
@@ -133,7 +133,7 @@ export const scenes = {
           const p = getPlayer();
           return {
             title: "Travel",
-            subtitle: `${p ? p.region : "Unknown"}`,
+            subtitle: p ? REGIONS[getRegion(p)].name : "Unknown",
             description: "Venture out and face random events.",
             footer: "Cost 1 Stamina",
             ...(getKeyItemEffect(p, "compass") && p.regionLimit
@@ -261,7 +261,7 @@ export const scenes = {
           setPlayer({
             ...player,
             astra: player.astra - fare,
-            region: "Ashen Peaks",
+            region: "AshenPeaks",
             regionSteps: 0,
             regionLimit: rollRegionLimit(),
           });

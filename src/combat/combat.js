@@ -1,5 +1,5 @@
 import { getPlayer, setPlayer } from "../character/player";
-import { generateRandomSlotItem } from "../items/items";
+import { generateRandomGemstone, generateRandomSlotItem } from "../items/items";
 import { applyConsumable, getKeyItemEffect } from "../items/consumables";
 import {
   SKILLS,
@@ -66,7 +66,7 @@ const damageNumber = (amount, calculation, critical = false) =>
   `[red]{{${amount}|${critical ? "damage-critical" : "damage"}:${calculation.map(encodeURIComponent).join("~")}}}[/red]`;
 
 // Enemy template fields: see enemies.js. Anything missing falls back to the defaults below.
-export const startCombat = (template) => {
+export const startCombat = (template, { enemyFirst = false } = {}) => {
   enemy = {
     level: template.level || 1,
     attack: [1, 5],
@@ -104,8 +104,12 @@ export const startCombat = (template) => {
   const speed = Math.round(
     (p.stats?.speed || 0) * (1 + (fight.ab.speedMult || 0)),
   );
-  if (enemy.speed > speed) {
-    openingReplies.push(`The ${enemy.name} is faster and acts first!`);
+  if (enemyFirst || enemy.speed > speed) {
+    openingReplies.push(
+      enemyFirst
+        ? `The ${enemy.name} catches you and acts first!`
+        : `The ${enemy.name} is faster and acts first!`,
+    );
     const s = { ...p.stats };
     const outcome = enemyTurn(s, openingReplies);
     settle(outcome, p, s, openingReplies, {});
@@ -455,7 +459,7 @@ function enemyTurn(s, replies) {
 
 // ---- Outcomes ----
 
-function collapse(p, s, replies, patch) {
+export function collapse(p, s, replies, patch) {
   s.health = s.maxHealth;
   s.stamina = s.maxStamina;
   s.power = s.maxPower;
@@ -508,6 +512,11 @@ function winCombat(p, s, replies, patch) {
         `The ${enemy.name} dropped {{${item.name}|item:${item.id}}}!`,
       );
     }
+  }
+  if (Math.random() < 0.08 + luckBonus) {
+    const gemstone = generateRandomGemstone();
+    patch.gemstones = [...(p.gemstones || []), gemstone];
+    replies.push(`The ${enemy.name} dropped a {{${gemstone.name}|gemstone:${gemstone.id}}}!`);
   }
   setPlayer(patch);
   endCombat();

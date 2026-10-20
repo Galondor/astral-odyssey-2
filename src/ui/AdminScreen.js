@@ -10,17 +10,19 @@ const KINDS = {
   consumable: { label: "Consumable", options: Object.entries(CONSUMABLES).map(([k, v]) => [k, v.name]) },
   keyItem: { label: "Key item", options: Object.entries(KEY_ITEMS).map(([k, v]) => [k, v.name]) },
   gear: { label: "Random gear", options: GEAR_SLOT_TYPES.map((s) => [s, s]) },
+  gemstone: { label: "Random gemstone" },
 };
 
 // Collapses the picked rows into the attachments shape stored on a message.
 const buildAttachments = (rows) => {
-  const out = { astra: 0, materials: {}, consumables: {}, keyItems: {}, gear: [] };
+  const out = { astra: 0, materials: {}, consumables: {}, keyItems: {}, gear: [], gemstones: [] };
   for (const r of rows) {
     if (r.kind === "astra") out.astra += r.amount;
     else if (r.kind === "material") out.materials[r.key] = (out.materials[r.key] || 0) + r.amount;
     else if (r.kind === "consumable") out.consumables[r.key] = (out.consumables[r.key] || 0) + r.amount;
     else if (r.kind === "keyItem") out.keyItems[r.key] = true;
-    else out.gear.push({ slot: r.key, minRarity: r.minRarity, count: r.amount });
+    else if (r.kind === "gear") out.gear.push({ slot: r.key, minRarity: r.minRarity, count: r.amount });
+    else out.gemstones.push({ minRarity: r.minRarity, count: r.amount });
   }
   return out;
 };
@@ -196,7 +198,7 @@ const AdminScreen = () => {
                 ))}
               </select>
             )}
-            {kind === "gear" && (
+            {(kind === "gear" || kind === "gemstone") && (
               <select className='input-field' value={minRarity} onChange={(e) => setMinRarity(e.target.value)}>
                 {RARITY_NAMES.map((r, i) => (
                   <option key={r} value={i}>{r}+</option>

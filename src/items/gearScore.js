@@ -31,6 +31,8 @@ export const getItemGearScore = (item) => {
   if (!item || item.twoHandedOf) return 0;
   const weight = (stat) => GEAR_SCORE_STAT_WEIGHTS[stat] || 0;
   let raw = 0;
+  if (item.gemstone)
+    raw += item.gemstone.value * weight(item.gemstone.stat);
   if (item.mainStat) raw += item.mainStat.value * weight(item.mainStat.stat);
   for (const [k, v] of Object.entries(item.subStats || {})) raw += v * weight(k);
   const mult = (item.twoHanded ? GEAR_SCORE_TWO_HANDED_MULT : 1);

@@ -8,6 +8,7 @@ import Tooltip from "./ui/Tooltip";
 import { GLOSSARY } from "./ui/glossary";
 import { getPlayer, getSaveStatus, loadPlayer, subscribeSaveStatus, unloadPlayer } from "./character/player";
 import { getRep, getRepRank } from "./world/quests";
+import { getRegion, REGIONS } from "./world/events";
 import { getEnemy } from "./combat/combat";
 import { isAdmin, startInbox } from "./world/inbox";
 import { DEFAULT_SCREEN, SCREENS } from "./ui/screens";
@@ -144,7 +145,7 @@ function Game({ uid, onLogout }) {
               <span className='nav-item'>Lvl {player.level}</span>
             </Tooltip>
             <Tooltip content={GLOSSARY[player.region]}>
-              <span className='nav-item'>{player.region}</span>
+              <span className='nav-item'>{REGIONS[getRegion(player)].name}</span>
             </Tooltip>
             <Tooltip content={GLOSSARY.astra}>
               <span className='nav-item'>{player.astra} astra</span>

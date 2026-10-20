@@ -30,6 +30,8 @@ export const MATERIALS = {
   widow_heart: { name: "Widow's Heart", tier: "legendary", description: "Still twitching. Dropped by the Widow Queen." },
   infernal_heart: { name: "Infernal Heart", tier: "legendary", description: "Burns hot enough to melt steel. Dropped by the Infernal Drake." },
   wraith_crown: { name: "Wraith Crown", tier: "legendary", description: "A cold crown torn from the Wraith King." },
+  metal_scraps: { name: "Metal Scraps", tier: "common", description: "Bits of metal salvaged from various sources." },
+  leather: { name: "Leather", tier: "common", description: "Tanned hide, useful for crafting armor and gear." }
 };
 
 export const getMaterialCount = (player, key) => player?.materials?.[key] || 0;

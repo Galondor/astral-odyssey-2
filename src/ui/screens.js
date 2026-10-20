@@ -15,9 +15,15 @@ import {
   GEAR_TRADER_REFRESH_MS,
   getGearTraderStock,
   getSellPrice,
+  getGemstoneValue,
+  getGemstoneRemovalCost,
   itemComparisonTooltip,
   itemTooltip,
+  gemstoneTooltip,
+  removeGemstone,
+  socketGemstone,
   sellEquippedItem,
+  sellGemstone,
   sellInventoryItem,
   unequipItem,
 } from "../items/items";
@@ -385,6 +391,7 @@ const GearTraderScreen = ({ data, onChange }) => {
   }, []);
 
   const inventory = player.inventory || [];
+  const gemstones = player.gemstones || [];
   const equipped = Object.entries(player.equipment || {}).filter(
     ([, item]) => item && !item.twoHandedOf,
   );
@@ -439,10 +446,24 @@ const GearTraderScreen = ({ data, onChange }) => {
       </div>
       {tab === "sell" && (
         <div className='gear-trader-list'>
-          {!inventory.length && !equipped.length && (
-            <div className='equip-empty'>You have no gear to sell.</div>
+          {!inventory.length && !equipped.length && !gemstones.length && (
+            <div className='equip-empty'>You have no gear or gemstones to sell.</div>
           )}
           <div className='inventory-list'>
+            {gemstones.map((gemstone, index) => (
+              <Tooltip key={gemstone.id || index} content={gemstoneTooltip(gemstone)}>
+                <button
+                  type='button'
+                  className='inventory-item'
+                  onClick={() => act(sellGemstone, index)}
+                >
+                  <strong style={{ color: RARITY_COLORS[gemstone.rarity] }}>
+                    {gemstone.name}
+                  </strong>
+                  <span>Sell for {getGemstoneValue(gemstone) ?? 0} astra</span>
+                </button>
+              </Tooltip>
+            ))}
             {inventory.map((item, index) =>
               gearButton(
                 item,
@@ -572,19 +593,24 @@ const Equipment = ({ player, onChange, locked }) => {
 const INVENTORY_TABS = [
   { key: "gear", label: "Gear" },
   { key: "consumables", label: "Consumables" },
+  { key: "gemstones", label: "Gemstones" },
   { key: "materials", label: "Materials" },
   { key: "keyItems", label: "Key Items" },
 ];
 
 const Inventory = ({ player, onChange, locked }) => {
   const [tab, setTab] = useState("gear");
+  const [selectedGemstone, setSelectedGemstone] = useState(null);
+  const [gemstoneMessage, setGemstoneMessage] = useState("");
   const gear = player.inventory || [];
+  const gemstones = player.gemstones || [];
   const consumables = getConsumables(player);
   const keyItems = getKeyItems(player);
   const materials = getMaterials(player);
   const counts = {
     gear: gear.length,
     consumables: consumables.reduce((n, c) => n + c.count, 0),
+    gemstones: gemstones.length,
     materials: materials.reduce((n, m) => n + m.count, 0),
     keyItems: keyItems.length,
   };
@@ -597,6 +623,43 @@ const Inventory = ({ player, onChange, locked }) => {
     (player.unseenInventoryItems?.[category] || []).includes(key);
   const viewItem = (category, key) => {
     markInventoryItemViewed(category, key);
+    onChange();
+  };
+  const gemstoneTargets = [
+    ...SLOTS.filter((slot) => player.equipment?.[slot.key] && !player.equipment[slot.key].twoHandedOf)
+      .map((slot) => ({
+        target: { kind: "equipment", slotKey: slot.key },
+        label: slot.label,
+        item: player.equipment[slot.key],
+      })),
+    ...gear.map((item, index) => ({
+      target: { kind: "inventory", index },
+      label: "In pack",
+      item,
+    })),
+  ];
+  const applyGemstone = (target) => {
+    const result = socketGemstone(selectedGemstone, target);
+    if (result.ok) {
+      setSelectedGemstone(null);
+      setGemstoneMessage("Gemstone socketed.");
+    } else {
+      setGemstoneMessage(result.reason === "combat" ? "You can't change gemstones during combat." : "That gear can't accept a gemstone.");
+    }
+    onChange();
+  };
+  const extractGemstone = (target, gemstone) => {
+    const cost = getGemstoneRemovalCost(gemstone);
+    const result = removeGemstone(target);
+    setGemstoneMessage(
+      result.ok
+        ? `Gemstone removed for ${result.cost} astra.`
+        : result.reason === "combat"
+          ? "You can't change gemstones during combat."
+          : result.reason === "astra"
+            ? `You need ${cost} astra to remove this gemstone.`
+            : "That gemstone can't be removed.",
+    );
     onChange();
   };
   return (
@@ -694,6 +757,80 @@ const Inventory = ({ player, onChange, locked }) => {
                     </strong>
                   </button>
                 </Tooltip>
+              ))}
+            </div>
+          </>
+        )}
+        {tab === "gemstones" && (
+          <>
+            {locked && (
+              <div className='progression-locked'>
+                You can't socket or remove gemstones during combat.
+              </div>
+            )}
+            {gemstoneMessage && <div className='gemstone-message'>{gemstoneMessage}</div>}
+            {gemstones.length === 0 ? (
+              <div className='equip-empty'>You have no gemstones. Enemies may drop them.</div>
+            ) : (
+              <>
+                <div className='recipe-kind'>
+                  {selectedGemstone ? "Select gear to socket into" : "Select a gemstone to use"}
+                </div>
+                <div className='inventory-list'>
+                  {gemstones.map((gemstone) => (
+                    <Tooltip
+                      key={gemstone.id}
+                      onView={() => viewItem("gemstones", gemstone.id)}
+                      content={gemstoneTooltip(gemstone)}
+                    >
+                      <button
+                        type='button'
+                        className={`inventory-item ${selectedGemstone === gemstone.id ? "gemstone-selected" : ""}`}
+                        disabled={locked}
+                        onClick={() => {
+                          markInventoryItemViewed("gemstones", gemstone.id);
+                          setSelectedGemstone(selectedGemstone === gemstone.id ? null : gemstone.id);
+                          setGemstoneMessage("");
+                          onChange();
+                        }}
+                      >
+                        {isNew("gemstones", gemstone.id) && (
+                          <span className='inventory-new-dot' aria-label='New item' />
+                        )}
+                        <strong style={{ color: RARITY_COLORS[gemstone.rarity] }}>
+                          {gemstone.name}
+                        </strong>
+                      </button>
+                    </Tooltip>
+                  ))}
+                </div>
+              </>
+            )}
+            <div className='gemstone-targets'>
+              {gemstoneTargets.map(({ target, label, item }) => (
+                <div className='gemstone-target' key={`${target.kind}-${target.slotKey ?? target.index}`}>
+                  <span>{label}</span>
+                  <strong style={{ color: RARITY_COLORS[item.rarity] }}>{item.name}</strong>
+                  {item.gemstone ? (
+                    <button
+                      type='button'
+                      className='buttons gemstone-action'
+                      disabled={locked || (player.astra || 0) < getGemstoneRemovalCost(item.gemstone)}
+                      onClick={() => extractGemstone(target, item.gemstone)}
+                    >
+                      Remove ({getGemstoneRemovalCost(item.gemstone)} astra)
+                    </button>
+                  ) : (
+                    <button
+                      type='button'
+                      className='buttons gemstone-action'
+                      disabled={locked || !selectedGemstone}
+                      onClick={() => applyGemstone(target)}
+                    >
+                      Socket
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           </>
