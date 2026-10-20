@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CONSUMABLES, KEY_ITEMS } from "../items/consumables";
 import { GEAR_SLOT_TYPES, RARITY_NAMES } from "../items/items";
 import { MATERIALS } from "../items/materials";
+import { UNIQUES } from "../world/dungeonData";
 import { deleteBroadcast, describeAttachments, getBroadcasts, getDirectory, sendMessage } from "../world/inbox";
 
 const KINDS = {
@@ -11,12 +12,13 @@ const KINDS = {
   consumable: { label: "Consumable", options: Object.entries(CONSUMABLES).map(([k, v]) => [k, v.name]) },
   keyItem: { label: "Key item", options: Object.entries(KEY_ITEMS).map(([k, v]) => [k, v.name]) },
   gear: { label: "Random gear", options: GEAR_SLOT_TYPES.map((s) => [s, s]) },
+  unique: { label: "Unique item", options: Object.entries(UNIQUES).map(([k, v]) => [k, v.name]) },
   gemstone: { label: "Random gemstone" },
 };
 
 // Collapses the picked rows into the attachments shape stored on a message.
 const buildAttachments = (rows) => {
-  const out = { astra: 0, exp: 0, materials: {}, consumables: {}, keyItems: {}, gear: [], gemstones: [] };
+  const out = { astra: 0, exp: 0, materials: {}, consumables: {}, keyItems: {}, gear: [], uniques: [], gemstones: [] };
   for (const r of rows) {
     if (r.kind === "astra") out.astra += r.amount;
     else if (r.kind === "exp") out.exp += r.amount;
@@ -24,6 +26,7 @@ const buildAttachments = (rows) => {
     else if (r.kind === "consumable") out.consumables[r.key] = (out.consumables[r.key] || 0) + r.amount;
     else if (r.kind === "keyItem") out.keyItems[r.key] = true;
     else if (r.kind === "gear") out.gear.push({ slot: r.key, minRarity: r.minRarity, count: r.amount });
+    else if (r.kind === "unique") out.uniques.push({ id: r.key, count: r.amount });
     else out.gemstones.push({ minRarity: r.minRarity, count: r.amount });
   }
   return out;

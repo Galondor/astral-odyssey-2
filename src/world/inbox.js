@@ -2,7 +2,8 @@ import { get, onValue, push, ref, remove, runTransaction, set, update } from "fi
 import { db } from "../firebase";
 import { flushPlayer, getPlayer, setPlayer } from "../character/player";
 import { gainExp } from "../character/stats";
-import { addGemstone, addItem, generateRandomGemstone, generateRandomItem, GEAR_SLOT_TYPES, RARITY_NAMES } from "../items/items";
+import { addGemstone, addItem, createUniqueItem, generateRandomGemstone, generateRandomItem, GEAR_SLOT_TYPES, RARITY_NAMES } from "../items/items";
+import { UNIQUES } from "./dungeonData";
 import { CONSUMABLES, KEY_ITEMS, addConsumable, addKeyItem } from "../items/consumables";
 import { MATERIALS, addToMaterials } from "../items/materials";
 
@@ -11,8 +12,9 @@ import { MATERIALS, addToMaterials } from "../items/materials";
    inbox/{uid}/{id}      personal messages (admin-written)
    broadcasts/{id}       messages for every player (admin-written)
    inboxState/{uid}/{id} this player's { read, claimed, deleted } flags for either kind
- attachments: { astra, exp, materials: { key: n }, consumables: { key: n }, keyItems: { key: true }, gear: [{ slot, minRarity, count }], gemstones: [{ minRarity, count }] }
+ attachments: { astra, exp, materials: { key: n }, consumables: { key: n }, keyItems: { key: true }, gear: [{ slot, minRarity, count }], gemstones: [{ minRarity, count }], items: [item] }
  Gear is generated when claimed to match the claiming player's level; gemstones are generated at the selected minimum rarity.
+ `items` are exact gear pieces (marketplace purchases), written by players under rules in database.rules.json.
 */
 
 let state = { uid: null, admin: false, messages: [] };
@@ -32,17 +34,22 @@ export const normalizeAttachments = (a = {}) => ({
   consumables: Object.entries(a.consumables || {}).filter(([k, n]) => CONSUMABLES[k] && n > 0),
   keyItems: Object.keys(a.keyItems || {}).filter((k) => KEY_ITEMS[k]),
   gear: asList(a.gear).filter((g) => GEAR_SLOT_TYPES.includes(g.slot) && g.count > 0),
+  uniques: asList(a.uniques)
+    .filter((u) => UNIQUES[u.id] && Math.floor(Number(u.count)) > 0)
+    .map((u) => ({ id: u.id, count: Math.floor(Number(u.count)) })),
   gemstones: asList(a.gemstones)
     .filter((g) => Number.isFinite(Number(g.count)) && Math.floor(Number(g.count)) > 0)
     .map((g) => ({
       minRarity: Math.max(0, Math.min(RARITY_NAMES.length - 1, Math.floor(Number(g.minRarity) || 0))),
       count: Math.floor(Number(g.count)),
     })),
+  // Exact gear pieces (e.g. marketplace purchases), delivered as-is.
+  items: asList(a.items).filter((i) => i && typeof i === "object" && i.name && i.slot),
 });
 
 export const hasAttachments = (a) => {
   const n = normalizeAttachments(a);
-  return n.astra > 0 || n.exp > 0 || n.materials.length + n.consumables.length + n.keyItems.length + n.gear.length + n.gemstones.length > 0;
+  return n.astra > 0 || n.exp > 0 || n.materials.length + n.consumables.length + n.keyItems.length + n.gear.length + n.uniques.length + n.gemstones.length + n.items.length > 0;
 };
 
 export const hasUnclaimed = (msg) => !msg.claimed && hasAttachments(msg.attachments);
@@ -57,7 +64,9 @@ export const describeAttachments = (a) => {
     ...n.consumables.map(([k, c]) => `${c}× ${CONSUMABLES[k].name}`),
     ...n.keyItems.map((k) => `Key item: ${KEY_ITEMS[k].name}`),
     ...n.gear.map((g) => `${g.count}× random ${RARITY_NAMES[g.minRarity || 0]}+ ${g.slot}`),
+    ...n.uniques.map((u) => `${u.count}× Unique: ${UNIQUES[u.id].name}`),
     ...n.gemstones.map((g) => `${g.count}× random ${RARITY_NAMES[g.minRarity]}+ gemstone${g.count === 1 ? "" : "s"}`),
+    ...n.items.map((i) => `${i.rarity ? `${i.rarity} ` : ""}${i.name}`),
   ];
 };
 
@@ -146,12 +155,26 @@ function grant(a) {
       }
     }
   });
+  n.uniques.forEach((u) => {
+    for (let i = 0; i < u.count; i++) {
+      const item = createUniqueItem(UNIQUES[u.id], getPlayer()?.level || 1);
+      if (item) {
+        addItem(item);
+        lines.push(item.name);
+      }
+    }
+  });
   n.gemstones.forEach((g) => {
     for (let i = 0; i < g.count; i++) {
       const gemstone = generateRandomGemstone(g.minRarity);
       addGemstone(gemstone);
       lines.push(gemstone.name);
     }
+  });
+  n.items.forEach((item) => {
+    // The database drops empty objects, so restore the shapes items are expected to have.
+    addItem({ ...item, subStats: item.subStats || {}, ability: item.ability || null });
+    lines.push(item.name);
   });
   return lines;
 }
@@ -202,6 +225,7 @@ export async function sendMessage({ to, subject, body, attachments }) {
     ...(n.consumables.length ? { consumables: Object.fromEntries(n.consumables) } : {}),
     ...(n.keyItems.length ? { keyItems: Object.fromEntries(n.keyItems.map((k) => [k, true])) } : {}),
     ...(n.gear.length ? { gear: n.gear.map((g) => ({ slot: g.slot, minRarity: g.minRarity || 0, count: g.count })) } : {}),
+    ...(n.uniques.length ? { uniques: n.uniques } : {}),
     ...(n.gemstones.length ? { gemstones: n.gemstones } : {}),
   };
   const message = { subject: subject.trim(), body: body.trim(), from: "Game Master", sentAt: Date.now(), ...(Object.keys(clean).length ? { attachments: clean } : {}) };

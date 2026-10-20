@@ -116,6 +116,7 @@
 .panel h2, .combatant h3, .recipes h3, .equip-col h3 { color: #ffd866; margin: 4px 0 10px; }
 .panel.character-layout { max-width: none; margin: 0; padding: 32px; box-sizing: border-box; display: flex; flex-wrap: nowrap; gap: 16px; align-items: stretch; overflow: hidden; }
 .character-main { flex: 1 1 0; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; display: flex; flex-direction: column; font-size: 13px; padding-right: 10px;}
+.character-main > * { flex-shrink: 0; }
 .character-main h2 { font-size: 24px; margin: 0 0 4px; }
 .character-main h3 { font-size: 16px; margin: 12px 0 12px; }
 .character-main .bar { margin: 3px 0; }
@@ -196,6 +197,33 @@
 .recipe-note { min-height: 40px; padding-top: 8px; font-size: 14px; }
 .recipe.unaffordable { opacity: 0.55; }
 .recipe-astra { font-size: 13px; color: #aaa; margin-left: 8px; }
+
+.market-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+.market-filters .input-field { width: auto; flex: 0 1 auto; padding: 6px 8px; font-size: 13px; }
+.market-filters .market-search { flex: 1 1 220px; }
+.market-num { width: 100px !important; flex: 0 0 auto !important; padding: 6px 8px; font-size: 13px; }
+.market-check { display: flex; align-items: center; gap: 4px; font-size: 13px; color: #ccc; }
+.market-confirm { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; padding: 8px 10px; border: 1px solid #ffd866; border-radius: 6px; background: rgba(255, 216, 102, 0.08); text-align: left; }
+.market-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; align-content: start; }
+.market-card { display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 8px 10px; border: 1px solid #444; border-left: 3px solid var(--rarity); border-radius: 6px; background: #1a1a24; color: inherit; font: inherit; font-size: 13px; line-height: 1.3; cursor: pointer; transition: transform 0.1s, border-color 0.1s, box-shadow 0.1s; }
+.market-card:hover { border-color: var(--rarity); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); }
+.market-card.selected { border-color: #ffd866; box-shadow: 0 0 8px rgba(255, 216, 102, 0.35); }
+.market-card.dimmed { opacity: 0.6; }
+.market-card-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.market-card-sub { color: #999; font-size: 11px; }
+.market-card-stat { color: #ffd479; font-size: 12px; }
+.market-card-ability { color: #c9a0ff; font-size: 12px; }
+.market-card-footer { display: flex; justify-content: space-between; gap: 6px; margin-top: auto; padding-top: 4px; border-top: 1px solid #2c2c3a; font-size: 12px; }
+.market-card-seller { color: #aaa; text-overflow: ellipsis; white-space: nowrap; }
+.market-card-warn { color: #ff6b6b; font-size: 11px; }
+.market-filters-toggle { display: none; width: 100%; margin-bottom: 8px; }
+@media (max-width: 800px) {
+  .market-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .market-filters-toggle { display: block; }
+  .market-filters { display: none; flex-direction: column; align-items: stretch; padding: 8px; border: 1px solid #444; border-radius: 6px; background: #1a1a24; }
+  .market-filters.open { display: flex; }
+  .market-filters .input-field, .market-filters .market-search, .market-num { width: 100% !important; flex: 0 0 auto !important; box-sizing: border-box; }
+}
 
 .game-screen {
   background: #12121a;
@@ -526,3 +554,28 @@
   .combat-arena { flex-direction: row-reverse; }
   .game-screen { font-size: 14px; line-height: 1.35; }
 }
+
+/* Dungeons */
+.dungeon-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.dungeon-tabs .buttons.active { border-color: #ffd866; color: #ffd866; }
+.dungeon-offers { display: grid; gap: 12px; }
+.dungeon-card { border: 1px solid #444; border-radius: 6px; padding: 12px; }
+.dungeon-card h3 { margin: 0 0 6px; color: #ffd866; }
+.dungeon-card.cleared { opacity: 0.55; }
+.dungeon-rating { font-size: 0.9em; color: #aaa; margin-bottom: 6px; }
+.dungeon-boss, .unique-text { color: #ff2a2a; }
+.dungeon-warning { color: #ff7a7a; }
+.dungeon-rules { color: #bbb; font-size: 0.9em; }
+.dungeon-timer { font-weight: bold; margin-bottom: 8px; }
+.dungeon-timer.low { color: #ff2a2a; }
+.dungeon-stages { padding-left: 20px; margin: 0 0 10px; }
+.dungeon-stage.done { color: #6a6; text-decoration: line-through; }
+.dungeon-stage.current { color: #ffd866; font-weight: bold; }
+.dungeon-stage.todo { color: #888; }
+.dungeon-stage-kind { font-size: 0.75em; text-transform: uppercase; margin-right: 4px; }
+
+.panel.dungeons { max-width: none; margin: 0; }
+.dungeon-offers { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; }
+.dungeon-card { display: flex; flex-direction: column; gap: 6px; }
+.dungeon-card .buttons { margin-top: auto; }
+@media (max-width: 800px) { .dungeon-offers { grid-template-columns: 1fr; } }

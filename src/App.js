@@ -10,6 +10,7 @@ import { getPlayer, getSaveStatus, loadPlayer, subscribeSaveStatus, unloadPlayer
 import { getRep, getRepRank } from "./world/quests";
 import { getRegion, REGIONS } from "./world/events";
 import { getEnemy } from "./combat/combat";
+import { expireIfNeeded, isInDungeon } from "./world/dungeons";
 import { isAdmin, startInbox } from "./world/inbox";
 import { DEFAULT_SCREEN, SCREENS } from "./ui/screens";
 import {
@@ -78,7 +79,10 @@ function SaveStatus() {
 }
 
 function Game({ uid, onLogout }) {
-  const [sceneId, setSceneId] = useState(() => getPlayer() ? "menu" : "start");
+  const [sceneId, setSceneId] = useState(() => {
+    if (!getPlayer()) return "start";
+    return expireIfNeeded() || !isInDungeon() ? "menu" : "dungeon";
+  });
   const [messages, setMessages] = useState(() => initialMessages(sceneId));
   const [input, setInput] = useState("");
   const [viewOverride, setViewOverride] = useState(null);
@@ -94,6 +98,17 @@ function Game({ uid, onLogout }) {
     setViewOverride(null);
     setInput("");
   };
+
+  const goToScene = (id) => apply({ sceneId: id, replies: initialMessages(id).map((m) => m.text), clearLog: true });
+
+  // The dungeon timer runs out even while the player is idle
+  useEffect(() => {
+    const id = setInterval(() => {
+      const message = expireIfNeeded();
+      if (message) apply({ sceneId: "menu", replies: [message, ...initialMessages("menu").map((m) => m.text)], clearLog: true });
+    }, 1000);
+    return () => clearInterval(id);
+  });
 
   const send = (text) => {
     if (!text.trim()) return;
@@ -158,7 +173,7 @@ function Game({ uid, onLogout }) {
       <div className='App-body'>
         <nav className='sidebar'>
           {Object.entries(SCREENS).filter(([key, s]) => (!s.hideUnlessActive || key === sceneScreen) && (!s.adminOnly || isAdmin())).map(([key, s]) => {
-            const enabled = !!player && (s.link || key === sceneScreen);
+            const enabled = !!player && (s.link || key === sceneScreen) && (player.level || 1) >= (s.minLevel || 0);
             const badge = player && s.badge ? s.badge(player) : 0;
             const attention = s.hideUnlessActive && key !== activeScreen;
             return (
@@ -177,7 +192,7 @@ function Game({ uid, onLogout }) {
         </nav>
         <div className='game-content'>
           <div className='game-screen'>
-            <Screen messages={messages} data={screenData} player={player} inCombat={sceneScreen === "combat" || !!getEnemy()} onChange={() => setTick((t) => t + 1)} />
+            <Screen messages={messages} data={screenData} player={player} sceneId={sceneId} goToScene={goToScene} inCombat={sceneScreen === "combat" || !!getEnemy()} onChange={() => setTick((t) => t + 1)} />
           </div>
         <div className='game-controls'>
           {mode === INPUT_MODES[3] && (

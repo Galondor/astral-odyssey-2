@@ -460,6 +460,11 @@ function enemyTurn(s, replies) {
 // ---- Outcomes ----
 
 export function collapse(p, s, replies, patch) {
+  // Fights with their own rules (dungeons) decide what a defeat costs.
+  if (enemy?.onPlayerDefeat) {
+    enemy.onPlayerDefeat(p, s, patch, replies);
+    return;
+  }
   s.health = s.maxHealth;
   s.stamina = s.maxStamina;
   s.power = s.maxPower;
@@ -518,6 +523,7 @@ function winCombat(p, s, replies, patch) {
     patch.gemstones = [...(p.gemstones || []), gemstone];
     replies.push(`The ${enemy.name} dropped a {{${gemstone.name}|gemstone:${gemstone.id}}}!`);
   }
+  enemy.onDefeat?.(p, patch.stats || s, patch, replies);
   setPlayer(patch);
   endCombat();
 }

@@ -74,6 +74,7 @@ import {
   getActiveQuests,
   getObjective,
   getQuestBoard,
+  getQuestBoardRefreshMs,
   getQuestStatus,
   getQuestTier,
   getQuests,
@@ -86,8 +87,11 @@ import {
 } from "../world/quests";
 import Tooltip from "./Tooltip";
 import InboxScreen from "./InboxScreen";
+import MarketplaceScreen from "./MarketplaceScreen";
+import { MARKETPLACE_MIN_LEVEL } from "../world/marketplace";
 import AdminScreen from "./AdminScreen";
 import { getUnreadCount } from "../world/inbox";
+import { DUNGEON_MIN_LEVEL, describeOffer, formatTime, getBoard, getBoardRefreshMs, getRun, getStages, getTimeLeftMs } from "../world/dungeons";
 /*
  Game screens. A scene picks one with `screen: "<key>"` (and optional `screenData`); the sidebar can
  also open the ones with `link: true` at any time. To add a screen, add an entry here.
@@ -152,12 +156,105 @@ const Bar = ({ label, value, max, color }) => (
 
 const AdventureScreen = ({ messages }) => <Log messages={messages} />;
 
-const DungeonsScreen = () => (
-  <div className='panel'>
-    <h2>Dungeons</h2>
-    <p>Coming soon!</p>
-  </div>
+const useNow = (interval = 1000) => {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), interval);
+    return () => clearInterval(id);
+  }, [interval]);
+  return now;
+};
+
+const getGearTraderRefreshMs = () => GEAR_TRADER_REFRESH_MS - (Date.now() % GEAR_TRADER_REFRESH_MS);
+
+// Live mm:ss until the next refresh; calls onRollover when the window flips so the screen can reload its data.
+const Countdown = ({ getMs, onRollover }) => {
+  const [ms, setMs] = useState(getMs);
+  const last = useRef(ms);
+  const rolloverRef = useRef(onRollover);
+  rolloverRef.current = onRollover;
+  useEffect(() => {
+    const id = setInterval(() => {
+      const next = getMs();
+      if (next > last.current) rolloverRef.current?.();
+      last.current = next;
+      setMs(next);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [getMs]);
+  return <span>{formatTime(ms)}</span>;
+};
+
+const DungeonStages = ({ run }) => (
+  <ol className='dungeon-stages'>
+    {getStages(run).map((s, i) => (
+      <li key={i} className={`dungeon-stage ${s.state}`}>
+        <span className='dungeon-stage-kind'>{s.kind}</span> {s.label}
+      </li>
+    ))}
+  </ol>
 );
+
+const DungeonRunScreen = ({ messages, player }) => {
+  useNow();
+  const run = getRun(player);
+  if (!run) return <Log messages={messages} />;
+  return (
+    <div className='panel dungeon-run'>
+      <h2>{run.name}</h2>
+      <div className='dungeon-rating'>Dungeon Level {run.level}</div>
+      <div className={`dungeon-timer ${getTimeLeftMs(run) < 1 * 60 * 1000 ? "low" : ""}`}>Time left: {formatTime(getTimeLeftMs(run))}</div>
+      <DungeonStages run={run} />
+      <Log messages={messages} />
+    </div>
+  );
+};
+
+const DungeonsScreen = ({ player }) => {
+  const tab = "solo";
+  const now = useNow();
+  const run = getRun(player);
+  const board = tab === "solo" && player ? getBoard(player) : null;
+  return (
+    <div className='panel dungeons'>
+      <h2>Dungeons</h2>
+      <p className='dungeon-warning' role='status'>Dungeons are under construction. Entry is temporarily disabled.</p>
+      <div className='dungeon-tabs'>
+        {[["solo", "Solo Dungeons"], ["group", "Group Dungeons"]].map(([key, label]) => (
+          <button key={key} type='button' className={`buttons ${tab === key ? "active" : ""}`} disabled>{label}</button>
+        ))}
+      </div>
+      {tab === "group" && <p>Group dungeons are coming soon!</p>}
+      {tab === "solo" && (
+        <>
+          <p className='dungeon-rules'>
+            Three new dungeons appear every 30 minutes (next in {formatTime(getBoardRefreshMs())}). <br/>Once you enter, you cannot leave or visit town. You have 5 minutes to clear it.
+          </p>
+          {run && <p className='dungeon-warning'>You are inside {run.name}. Time left: {formatTime(getTimeLeftMs(run))}. Use the Dungeon tab to continue.</p>}
+          <div className='dungeon-offers' data-now={now}>
+            {board?.offers.map((offer) => {
+              const info = describeOffer(offer);
+              return (
+                <div key={offer.id} className={`dungeon-card ${offer.cleared ? "cleared" : ""}`}>
+                  <h3>{info.type.name}</h3>
+                  <div className='dungeon-rating'>Dungeon Level {offer.level}</div>
+                  <p>{info.type.description}</p>
+                  <div>Challenges: {info.challenges.join(", ")}</div>
+                  <div>Elite: {info.elite}</div>
+                  <div>Boss: <span className='dungeon-boss'>{info.boss}</span></div>
+                  <div>Unique drop: <span className='unique-text'>{info.unique?.name}</span></div>
+                  <button type='button' className='buttons' disabled>
+                    {offer.cleared ? "Cleared" : "Under Construction"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
 
 const CombatScreen = ({ messages, data, player }) => {
   const { enemy, stats, defending, playerStatuses = [] } = data || {};
@@ -350,7 +447,7 @@ const CraftingScreen = ({ data, onChange }) => {
 };
 
 const GearTraderScreen = ({ data, onChange }) => {
-  const [tab, setTab] = useState("sell");
+  const [tab, setTab] = useState("sellGear");
   const [note, setNote] = useState("");
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -425,10 +522,13 @@ const GearTraderScreen = ({ data, onChange }) => {
       <h3>
         Gear Trader{" "}
         <span className='recipe-astra'>{player.astra || 0} astra</span>
+        {" "}
+        <span className='recipe-astra'>New stock in <Countdown getMs={getGearTraderRefreshMs} onRollover={onChange} /></span>
       </h3>
       <div className='inventory-tabs' role='tablist' aria-label='Gear trader'>
         {[
-          ["sell", "Sell Gear"],
+          ["sellGear", "Sell Gear"],
+          ["sellGems", "Sell Gems"],
           ["buyback", "Buy Back"],
           ["buy", "Buy Gear"],
         ].map(([key, label]) => (
@@ -444,26 +544,12 @@ const GearTraderScreen = ({ data, onChange }) => {
           </button>
         ))}
       </div>
-      {tab === "sell" && (
+      {tab === "sellGear" && (
         <div className='gear-trader-list'>
-          {!inventory.length && !equipped.length && !gemstones.length && (
-            <div className='equip-empty'>You have no gear or gemstones to sell.</div>
+          {!inventory.length && !equipped.length && (
+            <div className='equip-empty'>You have no gear to sell.</div>
           )}
           <div className='inventory-list'>
-            {gemstones.map((gemstone, index) => (
-              <Tooltip key={gemstone.id || index} content={gemstoneTooltip(gemstone)}>
-                <button
-                  type='button'
-                  className='inventory-item'
-                  onClick={() => act(sellGemstone, index)}
-                >
-                  <strong style={{ color: RARITY_COLORS[gemstone.rarity] }}>
-                    {gemstone.name}
-                  </strong>
-                  <span>Sell for {getGemstoneValue(gemstone) ?? 0} astra</span>
-                </button>
-              </Tooltip>
-            ))}
             {inventory.map((item, index) =>
               gearButton(
                 item,
@@ -490,6 +576,29 @@ const GearTraderScreen = ({ data, onChange }) => {
                 true,
               ),
             )}
+          </div>
+        </div>
+      )}
+      {tab === "sellGems" && (
+        <div className='gear-trader-list'>
+          {!gemstones.length && (
+            <div className='equip-empty'>You have no gems to sell.</div>
+          )}
+          <div className='inventory-list'>
+            {gemstones.map((gemstone, index) => (
+              <Tooltip key={gemstone.id || index} content={gemstoneTooltip(gemstone)}>
+                <button
+                  type='button'
+                  className='inventory-item'
+                  onClick={() => act(sellGemstone, index)}
+                >
+                  <strong style={{ color: RARITY_COLORS[gemstone.rarity] }}>
+                    {gemstone.name}
+                  </strong>
+                  <span>Sell for {getGemstoneValue(gemstone) ?? 0} astra</span>
+                </button>
+              </Tooltip>
+            ))}
           </div>
         </div>
       )}
@@ -1301,7 +1410,7 @@ const QuestBoardScreen = ({ onChange }) => {
           </div>
         </>
       )}
-      <div className='recipe-kind'>Available (new notices every 10 minutes)</div>
+      <div className='recipe-kind'>Available (new notices in <Countdown getMs={getQuestBoardRefreshMs} onRollover={onChange} />)</div>
       {!board.length && <div className='equip-empty'>No notices left right now.</div>}
       <div className='recipe-grid'>
         {board.map((q) => {
@@ -1402,7 +1511,7 @@ const QuestsScreen = ({ onChange }) => {
 
 export const SCREENS = {
   adventure: { label: "Adventure", link: true, component: AdventureScreen },
-  dungeons: { label: "Dungeons", link: true, component: DungeonsScreen },
+  dungeons: { label: "Dungeons", link: true, minLevel: DUNGEON_MIN_LEVEL, component: DungeonsScreen },
   character: { label: "Character", link: true, component: CharacterScreen },
   progression: {
     label: "Progression",
@@ -1424,6 +1533,7 @@ export const SCREENS = {
   },
   admin: { label: "Admin", link: true, adminOnly: true, component: AdminScreen },
   combat: { label: "Combat", component: CombatScreen, hideUnlessActive: true },
+  dungeonRun: { label: "Dungeon", component: DungeonRunScreen, hideUnlessActive: true },
   crafting: {
     label: "Workshop",
     component: CraftingScreen,
@@ -1433,6 +1543,12 @@ export const SCREENS = {
     label: "Gear Trader",
     component: GearTraderScreen,
     hideUnlessActive: true,
+  },
+  marketplace: {
+    label: "Marketplace",
+    component: MarketplaceScreen,
+    hideUnlessActive: true,
+    minLevel: MARKETPLACE_MIN_LEVEL,
   },
   questBoard: {
     label: "Quest Board",

@@ -1,7 +1,7 @@
 import { getPlayer, setPlayer } from "../character/player";
 import { recalculateStats } from "../character/stats";
 import { getEnemy } from "../combat/combat";
-import { ABILITIES, findAbility } from "../combat/abilities";
+import { ABILITIES, UNIQUE_ABILITIES, findAbility } from "../combat/abilities";
 import { getItemGearScore } from "./gearScore";
 
 /*
@@ -37,6 +37,7 @@ export const RARITY_COLORS = {
   Rare: "#0070dd",
   Epic: "#a335ee",
   Legendary: "#ff8000",
+  Unique: "#ff2a2a",
 };
 
 // T0 (common gray) up to T7 (red)
@@ -77,7 +78,7 @@ const GEMSTONES = {
 };
 
 const PERCENT_STATS = ["criticalHitChance", "evasion", "criticalDamage"];
-const STAT_LABELS = {
+export const STAT_LABELS = {
   resilience: "Resilience",
   agility: "Agility",
   vitality: "Vitality",
@@ -497,6 +498,64 @@ export const generateRandomItem = (slot, minRarity = 0) => {
   };
 };
 
+// Unique gear: a tier above Legendary with a fixed ability. Every main stat and substat rolls at T4 or better.
+const UNIQUE_MAIN_BONUS = 6;
+const UNIQUE_PRICE_MULT = 36;
+const UNIQUE_MIN_TIER = 4;
+const rollHighSubStat = (key, iLevel) => {
+  const cap = SUBSTAT_CAPS[key] * iLevel;
+  const isCrit = key === "criticalDamage";
+  const min = isCrit ? 0.01 : 1;
+  const max = isCrit ? Math.max(0.01, Math.ceil(cap * 100) / 100) : Math.max(1, Math.ceil(cap));
+  const clampValue = (v) => (isCrit ? round(Math.min(max, Math.max(min, v)), 2) : Math.min(max, Math.max(min, Math.round(v))));
+  for (let i = 0; i < 20; i++) {
+    const value = clampValue(min + (0.5 + Math.random() * 0.5) * (max - min));
+    if (rollTier(key, value, iLevel) >= UNIQUE_MIN_TIER) return value;
+  }
+  return max;
+};
+
+export const createUniqueItem = (def, iLevel = 1) => {
+  const config = SLOT_CONFIG[def?.slot];
+  const ability = UNIQUE_ABILITIES.find((a) => a.name === def?.ability);
+  if (!config || !ability) return null;
+  const level = Math.max(1, Math.round(iLevel));
+  const twoHanded = !!def.twoHanded;
+  const scale = twoHanded ? TWO_HANDED_MULT : 1;
+  const mainRoll = 3 + Math.floor(Math.random() * 3);
+  const mainStat = {
+    stat: def.stat,
+    tier: Math.round(((mainRoll - 1) / 4) * SUBSTAT_MAX_TIER),
+    value: Math.round((mainRoll + UNIQUE_MAIN_BONUS) * scale) + 5,
+  };
+  const subStats = {};
+  const subTiers = {};
+  for (const key of def.subStats || []) {
+    if (!SUBSTAT_CAPS[key]) continue;
+    const value = rollHighSubStat(key, level);
+    subTiers[key] = rollTier(key, value, level);
+    subStats[key] = scaleValue(key, value, scale);
+  }
+  const subValue = Object.entries(subStats).reduce((sum, [k, v]) => sum + v * SUBSTAT_PRICE[k], 0);
+  const price = Math.round((5 + level * 7 + mainStat.value * 2 + subValue) * UNIQUE_PRICE_MULT * config.priceMult);
+  return {
+    id: newId(),
+    name: def.name,
+    slot: def.slot,
+    twoHanded,
+    rarity: "Unique",
+    condition: "Perfect",
+    iLevel: level,
+    price,
+    description: "",
+    unique: def.id,
+    mainStat,
+    subStats,
+    subTiers,
+    ability: { name: ability.name, description: ability.description },
+  };
+};
+
 export const GEAR_SLOT_TYPES = Object.keys(SLOT_CONFIG);
 export const RARITY_NAMES = RARITIES.map((r) => r.name);
 
@@ -532,7 +591,7 @@ export const gemstoneTooltip = (gemstone) => {
   };
 };
 
-const formatValue = (stat, v) => {
+export const formatValue = (stat, v) => {
   const n = PERCENT_STATS.includes(stat)
     ? `${round(Math.abs(v) * 100, 1)}%`
     : Math.abs(v);
@@ -574,6 +633,7 @@ export const itemTooltip = (item, extra) => {
     slotLabel,
     item.twoHanded && "Two-handed",
     `Gear score ${getItemGearScore(item)}`,
+    item.originalOwner && `Original Owner: ${item.originalOwner}`,
   ].filter(Boolean);
   const abilityText = item.ability
     ? `${item.ability.name}: ${findAbility(item.ability)?.description || item.ability.description}`
@@ -677,7 +737,7 @@ export const getEquipLevel = (item) => {
   const level = (item?.iLevel || 1) - 1;
   return Math.min(
     100,
-    Math.max(1, level + (item?.ability ? 1 : 0) + (item?.rarity === "Legendary" ? 1 : 0)),
+    Math.max(1, level + (item?.ability ? 1 : 0) + (item?.rarity === "Legendary" || item?.rarity === "Unique" ? 1 : 0)),
   );
 };
 

@@ -20,7 +20,25 @@
     "inbox": {
       "$uid": {
         ".read": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).val() === true)",
-        ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+        ".write": "auth != null && root.child('admins').child(auth.uid).val() === true",
+        "$msgId": {
+          ".write": "auth != null && !data.exists() && newData.child('from').val() === 'Marketplace' && newData.child('listingId').isString() && root.child('marketplace').child(newData.child('listingId').val()).exists() && !newData.parent().parent().parent().child('marketplace').child(newData.child('listingId').val()).exists() && (($uid === auth.uid && $msgId === 'market-' + newData.child('listingId').val() && root.child('marketplace').child(newData.child('listingId').val()).child('sellerUid').val() !== auth.uid && newData.child('attachments/items/0/id').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/id').val() && newData.child('attachments/items/0/name').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/name').val() && newData.child('attachments/items/0/rarity').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/rarity').val() && newData.child('attachments/items/0/iLevel').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/iLevel').val() && newData.parent().parent().child(root.child('marketplace').child(newData.child('listingId').val()).child('sellerUid').val()).child('market-sale-' + newData.child('listingId').val()).exists()) || ($uid !== auth.uid && $uid === root.child('marketplace').child(newData.child('listingId').val()).child('sellerUid').val() && $msgId === 'market-sale-' + newData.child('listingId').val() && newData.child('attachments/astra').isNumber() && newData.child('attachments/astra').val() * 10 <= root.child('marketplace').child(newData.child('listingId').val()).child('price').val() * 9 && newData.child('attachments/astra').val() * 10 > root.child('marketplace').child(newData.child('listingId').val()).child('price').val() * 9 - 10 && newData.parent().parent().child(auth.uid).child('market-' + newData.child('listingId').val()).exists()))",
+          "attachments": {
+            "$kind": {
+              ".validate": "newData.parent().parent().child('from').val() !== 'Marketplace' || ($kind === 'astra' && $msgId.beginsWith('market-sale-')) || ($kind === 'items' && !$msgId.beginsWith('market-sale-'))",
+              "$index": {
+                ".validate": "newData.parent().parent().parent().child('from').val() !== 'Marketplace' || $kind !== 'items' || $index === '0'"
+              }
+            }
+          }
+        }
+      }
+    },
+    "marketplace": {
+      ".read": "auth != null",
+      "$listingId": {
+        ".write": "auth != null && ((!data.exists() && (!newData.exists() || newData.child('sellerUid').val() === auth.uid)) || (data.exists() && !newData.exists() && (data.child('sellerUid').val() === auth.uid || newData.parent().parent().child('inbox').child(auth.uid).child('market-' + $listingId).exists())))",
+        ".validate": "newData.hasChildren(['sellerUid', 'sellerName', 'price', 'listedAt', 'item']) && newData.child('sellerName').isString() && newData.child('price').isNumber() && newData.child('price').val() >= 1 && newData.child('price').val() <= 1000000000 && newData.child('price').val() % 1 === 0 && newData.child('listedAt').isNumber() && newData.child('item').hasChildren(['name', 'slot'])"
       }
     },
     "broadcasts": {

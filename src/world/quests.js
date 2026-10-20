@@ -101,6 +101,7 @@ const generateQuest = (tier, playerLevel) => {
 
 const BOARD_REFRESH_MS = 10 * 60 * 1000;
 const getBoardHour = () => Math.floor(Date.now() / BOARD_REFRESH_MS);
+export const getQuestBoardRefreshMs = () => (getBoardHour() + 1) * BOARD_REFRESH_MS - Date.now();
 
 // The tavern's offers for the current 10-minute window. Includes quests above the player's tier, shown locked.
 export const getQuestBoard = (player = getPlayer()) => {

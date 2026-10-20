@@ -101,9 +101,26 @@ const markDirty = () => {
   flushTimer = setTimeout(flushPlayer, FLUSH_DELAY_MS);
 };
 
+// Gear remembers the first player who owned it; stamped as it enters a player's inventory or equipment.
+const stampOwner = (item, owner) =>
+  item && typeof item === "object" && !item.twoHandedOf && !item.originalOwner && owner
+    ? { ...item, originalOwner: owner }
+    : item;
+
+const stampOwnership = (player, patch) => {
+  const owner = patch.name || player?.name;
+  if (!owner) return patch;
+  const out = { ...patch };
+  if (Array.isArray(patch.inventory)) out.inventory = patch.inventory.map((i) => stampOwner(i, owner));
+  if (patch.equipment && typeof patch.equipment === "object")
+    out.equipment = Object.fromEntries(Object.entries(patch.equipment).map(([k, i]) => [k, stampOwner(i, owner)]));
+  return out;
+};
+
 // Merge values into the saved player data.
 export const setPlayer = (patch) => {
   const player = getPlayer();
+  patch = stampOwnership(player, patch);
   const additions = getNewInventoryItems(player, patch);
   const unseenInventoryItems = { ...(player?.unseenInventoryItems || {}) };
   for (const [category, keys] of Object.entries(additions)) {
@@ -157,8 +174,22 @@ const pullPlayer = async (uid) => {
   return snap.exists();
 };
 
+// Stamps the owner onto gear saved before ownership was tracked.
+const backfillOwnership = () => {
+  const player = getPlayer();
+  if (!player?.name) return;
+  const missing = (i) => i && typeof i === "object" && !i.twoHandedOf && !i.originalOwner;
+  if ((player.inventory || []).some(missing) || Object.values(player.equipment || {}).some(missing))
+    setPlayer({ inventory: player.inventory || [], equipment: player.equipment || {} });
+};
+
 // One read per login. Unsynced local progress for the same user wins over the server copy.
 export const loadPlayer = async (uid) => {
+  await loadPlayerData(uid);
+  backfillOwnership();
+};
+
+const loadPlayerData = async (uid) => {
   const meta = getMeta();
   if (meta.uid === uid) {
     if (meta.dirty) await flushPlayer();

@@ -1,5 +1,6 @@
 import { Player, clearPlayer, getPlayer, setPlayer } from "../character/player";
 import { runTravelEvent } from "./events";
+import { expireIfNeeded, getDungeonOptions, getDungeonText, isInDungeon } from "./dungeons";
 import {
   attackRound,
   defendRound,
@@ -30,6 +31,7 @@ import { recalculateStats } from "../character/stats";
 import { getClassForStats } from "../character/classes";
 import { bankTransaction, getBank } from "./bank";
 import { getRep, getRepRank } from "./quests";
+import { MARKETPLACE_MIN_LEVEL, isMarketUnlocked } from "./marketplace";
 import {
   blackjackHit,
   blackjackStand,
@@ -178,7 +180,16 @@ export const scenes = {
         keywords: ["portal", "3"],
         next: "portal",
       },
-    ],
+    ].map((o) => ({ ...o, when: () => !isInDungeon() })),
+  },
+  dungeon: {
+    screen: "dungeonRun",
+    input: INPUT_MODES[0],
+    clearLog: true,
+    text: () => getDungeonText(),
+    get options() {
+      return getDungeonOptions();
+    },
   },
   portal: {
     input: INPUT_MODES[0],
@@ -340,17 +351,22 @@ export const scenes = {
       {
         label: "Marketplace",
         keywords: ["marketplace", "9"],
-        next: "marketplace",
+        tooltip: () => ({
+          title: "Marketplace",
+          description: `Buy and sell gear with other players. 10% tax on sales.${isMarketUnlocked() ? "" : `\nRequires level ${MARKETPLACE_MIN_LEVEL}.`}`,
+        }),
+        onSelect: () =>
+          isMarketUnlocked()
+            ? { next: "marketplace" }
+            : { reply: `The marketplace guards wave you off. Come back at level ${MARKETPLACE_MIN_LEVEL}.` },
       },
     ],
   },
   marketplace: {
-    input: INPUT_MODES[2],
+    screen: "marketplace",
+    input: INPUT_MODES[0],
     clearLog: true,
-    text: () => {
-      const p = getPlayer();
-      return `You have arrived at the marketplace.` + "\nComing Soon!";
-    },
+    text: "The marketplace bustles with adventurers trading gear. Browse listings, or put up your own spare gear for sale.",
     options: [
       { label: "Leave", keywords: ["leave", "1"], next: "town" },
     ],
@@ -503,7 +519,7 @@ export const scenes = {
     clearLog: true,
     text: () => {
       getGearTraderStock();
-      return "Welcome to the Gear Trader. Sell your spare equipment for half its value.";
+      return "Welcome to the Gear Trader. Sell your spare gear or gems for astra.";
     },
     options: [{ label: "Leave", keywords: ["leave", "1"], next: "town" }],
   },
@@ -777,7 +793,9 @@ function navigate(sceneId, result, fallbackNext) {
     if (replies.length === 0) replies.push(scenes[DYNAMIC_SCENE].text);
     return { sceneId: DYNAMIC_SCENE, replies, clearLog };
   }
-  const next = result.next || fallbackNext;
+  let next = result.next || fallbackNext;
+  // Inside a dungeon the town menu is locked, so every road back leads to the dungeon
+  if (next === "menu" && isInDungeon()) next = "dungeon";
   if (next && scenes[next]) {
     // keepLog moves between scenes of one screen (e.g. combat menus) without wiping or repeating the log
     if (!keepLog) replies.push(sceneText(next));
@@ -899,6 +917,8 @@ export function processForm(sceneId, values) {
 
 // Button presses go straight to the option that was clicked.
 export function processButton(sceneId, label) {
+  const expired = expireIfNeeded();
+  if (expired) return { sceneId: "menu", replies: [expired, sceneText("menu")], clearLog: true };
   const option = getVisibleOptions(scenes[sceneId]).find(
     (o) => o.label === label,
   );
@@ -908,6 +928,8 @@ export function processButton(sceneId, label) {
 
 // Reads typed input and decides the next scene. Returns { sceneId, replies }.
 export function processInput(sceneId, input) {
+  const expired = expireIfNeeded();
+  if (expired) return { sceneId: "menu", replies: [expired, sceneText("menu")], clearLog: true };
   const scene = scenes[sceneId];
   // "d100" is read as "d 100" so shorthand works without a space
   const text = input
