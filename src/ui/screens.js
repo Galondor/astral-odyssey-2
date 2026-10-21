@@ -502,14 +502,18 @@ const GearTraderScreen = ({ data, onChange }) => {
     label,
     key,
     onClick,
-    disabled = false,
+    unavailable = false,
     isEquipped = false,
   ) => (
-    <Tooltip key={key} content={itemComparisonTooltip(item, label)}>
+    <Tooltip
+      key={key}
+      content={itemComparisonTooltip(item, label)}
+      openOnClick={unavailable}
+    >
       <button
         type='button'
         className={`inventory-item ${isEquipped ? "equipped-gear" : ""}`}
-        disabled={disabled}
+        aria-disabled={unavailable || undefined}
         onClick={onClick}
       >
         <strong style={{ color: RARITY_COLORS[item.rarity] }}>

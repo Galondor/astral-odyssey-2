@@ -72,7 +72,7 @@ function resolve(content) {
 }
 
 /* Wraps a single element, showing a tooltip on hover/focus. Renders nothing extra if content is empty. */
-export default function Tooltip({ content, delay = 150, onView, children }) {
+export default function Tooltip({ content, delay = 150, onView, openOnClick = false, children }) {
   const [state, setState] = useState(null); // { data, x, y }
   const [pos, setPos] = useState(null);
   const tipRef = useRef(null);
@@ -145,7 +145,13 @@ export default function Tooltip({ content, delay = 150, onView, children }) {
       children.props.onBlur?.(e);
     },
     onClick: (e) => {
-      close();
+      if (openOnClick) {
+        const r = e.currentTarget.getBoundingClientRect();
+        anchor.current = { x: r.left, y: r.bottom };
+        open();
+      } else {
+        close();
+      }
       children.props.onClick?.(e);
     },
   });

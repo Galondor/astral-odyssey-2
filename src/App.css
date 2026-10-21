@@ -154,6 +154,7 @@
 .equip-count { font-size: 13px; color: #999; font-weight: normal; }
 .equip-slots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .equip-slot, .inventory-item { display: flex; flex-direction: column; gap: 0; text-align: left; padding: 3px 8px; background: #1b1b26; color: #ddd; border: 1px solid #3a3a4a; border-radius: 6px; font: inherit; cursor: pointer; }
+.gear-trader .inventory-item[aria-disabled='true'] { opacity: 0.5; cursor: not-allowed; }
 .equip-slot:disabled { cursor: default; opacity: 0.7; }
 .equip-slot.filled { border-color: #ffd866; }
 .inventory-item.too-high { border-color: #e03131; }
@@ -489,6 +490,8 @@
 
   .App-body { flex-direction: column; }
   .sidebar {
+    position: relative;
+    z-index: 1;
     width: auto !important;
     min-height: 0;
     flex-shrink: 1;
