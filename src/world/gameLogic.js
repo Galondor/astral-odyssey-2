@@ -301,7 +301,7 @@ export const scenes = {
     ],
   },
   town: {
-    input: INPUT_MODES[2],
+    input: INPUT_MODES[0],
     clearLog: true,
     text: () => {
       const p = getPlayer();

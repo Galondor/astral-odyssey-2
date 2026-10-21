@@ -25,6 +25,18 @@ export const CONSUMABLES = {
     heal: 0.9,
     price: 150,
   },
+  minorPowerPotion: {
+    name: "Power Potion",
+    description: "Restores 50% power.",
+    power: 0.5,
+    price: 120,
+  },
+  greaterPowerPotion: {
+    name: "Greater Power Potion",
+    description: "Restores 100% power.",
+    power: 1,
+    price: 260,
+  },
 };
 
 // Key items: { key: { name, description, effects } }. Effects are summed across owned items.
@@ -62,7 +74,10 @@ export const KEY_ITEMS = {
 };
 
 export const getKeyItemEffect = (player, name) =>
-  (player?.keyItems || []).reduce((sum, k) => sum + (KEY_ITEMS[k]?.effects?.[name] || 0), 0);
+  (player?.keyItems || []).reduce(
+    (sum, k) => sum + (KEY_ITEMS[k]?.effects?.[name] || 0),
+    0,
+  );
 
 export const consumableTooltip = (key, extra) => {
   const c = CONSUMABLES[key];
@@ -77,7 +92,9 @@ export const consumableTooltip = (key, extra) => {
 
 export const keyItemTooltip = (key) => {
   const k = KEY_ITEMS[key];
-  return k ? { title: k.name, subtitle: "Key Item", description: k.description } : null;
+  return k
+    ? { title: k.name, subtitle: "Key Item", description: k.description }
+    : null;
 };
 
 export const getConsumables = (player = getPlayer()) =>
@@ -86,7 +103,9 @@ export const getConsumables = (player = getPlayer()) =>
     .map(([key, count]) => ({ key, count, ...CONSUMABLES[key] }));
 
 export const getKeyItems = (player = getPlayer()) =>
-  (player?.keyItems || []).filter((key) => KEY_ITEMS[key]).map((key) => ({ key, ...KEY_ITEMS[key] }));
+  (player?.keyItems || [])
+    .filter((key) => KEY_ITEMS[key])
+    .map((key) => ({ key, ...KEY_ITEMS[key] }));
 
 export const addConsumable = (key, amount = 1) => {
   if (!CONSUMABLES[key]) return;
@@ -97,21 +116,47 @@ export const addConsumable = (key, amount = 1) => {
 
 export const addKeyItem = (key) => {
   const owned = getPlayer()?.keyItems || [];
-  if (KEY_ITEMS[key] && !owned.includes(key)) setPlayer({ keyItems: [...owned, key] });
+  if (KEY_ITEMS[key] && !owned.includes(key))
+    setPlayer({ keyItems: [...owned, key] });
 };
 
 // Applies one consumable to the stats copy `s` (mutated). Returns { ok, message, consumables }; nothing is used when ok is false.
 export function applyConsumable(player, key, s, { healScale = 1 } = {}) {
   const c = CONSUMABLES[key];
   const count = player.consumables?.[key] || 0;
-  if (!c || count < 1) return { ok: false, message: "You don't have that item." };
-  if (c.heal && s.health >= s.maxHealth) return { ok: false, message: "You're already at full health." };
-  const heal = (c.heal || 0) * (1 + getKeyItemEffect(player, "potionBonus")) * healScale;
-  const healed = Math.min(Math.floor(heal * s.maxHealth), s.maxHealth - s.health);
+  if (!c || count < 1)
+    return { ok: false, message: "You don't have that item." };
+  const canHeal = c.heal && s.health < s.maxHealth;
+  const canRestorePower = c.power && s.power < s.maxPower;
+  if (c.heal && !canHeal)
+    return { ok: false, message: "You're already at full health." };
+  if (c.power && !canRestorePower)
+    return { ok: false, message: "You're already at full power." };
+  const heal =
+    (c.heal || 0) * (1 + getKeyItemEffect(player, "potionBonus")) * healScale;
+  const healed = Math.min(
+    Math.floor(heal * s.maxHealth),
+    s.maxHealth - s.health,
+  );
+  const powerRestored = Math.min(
+    Math.floor((c.power || 0) * s.maxPower),
+    s.maxPower - s.power,
+  );
   s.health += healed;
+  s.power += powerRestored;
   const consumables = { ...player.consumables, [key]: count - 1 };
   if (count - 1 <= 0) delete consumables[key];
-  return { ok: true, message: `You use a ${c.name} and recover [green]${healed}[/green] health.`, consumables };
+  const recovery = [
+    healed > 0 && `[green]${healed}[/green] health`,
+    powerRestored > 0 && `[blue]${powerRestored}[/blue] power`,
+  ]
+    .filter(Boolean)
+    .join(" and ");
+  return {
+    ok: true,
+    message: `You use a ${c.name} and recover ${recovery}.`,
+    consumables,
+  };
 }
 
 // Uses a consumable outside of combat.

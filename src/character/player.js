@@ -1,5 +1,6 @@
 import { get, ref, remove, set } from "firebase/database";
 import { db } from "../firebase";
+import { publishLeaderboardEntry } from "../world/leaderboards";
 
 const PLAYER_KEY = "Player";
 const META_KEY = "PlayerMeta"; // { uid, dirty }
@@ -153,11 +154,12 @@ export const flushPlayer = async () => {
   const player = getPlayer();
   const playerRef = ref(db, `users/${meta.uid}/player`);
   flushing = (player ? set(playerRef, player) : remove(playerRef))
-    .then(() => {
+    .then(async () => {
       setMeta({ ...getMeta(), dirty: false, savedAt: Date.now() });
       // Lets admins find players by name; best effort.
       if (player?.name)
         set(ref(db, `directory/${meta.uid}`), { name: String(player.name), level: player.level || 1 }).catch(() => {});
+      await syncLeaderboard(meta.uid, player);
     })
     .catch(() => markDirty())
     .finally(() => {
@@ -187,6 +189,16 @@ const backfillOwnership = () => {
 export const loadPlayer = async (uid) => {
   await loadPlayerData(uid);
   backfillOwnership();
+  await syncLeaderboard(uid, getPlayer());
+};
+
+const syncLeaderboard = async (uid, player) => {
+  try {
+    if (player) await publishLeaderboardEntry(uid, player);
+    else await remove(ref(db, `leaderboardEntries/${uid}`));
+  } catch (error) {
+    console.warn("Couldn't update your leaderboard scores", error);
+  }
 };
 
 const loadPlayerData = async (uid) => {

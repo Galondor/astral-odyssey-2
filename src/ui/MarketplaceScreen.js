@@ -206,7 +206,7 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
   };
 
   const listingTooltip = (l) =>
-    itemComparisonTooltip(l.item, [`Price: ${l.price} astra`, `Seller: ${l.sellerName}`, `Listed ${new Date(l.listedAt).toLocaleString()}`].join(" • "));
+    itemComparisonTooltip(l.item, [`Price: ${l.price} astra`, `Seller: ${l.sellerName}`, `Listed ${new Date(l.listedAt).toLocaleString()} `].join(" • "));
 
   const parsedPrice = Number(price);
   const validPrice = Number.isInteger(parsedPrice) && parsedPrice >= 1;

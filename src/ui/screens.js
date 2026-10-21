@@ -67,6 +67,8 @@ import {
 import { STAT_INFO, getBaseStatPoints, getStatBreakdown } from "../character/stats";
 import { getRespecCost, getUnspentPoints, respecSkills, respecStatPoints, spendStatPoint } from "../character/progression";
 import RichText from "./RichText";
+import ChangelogScreen from "./ChangelogScreen";
+import LeaderboardScreen from "./LeaderboardScreen";
 import {
   MAX_ACTIVE_QUESTS,
   abandonQuest,
@@ -1532,6 +1534,8 @@ export const SCREENS = {
     badge: () => getUnreadCount(),
   },
   admin: { label: "Admin", link: true, adminOnly: true, component: AdminScreen },
+  leaderboards: { label: "Leaderboards", link: true, component: LeaderboardScreen },
+  changelog: { label: "Changelog", link: true, component: ChangelogScreen },
   combat: { label: "Combat", component: CombatScreen, hideUnlessActive: true },
   dungeonRun: { label: "Dungeon", component: DungeonRunScreen, hideUnlessActive: true },
   crafting: {

@@ -151,6 +151,13 @@ function Game({ uid, onLogout }) {
             <Tooltip content={{ title: player.name, subtitle: `Level ${player.level} ${player.class}`, description: `Health: ${player.stats?.health || 0}/${player.stats?.maxHealth || 0}\nStamina: ${player.stats?.stamina || 0}/${player.stats?.maxStamina || 0}\nGear score: ${player.stats?.gearScore || 0}\nReputation: ${getRepRank(getRep(player))} (${getRep(player)})`}}>
               <span className='nav-item'>{player.name}</span>
             </Tooltip>
+            {player.stats && (
+              <div className='nav-resources' role='group' aria-label='Player resources'>
+                <span>Health: {player.stats.health}/{player.stats.maxHealth}</span>
+                <span>Stamina: {player.stats.stamina}/{player.stats.maxStamina}</span>
+                <span>Power: {player.stats.power}/{player.stats.maxPower}</span>
+              </div>
+            )}
             <Tooltip content={{
               title: "Level",
               ...(player.stats?.exp != null && player.stats?.expToLevel != null
@@ -189,6 +196,7 @@ function Game({ uid, onLogout }) {
               </button>
             );
           })}
+          <span className='sidebar-version' aria-label='Game version'>v0.2.1.0</span>
         </nav>
         <div className='game-content'>
           <div className='game-screen'>

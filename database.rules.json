@@ -1,5 +1,28 @@
 {
   "rules": {
+    "leaderboardEntries": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid && ((!newData.exists() && !root.child('users').child($uid).child('player').exists()) || (newData.exists() && (!data.exists() || now - data.child('updatedAt').val() >= 1800000)))",
+        ".validate": "newData.hasChildren(['name', 'level', 'gearScore', 'astra', 'updatedAt']) && root.child('users').child($uid).child('player').exists()",
+        "name": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val() === root.child('users').child($uid).child('player/name').val()"
+        },
+        "level": {
+          ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() === (root.child('users').child($uid).child('player/level').exists() ? root.child('users').child($uid).child('player/level').val() : 1)"
+        },
+        "gearScore": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() === (root.child('users').child($uid).child('player/stats/gearScore').exists() ? root.child('users').child($uid).child('player/stats/gearScore').val() : 0)"
+        },
+        "astra": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() === ((root.child('users').child($uid).child('player/astra').exists() ? root.child('users').child($uid).child('player/astra').val() : 0) + (root.child('users').child($uid).child('player/bank/balance').exists() ? root.child('users').child($uid).child('player/bank/balance').val() : 0))"
+        },
+        "updatedAt": {
+          ".validate": "newData.isNumber() && newData.val() === now"
+        },
+        "$other": { ".validate": false }
+      }
+    },
     "users": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",

@@ -26,6 +26,11 @@
 .nav-title { font-weight: bold; font-size: 18px; color: #ffd866; letter-spacing: 1px; }
 .nav-info { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
 .nav-item { cursor: default; }
+.nav-resources { display: none; }
+
+@media (min-width: 1001px) {
+  .nav-resources { display: flex; align-items: center; gap: 12px; white-space: nowrap; font-size: 0.85em; }
+}
 
 .App-body {
   flex: 1;
@@ -66,6 +71,21 @@
 .spend-button:disabled { opacity: 0.35; cursor: not-allowed; border-color: #555; color: #888; }
 .spend-button:hover:not(:disabled) { background: #3a3420; }
 .sidebar-clear { margin-top: auto; border-color: #555; }
+.sidebar-version { margin-top: auto; padding-top: 12px; color: #aaa; font-size: 12px; text-align: left; }
+.changelog { text-align: left; }
+.changelog-content, .changelog-content * { text-align: left; }
+.changelog-content { line-height: 1.6; overflow-wrap: anywhere; }
+.changelog-content a { color: #ffd866; }
+.changelog-content pre, .changelog-content table { display: block; max-width: 100%; overflow-x: auto; }
+.changelog-content pre { padding: 12px; background: #1b1b26; border-radius: 6px; }
+.changelog-content th, .changelog-content td { padding: 6px 10px; border: 1px solid #333; }
+.changelog-content img { max-width: 100%; height: auto; }
+.leaderboards > p { color: #aaa; font-size: 13px; }
+.leaderboard-panel { overflow-x: auto; }
+.leaderboard-table { width: 100%; border-collapse: collapse; }
+.leaderboard-table caption { margin-bottom: 12px; font-weight: 700; }
+.leaderboard-table th, .leaderboard-table td { padding: 10px 12px; border-bottom: 1px solid #333; overflow-wrap: anywhere; }
+.leaderboard-self { background: #3a3420; color: #ffd866; }
 
 .buttons {
   cursor: pointer;
@@ -154,8 +174,8 @@
 .gemstone-target > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: normal; }
 .gemstone-action { padding: 3px 6px; font-size: 11px; }
 .gemstone-action:disabled { opacity: 0.45; cursor: not-allowed; }
-.inventory-tabs { display: flex; gap: 4px; margin-bottom: 8px; border-bottom: 1px solid #333; }
-.inventory-tab { background: none; color: #aaa; border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+.inventory-tabs { display: flex; gap: 4px; margin-bottom: 8px; border-bottom: 1px solid #333; overflow-x: auto; }
+.inventory-tab { flex-shrink: 0; white-space: nowrap; background: none; color: #aaa; border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
 .inventory-tab:hover { color: #fff; }
 .inventory-tab.active { color: #ffd866; background: #1b1b26; border-color: #3a3a4a; }
 .class-heading { display: inline-block; cursor: help; }
@@ -478,6 +498,7 @@
   }
   .sidebar-link { flex-shrink: 0; white-space: nowrap; padding: 10px 14px; }
   .sidebar-clear { margin-top: 0; margin-left: auto; }
+  .sidebar-version { flex-shrink: 0; align-self: center; margin-top: 0; padding: 0 8px; white-space: nowrap; }
 
   .game-content { padding: 8px; gap: 8px; }
   .game-screen { font-size: 16px; padding: 8px; }
