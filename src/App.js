@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import "./App.css";
 import { auth } from "./firebase";
@@ -27,6 +27,9 @@ import {
 function App() {
   // undefined = checking session, null = signed out, string = uid with data loaded
   const [uid, setUid] = useState(undefined);
+  const [loadError, setLoadError] = useState(null);
+  const [syncStatus, setSyncStatus] = useState(getSaveStatus);
+  useEffect(() => subscribeSaveStatus(() => setSyncStatus(getSaveStatus())), []);
 
   useEffect(
     () =>
@@ -35,10 +38,14 @@ function App() {
           setUid(null);
           return;
         }
+        setUid(undefined);
+        setLoadError(null);
         try {
           await loadPlayer(user.uid);
         } catch (e) {
           console.error("Failed to load player data", e);
+          setLoadError("Couldn't load your cloud save. Check your connection and try again.");
+          return;
         }
         setUid(user.uid);
       }),
@@ -46,10 +53,20 @@ function App() {
   );
 
   const logout = async () => {
-    await unloadPlayer();
-    await signOut(auth);
+    try {
+      await unloadPlayer();
+      await signOut(auth);
+    } catch (error) {
+      console.error("Couldn't save before signing out", error);
+      setLoadError("Your save wasn't confirmed. Reload to sync before signing out.");
+    }
   };
 
+  const blocked = loadError || (uid && (syncStatus.error || (syncStatus.offline && "Connection lost. Gameplay is paused until the cloud save can be synchronized.")));
+  if (blocked) return <div className='auth-page' role='alert'>
+    <p className='auth-subtitle'>{blocked}</p>
+    <button className='buttons' onClick={() => window.location.reload()}>Reload cloud save</button>
+  </div>;
   if (uid === undefined) return <div className='auth-page'><p className='auth-subtitle'>Loading...</p></div>;
   if (uid === null) return <AuthScreen />;
   return <Game key={uid} uid={uid} onLogout={logout} />;
@@ -62,7 +79,7 @@ function SaveStatus() {
     const id = setInterval(() => setTick((t) => t + 1), 15000);
     return () => clearInterval(id);
   }, []);
-  const { savedAt, dirty, saving } = getSaveStatus();
+  const { savedAt, dirty, saving, notice } = getSaveStatus();
   let text;
   if (saving) text = "Saving...";
   else if (!savedAt) text = dirty ? "Unsaved changes" : "Not saved yet";
@@ -73,19 +90,24 @@ function SaveStatus() {
   }
   return (
     <span className='nav-item save-status' title={savedAt ? `Last saved ${new Date(savedAt).toLocaleString()}` : undefined}>
-      {text}
+      {notice || text}
     </span>
   );
 }
 
 function Game({ uid, onLogout }) {
   const [sceneId, setSceneId] = useState(() => {
-    if (!getPlayer()) return "start";
+    if (!getPlayer() || getPlayer().needsNameChange) return "start";
+    if (!getPlayer().stats) return "createCharacter";
+    if (getEnemy()) return "combat";
     return expireIfNeeded() || !isInDungeon() ? "menu" : "dungeon";
   });
   const [messages, setMessages] = useState(() => initialMessages(sceneId));
   const [input, setInput] = useState("");
   const [viewOverride, setViewOverride] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const sidebarToggle = useRef(null);
+  const [sending, setSending] = useState(false);
   const [, setTick] = useState(0);
 
   useEffect(() => startInbox(uid, () => setTick((t) => t + 1)), [uid]);
@@ -110,9 +132,14 @@ function Game({ uid, onLogout }) {
     return () => clearInterval(id);
   });
 
-  const send = (text) => {
-    if (!text.trim()) return;
-    apply(processInput(sceneId, text));
+  const send = async (text) => {
+    if (!text.trim() || sending) return;
+    setSending(true);
+    try {
+      apply(await processInput(sceneId, text));
+    } finally {
+      setSending(false);
+    }
   };
 
   const pressButton = (label) => apply(processButton(sceneId, label));
@@ -141,6 +168,10 @@ function Game({ uid, onLogout }) {
   const activeScreen = SCREENS[viewOverride] ? viewOverride : sceneScreen;
   const Screen = SCREENS[activeScreen].component;
   const screenData = activeScreen === sceneScreen && scene.screenData ? scene.screenData() : undefined;
+  const closeSidebar = () => {
+    setSidebarOpen(false);
+    if (sidebarToggle.current?.getClientRects().length) sidebarToggle.current.focus();
+  };
 
   return (
     <div className='App'>
@@ -178,25 +209,47 @@ function Game({ uid, onLogout }) {
         </div>
       </header>
       <div className='App-body'>
-        <nav className='sidebar'>
-          {Object.entries(SCREENS).filter(([key, s]) => (!s.hideUnlessActive || key === sceneScreen) && (!s.adminOnly || isAdmin())).map(([key, s]) => {
-            const enabled = !!player && (s.link || key === sceneScreen) && (player.level || 1) >= (s.minLevel || 0);
-            const badge = player && s.badge ? s.badge(player) : 0;
-            const attention = s.hideUnlessActive && key !== activeScreen;
-            return (
-              <button
-                key={key}
-                type='button'
-                disabled={!enabled}
-                className={`sidebar-link ${key === activeScreen ? "active" : ""} ${s.hideUnlessActive ? "highlight" : ""} ${attention ? "attention" : ""}`}
-                onClick={() => setViewOverride(key === sceneScreen ? null : key)}
-              >
-                {s.label}
-                {badge > 0 && <span className='sidebar-badge'>{badge}</span>}
-              </button>
-            );
-          })}
-          <span className='sidebar-version' aria-label='Game version'>v0.2.1.0</span>
+        <nav className='sidebar' aria-label='Game navigation' onKeyDown={(event) => {
+          if (event.key === "Escape" && sidebarOpen) {
+            event.preventDefault();
+            closeSidebar();
+          }
+        }}>
+          <button
+            ref={sidebarToggle}
+            type='button'
+            className='sidebar-toggle'
+            aria-expanded={sidebarOpen}
+            aria-controls='sidebar-links'
+            onClick={() => setSidebarOpen((open) => !open)}
+          >
+            <span>Menu: {SCREENS[activeScreen].label}</span>
+            <span aria-hidden='true'>{sidebarOpen ? "-" : "+"}</span>
+          </button>
+          <div id='sidebar-links' className={`sidebar-links ${sidebarOpen ? "open" : ""}`}>
+            {Object.entries(SCREENS).filter(([key, s]) => (!s.hideUnlessActive || key === sceneScreen) && (!s.adminOnly || isAdmin())).map(([key, s]) => {
+              const enabled = !!player?.stats && !player.needsNameChange && (s.link || key === sceneScreen) && (player.level || 1) >= (s.minLevel || 0);
+              const badge = player && s.badge ? s.badge(player) : 0;
+              const attention = s.hideUnlessActive && key !== activeScreen;
+              return (
+                <button
+                  key={key}
+                  type='button'
+                  disabled={!enabled}
+                  aria-current={key === activeScreen ? "page" : undefined}
+                  className={`sidebar-link ${key === activeScreen ? "active" : ""} ${s.hideUnlessActive ? "highlight" : ""} ${attention ? "attention" : ""}`}
+                  onClick={() => {
+                    setViewOverride(key === sceneScreen ? null : key);
+                    closeSidebar();
+                  }}
+                >
+                  {s.label}
+                  {badge > 0 && <span className='sidebar-badge'>{badge}</span>}
+                </button>
+              );
+            })}
+            <span className='sidebar-version' aria-label='Game version'>v0.2.2.0</span>
+          </div>
         </nav>
         <div className='game-content'>
           <div className='game-screen'>
@@ -222,10 +275,11 @@ function Game({ uid, onLogout }) {
               <input
                 className='input-field'
                 value={input}
+                disabled={sending}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder='Type your action...'
               />
-              <button className='buttons input-button' type='submit'>Send</button>
+              <button className='buttons input-button' type='submit' disabled={sending}>Send</button>
             </form>
           )}
         </div>

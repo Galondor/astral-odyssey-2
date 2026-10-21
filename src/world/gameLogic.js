@@ -1,4 +1,4 @@
-import { Player, clearPlayer, getPlayer, setPlayer } from "../character/player";
+import { Player, getPlayer, savePlayerName, setPlayer } from "../character/player";
 import { runTravelEvent } from "./events";
 import { expireIfNeeded, getDungeonOptions, getDungeonText, isInDungeon } from "./dungeons";
 import {
@@ -744,7 +744,7 @@ export const scenes = {
           keywords: ["back", "1"],
           onSelect: () => ({ next: "combat", keepLog: true }),
         },
-        ...getConsumables().map((c) => ({
+        ...getConsumables().filter((c) => c.heal || c.power).map((c) => ({
           label: `${c.name} x${c.count}`,
           keywords: [c.name.toLowerCase()],
           tooltip: () => consumableTooltip(c.key, "Takes your turn"),
@@ -981,9 +981,11 @@ export function processInput(sceneId, input) {
     }
   }
   if (sceneId === "start") {
-    // Replace any existing player data with the new name
-    clearPlayer();
-    setPlayer({ name: input.trim() });
+    return savePlayerName(input).then((result) =>
+      result.ok
+        ? navigate(sceneId, { next: getPlayer()?.stats ? "menu" : "createCharacter", reply: result.message })
+        : { sceneId, replies: [result.message] },
+    );
   }
   return selectOption(sceneId, scene.options[0], input.trim());
 }

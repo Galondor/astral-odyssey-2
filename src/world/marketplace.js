@@ -1,10 +1,11 @@
-import { onValue, push, ref, runTransaction, set, update } from "firebase/database";
+import { get, onValue, push, ref } from "firebase/database";
 import { auth, db } from "../firebase";
-import { flushPlayer, getPlayer, setPlayer } from "../character/player";
+import { commitPlayerChange, getPlayer, setPlayer } from "../character/player";
 import { getEnemy } from "../combat/combat";
 import { RARITY_NAMES, SLOTS, STAT_LABELS, canEquip } from "../items/items";
 import { findAbility } from "../combat/abilities";
 import { getItemGearScore } from "../items/gearScore";
+import { CONSUMABLES } from "../items/consumables";
 
 /*
  Player marketplace. Listings live in the database so every player sees them:
@@ -31,7 +32,10 @@ const uid = () => auth.currentUser?.uid || null;
 export const getMyUid = uid;
 
 // The database drops empty objects and nulls, so restore the shape items normally have.
-const restoreItem = (item) => ({ ...item, subStats: item?.subStats || {}, ability: item?.ability || null });
+export const isConsumableListing = (item) => item?.kind === "consumable";
+const restoreItem = (item) => isConsumableListing(item)
+  ? item
+  : { ...item, subStats: item?.subStats || {}, ability: item?.ability || null };
 // The database rejects undefined values.
 const cleanItem = (item) => JSON.parse(JSON.stringify(item));
 
@@ -71,29 +75,51 @@ export async function listItem(index, priceInput, myListingCount = 0) {
   if (!price) return { ok: false, message: `Enter a whole price between 1 and ${MAX_PRICE.toLocaleString()} astra.` };
   if (myListingCount >= MAX_LISTINGS) return { ok: false, message: `You can only have ${MAX_LISTINGS} listings at a time.` };
   const inventory = [...(player.inventory || [])];
-  const item = inventory[index];
+  const consumable = typeof index === "string" && CONSUMABLES[index];
+  const item = consumable
+    ? { kind: "consumable", key: index, name: consumable.name }
+    : inventory[index];
   if (!item || item.twoHandedOf) return { ok: false, message: "That item is no longer in your inventory." };
+  if (consumable && !(player.consumables?.[index] > 0))
+    return { ok: false, message: "You no longer have that consumable." };
 
-  const listed = cleanItem({ ...item, originalOwner: item.originalOwner || player.name });
-  inventory.splice(index, 1);
-  // Take the item first so it can't be listed twice; give it back if the listing fails.
-  setPlayer({ inventory });
+  const listed = cleanItem(consumable ? item : { ...item, originalOwner: item.originalOwner || player.name });
+  const consumables = { ...(player.consumables || {}) };
+  if (consumable) {
+    consumables[index] -= 1;
+    if (!consumables[index]) delete consumables[index];
+  } else inventory.splice(index, 1);
   try {
-    await set(push(ref(db, "marketplace")), {
-      sellerUid: uid(),
-      sellerName: String(player.name),
-      price,
-      listedAt: Date.now(),
-      item: listed,
+    const listingRef = push(ref(db, "marketplace"));
+    await commitPlayerChange(() => {
+      if (JSON.stringify(getPlayer()) !== JSON.stringify(player))
+        throw new Error("Your inventory changed. Try again.");
+      setPlayer(consumable ? { consumables } : { inventory });
+      return { [`marketplace/${listingRef.key}`]: {
+        sellerUid: uid(),
+        sellerName: String(player.name),
+        price,
+        listedAt: Date.now(),
+        item: listed,
+      } };
     });
   } catch (e) {
     console.warn("Listing failed", e);
-    setPlayer({ inventory: [...(getPlayer()?.inventory || []), item] });
     return { ok: false, message: "Couldn't reach the marketplace. Try again." };
   }
-  await flushPlayer();
   return { ok: true, message: `Listed ${item.name} for ${price} astra. You'll receive ${getPayout(price)} astra after the ${getTax(price)} astra tax when it sells.` };
 }
+
+const returnItem = (item) => {
+  const player = getPlayer();
+  if (isConsumableListing(item)) {
+    const consumables = { ...(player.consumables || {}) };
+    consumables[item.key] = (consumables[item.key] || 0) + 1;
+    setPlayer({ consumables });
+  } else {
+    setPlayer({ inventory: [...(player.inventory || []), restoreItem(item)] });
+  }
+};
 
 // Takes down one of your listings and returns the item to your inventory.
 export async function cancelListing(listing) {
@@ -101,22 +127,20 @@ export async function cancelListing(listing) {
   if (!player) return { ok: false, message: "No character loaded." };
   if (getEnemy()) return { ok: false, message: "Finish your fight first." };
   if (!listing || listing.sellerUid !== uid()) return { ok: false, message: "That isn't your listing." };
-  let removed = null;
+  let removed;
   try {
-    await runTransaction(ref(db, `marketplace/${listing.id}`), (cur) => {
-      removed = null;
-      if (cur === null) return null;
-      if (cur.sellerUid !== uid()) return undefined;
-      removed = cur;
-      return null;
+    const snap = await get(ref(db, `marketplace/${listing.id}`));
+    removed = snap.val();
+    if (!removed?.item || removed.sellerUid !== uid())
+      return { ok: false, message: "That listing already sold." };
+    await commitPlayerChange(() => {
+      returnItem(removed.item);
+      return { [`marketplace/${listing.id}`]: null };
     });
   } catch (e) {
     console.warn("Cancel failed", e);
     return { ok: false, message: "Couldn't reach the marketplace. Try again." };
   }
-  if (!removed?.item) return { ok: false, message: "That listing already sold." };
-  setPlayer({ inventory: [...(getPlayer()?.inventory || []), restoreItem(removed.item)] });
-  await flushPlayer();
   return { ok: true, message: `${removed.item.name} returned to your inventory.` };
 }
 
@@ -143,7 +167,7 @@ export async function buyListing(listing) {
       from: SENDER,
       sentAt: now,
       listingId: listing.id,
-      attachments: { items: [item] },
+      attachments: isConsumableListing(item) ? { consumables: { [item.key]: 1 } } : { items: [item] },
     },
     [`inbox/${listing.sellerUid}/market-sale-${listing.id}`]: {
       subject: `Sold: ${item.name}`,
@@ -155,13 +179,16 @@ export async function buyListing(listing) {
     },
   };
   try {
-    await update(ref(db), writes);
+    await commitPlayerChange(() => {
+      const current = getPlayer();
+      if ((current?.astra || 0) < price) throw new Error("Not enough astra.");
+      setPlayer({ astra: current.astra - price });
+      return writes;
+    });
   } catch (e) {
     console.warn("Purchase failed", e);
     return { ok: false, message: "Someone else bought that first, or the market is unreachable." };
   }
-  setPlayer({ astra: (getPlayer()?.astra || 0) - price });
-  await flushPlayer();
   return { ok: true, message: `Bought ${item.name} for ${price} astra. It's been mailed to your inbox.` };
 }
 
@@ -190,6 +217,7 @@ export const SORTS = [
 ];
 
 export const DEFAULT_FILTERS = {
+  kind: "",
   query: "",
   slot: "",
   rarity: "",
@@ -218,6 +246,8 @@ const searchText = (listing) => {
   const slot = MARKET_SLOTS.find((s) => s.type === item.slot)?.label || item.slot;
   return [
     item.name,
+    isConsumableListing(item) ? "consumable" : "gear",
+    isConsumableListing(item) && CONSUMABLES[item.key]?.description,
     item.rarity,
     item.condition,
     slot,
@@ -243,11 +273,12 @@ export const filterListings = (listings, f, level = getPlayer()?.level || 1) => 
   const minStat = num(f.minStat);
   return listings.filter((l) => {
     const { item } = l;
+    if (f.kind && (isConsumableListing(item) ? "consumable" : "gear") !== f.kind) return false;
     if (f.slot && item.slot !== f.slot) return false;
     if (f.rarity && item.rarity !== f.rarity) return false;
     if (minPrice !== null && l.price < minPrice) return false;
     if (maxPrice !== null && l.price > maxPrice) return false;
-    if (f.usable && !canEquip(item, level)) return false;
+    if (f.usable && !isConsumableListing(item) && !canEquip(item, level)) return false;
     if (f.ability === "__any" && !item.ability) return false;
     if (f.ability === "__none" && item.ability) return false;
     if (f.ability && !f.ability.startsWith("__") && item.ability?.name !== f.ability) return false;

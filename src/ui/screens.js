@@ -3,6 +3,7 @@ import {
   getInventoryItemKey,
   getPlayer,
   markInventoryItemViewed,
+  savePlayerName,
   setPlayer,
 } from "../character/player";
 import {
@@ -713,6 +714,10 @@ const Inventory = ({ player, onChange, locked }) => {
   const [tab, setTab] = useState("gear");
   const [selectedGemstone, setSelectedGemstone] = useState(null);
   const [gemstoneMessage, setGemstoneMessage] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [consumableMessage, setConsumableMessage] = useState("");
+  const [savingName, setSavingName] = useState(false);
   const gear = player.inventory || [];
   const gemstones = player.gemstones || [];
   const consumables = getConsumables(player);
@@ -727,8 +732,26 @@ const Inventory = ({ player, onChange, locked }) => {
   };
   const use = (key) => {
     markInventoryItemViewed("consumables", key);
-    drinkConsumable(key);
+    const result = drinkConsumable(key);
+    setConsumableMessage(result.message);
+    if (result.requiresNameChange) {
+      setNewName("");
+      setRenaming(true);
+    }
     onChange();
+  };
+  const rename = async (e) => {
+    e.preventDefault();
+    if (savingName || locked) return;
+    setSavingName(true);
+    try {
+      const result = await savePlayerName(newName);
+      setConsumableMessage(result.message);
+      if (result.ok) setRenaming(false);
+      onChange();
+    } finally {
+      setSavingName(false);
+    }
   };
   const isNew = (category, key) =>
     (player.unseenInventoryItems?.[category] || []).includes(key);
@@ -841,6 +864,17 @@ const Inventory = ({ player, onChange, locked }) => {
         )}
         {tab === "consumables" && (
           <>
+            {consumableMessage && <div role='status'>{consumableMessage}</div>}
+            {renaming && (
+              <form className='input-form' onSubmit={rename}>
+                <label>
+                  New character name
+                  <input className='input-field' value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={64} disabled={savingName || locked} autoFocus />
+                </label>
+                <button type='submit' className='buttons' disabled={savingName || locked}>Save name</button>
+                <button type='button' className='buttons' disabled={savingName} onClick={() => setRenaming(false)}>Cancel</button>
+              </form>
+            )}
             {consumables.length === 0 && (
               <div className='equip-empty'>You have no consumables.</div>
             )}
@@ -856,7 +890,7 @@ const Inventory = ({ player, onChange, locked }) => {
                 >
                   <button
                     type='button'
-                    disabled={locked}
+                    disabled={locked || savingName}
                     className='inventory-item'
                     onClick={() => use(c.key)}
                   >
@@ -1040,9 +1074,12 @@ const statTooltip = (breakdown, keys) => {
   return { description: STAT_INFO[keys[0]].description, sections };
 };
 
-const CharacterScreen = ({ player: initial, inCombat }) => {
+const CharacterScreen = ({ player: initial, inCombat, onChange }) => {
   const [player, setPlayerState] = useState(initial);
-  const refresh = () => setPlayerState(getPlayer());
+  const refresh = () => {
+    setPlayerState(getPlayer());
+    onChange?.();
+  };
   if (!player) return <div className='panel'>No character yet.</div>;
   const s = player.stats || {};
   const rows = [

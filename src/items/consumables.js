@@ -15,15 +15,15 @@ export const CONSUMABLES = {
   },
   healthPotion: {
     name: "Health Potion",
-    description: "Restores 60% health.",
-    heal: 0.6,
+    description: "Restores 50% health.",
+    heal: 0.5,
     price: 70,
   },
   greaterPotion: {
     name: "Greater Health Potion",
-    description: "Restores 90% health.",
-    heal: 0.9,
-    price: 150,
+    description: "Restores 75% health.",
+    heal: 0.75,
+    price: 140,
   },
   minorPowerPotion: {
     name: "Power Potion",
@@ -36,6 +36,10 @@ export const CONSUMABLES = {
     description: "Restores 100% power.",
     power: 1,
     price: 260,
+  },
+  elixirOfNameChanging: {
+    name: "Elixir of Name Changing",
+    description: "Allows you to change your character's name.",
   },
 };
 
@@ -86,7 +90,7 @@ export const consumableTooltip = (key, extra) => {
     title: c.name,
     subtitle: "Consumable",
     description: c.description,
-    footer: [extra, `Value: ${c.price}`].filter(Boolean).join(" • "),
+    footer: [extra, c.price != null && `Value: ${c.price}`].filter(Boolean).join(" • "),
   };
 };
 
@@ -126,6 +130,8 @@ export function applyConsumable(player, key, s, { healScale = 1 } = {}) {
   const count = player.consumables?.[key] || 0;
   if (!c || count < 1)
     return { ok: false, message: "You don't have that item." };
+  if (key === "elixirOfNameChanging")
+    return { ok: false, message: "Use this elixir from your inventory outside combat to choose a new name." };
   const canHeal = c.heal && s.health < s.maxHealth;
   const canRestorePower = c.power && s.power < s.maxPower;
   if (c.heal && !canHeal)
@@ -162,6 +168,11 @@ export function applyConsumable(player, key, s, { healScale = 1 } = {}) {
 // Uses a consumable outside of combat.
 export function drinkConsumable(key) {
   const p = getPlayer();
+  if (key === "elixirOfNameChanging") {
+    return p?.consumables?.[key] > 0
+      ? { ok: true, requiresNameChange: true, message: "Choose your new name. The elixir is used only after it is saved." }
+      : { ok: false, message: "You don't have that item." };
+  }
   const s = { ...p.stats };
   const result = applyConsumable(p, key, s);
   if (result.ok) setPlayer({ stats: s, consumables: result.consumables });

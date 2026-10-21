@@ -20,6 +20,7 @@ export const DUNGEON_REFRESH_MS = 30 * 60 * 1000;
 export const DUNGEON_TIME_LIMIT_MS = 5 * 60 * 1000;
 export const DUNGEON_MIN_LEVEL = 10;
 export const DUNGEON_MAX_LEVEL = 100;
+export const NAME_ELIXIR_DROP_CHANCE = 0.05;
 const OFFER_COUNT = 3;
 const BASIC_COUNT = 3;
 const SWAP_CHANCE = 0.3;
@@ -277,6 +278,12 @@ function onFightWon(p, s, patch, replies, template) {
     return;
   }
   patch.dungeon = null;
+  if (Math.random() < NAME_ELIXIR_DROP_CHANCE) {
+    const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
+    consumables.elixirOfNameChanging = (consumables.elixirOfNameChanging || 0) + 1;
+    patch.consumables = consumables;
+    replies.push("The boss drops an Elixir of Name Changing!");
+  }
   const astra = Math.round(run.level * 45);
   patch.astra = (patch.astra ?? p.astra ?? 0) + astra;
   const board = p.dungeonBoard;

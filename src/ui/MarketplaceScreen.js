@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getPlayer } from "../character/player";
 import { RARITY_COLORS, STAT_LABELS, canEquip, formatValue, getEquipLevel, itemComparisonTooltip, itemTooltip } from "../items/items";
 import { getItemGearScore } from "../items/gearScore";
+import { consumableTooltip, getConsumables } from "../items/consumables";
 import {
   DEFAULT_FILTERS,
   MARKET_RARITIES,
@@ -18,6 +19,7 @@ import {
   getPayout,
   getTax,
   isMarketUnlocked,
+  isConsumableListing,
   listItem,
   sortListings,
   subscribeListings,
@@ -45,12 +47,12 @@ const ItemCard = ({ item, tooltip, selected, dimmed, onClick, children }) => (
         {item.name}
       </strong>
       <span className='market-card-sub'>
-        {item.rarity} {slotLabel(item)}
+        {isConsumableListing(item) ? "Consumable" : `${item.rarity} ${slotLabel(item)}`}
         {item.twoHanded ? " • Two-handed" : ""}
       </span>
-      <span className='market-card-sub'>
+      {!isConsumableListing(item) && <span className='market-card-sub'>
         iLvl {item.iLevel || 1} • Equip {getEquipLevel(item)} • GS {getItemGearScore(item)}
-      </span>
+      </span>}
       {item.mainStat?.stat && (
         <span className='market-card-stat'>
           {formatValue(item.mainStat.stat, item.mainStat.value)} {STAT_LABELS[item.mainStat.stat] || item.mainStat.stat}
@@ -64,6 +66,16 @@ const ItemCard = ({ item, tooltip, selected, dimmed, onClick, children }) => (
 
 const countActiveFilters = (filters) =>
   Object.keys(DEFAULT_FILTERS).filter((k) => k !== "sort" && filters[k] !== DEFAULT_FILTERS[k]).length;
+
+const KindFilter = ({ filters, setFilters }) => (
+  <select className='input-field' value={filters.kind} aria-label='Item type' onChange={(e) => setFilters({
+    ...filters, kind: e.target.value, slot: "", rarity: "", ability: "", stat: "", minStat: "",
+  })}>
+    <option value=''>Gear and consumables</option>
+    <option value='gear'>Gear</option>
+    <option value='consumable'>Consumables</option>
+  </select>
+);
 
 // On small screens the whole bar collapses behind a toggle button (see .market-filters-toggle in App.css).
 const Filters = ({ filters, setFilters, abilities }) => {
@@ -81,25 +93,26 @@ const Filters = ({ filters, setFilters, abilities }) => {
       Search &amp; Filters{active ? ` (${active})` : ""} {open ? "▴" : "▾"}
     </button>
     <div className={`market-filters ${open ? "open" : ""}`}>
+      <KindFilter filters={filters} setFilters={setFilters} />
       <input className='input-field market-search' placeholder='Search name, ability, stat, seller...' value={filters.query} onChange={set("query")} />
       <select className='input-field' value={filters.sort} onChange={set("sort")} aria-label='Sort'>
         {SORTS.map(([k, label]) => (
           <option key={k} value={k}>{label}</option>
         ))}
       </select>
-      <select className='input-field' value={filters.slot} onChange={set("slot")} aria-label='Slot'>
+      <select className='input-field' value={filters.slot} onChange={set("slot")} aria-label='Slot' disabled={filters.kind === "consumable"}>
         <option value=''>Any slot</option>
         {MARKET_SLOTS.map((s) => (
           <option key={s.type} value={s.type}>{s.label}</option>
         ))}
       </select>
-      <select className='input-field' value={filters.rarity} onChange={set("rarity")} aria-label='Rarity'>
+      <select className='input-field' value={filters.rarity} onChange={set("rarity")} aria-label='Rarity' disabled={filters.kind === "consumable"}>
         <option value=''>Any rarity</option>
         {MARKET_RARITIES.map((r) => (
           <option key={r} value={r}>{r}</option>
         ))}
       </select>
-      <select className='input-field' value={filters.ability} onChange={set("ability")} aria-label='Ability'>
+      <select className='input-field' value={filters.ability} onChange={set("ability")} aria-label='Ability' disabled={filters.kind === "consumable"}>
         <option value=''>Any / no ability</option>
         <option value='__any'>Has an ability</option>
         <option value='__none'>No ability</option>
@@ -107,7 +120,7 @@ const Filters = ({ filters, setFilters, abilities }) => {
           <option key={a} value={a}>{a}</option>
         ))}
       </select>
-      <select className='input-field' value={filters.stat} onChange={set("stat")} aria-label='Stat'>
+      <select className='input-field' value={filters.stat} onChange={set("stat")} aria-label='Stat' disabled={filters.kind === "consumable"}>
         <option value=''>Any stat</option>
         {MARKET_STATS.map((s) => (
           <option key={s.key} value={s.key}>{s.label}</option>
@@ -159,7 +172,10 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
   const abilities = useMemo(() => getAbilityNames(all), [all]);
   const shown = useMemo(() => sortListings(filterListings(all, filters, player.level || 1), filters.sort), [all, filters, player.level]);
   const selected = all.find((l) => l.id === selectedId) || null;
-  const inventory = player.inventory || [];
+  const inventory = [
+    ...(player.inventory || []),
+    ...getConsumables(player).map((c) => ({ ...c, kind: "consumable" })),
+  ];
   const sellItem = sellIndex !== null ? inventory[sellIndex] : null;
 
   if (!isMarketUnlocked(player)) {
@@ -198,7 +214,7 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
   };
 
   const list = async () => {
-    const result = await run(() => listItem(sellIndex, price, mine.length));
+    const result = await run(() => listItem(isConsumableListing(sellItem) ? sellItem.key : sellIndex, price, mine.length));
     if (result.ok) {
       setSellIndex(null);
       setPrice("");
@@ -206,7 +222,11 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
   };
 
   const listingTooltip = (l) =>
-    itemComparisonTooltip(l.item, [`Price: ${l.price} astra`, `Seller: ${l.sellerName}`, `Listed ${new Date(l.listedAt).toLocaleString()} `].join(" • "));
+    marketTooltip(l.item, [`Price: ${l.price} astra`, `Seller: ${l.sellerName}`, `Listed ${new Date(l.listedAt).toLocaleString()} `].join(" • "));
+
+  const marketTooltip = (item, extra) => isConsumableListing(item)
+    ? consumableTooltip(item.key, extra)
+    : itemComparisonTooltip(item, extra);
 
   const parsedPrice = Number(price);
   const validPrice = Number.isInteger(parsedPrice) && parsedPrice >= 1;
@@ -284,7 +304,7 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
                       <span className='market-card-seller'>{own ? "Your listing" : l.sellerName}</span>
                       <span style={{ color: own || affordable ? "#7bd88f" : "#ff6b6b" }}>{l.price.toLocaleString()} astra</span>
                     </span>
-                    {!canEquip(l.item, player.level || 1) && <span className='market-card-warn'>Requires level {getEquipLevel(l.item)}</span>}
+                    {!isConsumableListing(l.item) && !canEquip(l.item, player.level || 1) && <span className='market-card-warn'>Requires level {getEquipLevel(l.item)}</span>}
                   </ItemCard>
                 );
               })}
@@ -295,6 +315,8 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
 
       {tab === "sell" && (
         <>
+          <KindFilter filters={filters} setFilters={setFilters} />
+          <p>Each listing sells one item. Consumables are listed one at a time.</p>
           {sellItem && (
             <div className='market-confirm'>
               <span>
@@ -321,13 +343,13 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
           )}
           <div className='gear-trader-list'>
             {mine.length >= MAX_LISTINGS && <div className='equip-empty'>You have the maximum of {MAX_LISTINGS} listings.</div>}
-            {!inventory.length && <div className='equip-empty'>Your inventory has no gear to list. Unequip gear to sell it.</div>}
+            {!inventory.length && <div className='equip-empty'>You have no gear or consumables to list. Unequip gear to sell it.</div>}
             <div className='market-grid'>
-              {inventory.map((item, index) => (
+              {inventory.map((item, index) => (!filters.kind || filters.kind === (isConsumableListing(item) ? "consumable" : "gear")) && (
                 <ItemCard
-                  key={item.id || `pack-${index}`}
+                  key={item.id || item.key || `pack-${index}`}
                   item={item}
-                  tooltip={() => itemTooltip(item, `Vendor value: ${item.price ?? 0} astra`)}
+                  tooltip={() => isConsumableListing(item) ? consumableTooltip(item.key, `${item.count} available`) : itemTooltip(item, `Vendor value: ${item.price ?? 0} astra`)}
                   selected={index === sellIndex}
                   onClick={() => {
                     setSellIndex(index);
@@ -337,7 +359,7 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
                 >
                   <span className='market-card-footer'>
                     <span className='market-card-seller'>Click to list</span>
-                    <span>Value {item.price ?? 0}</span>
+                    <span>{isConsumableListing(item) ? `${item.count} available` : `Value ${item.price ?? 0}`}</span>
                   </span>
                 </ItemCard>
               ))}
@@ -364,7 +386,7 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
                 <ItemCard
                   key={l.id}
                   item={l.item}
-                  tooltip={() => itemTooltip(l.item, `Price: ${l.price} astra • You receive ${getPayout(l.price)} astra `)}
+                  tooltip={() => marketTooltip(l.item, `Price: ${l.price} astra • You receive ${getPayout(l.price)} astra `)}
                   selected={l.id === selectedId}
                   onClick={() => {
                     setSelectedId(l.id);

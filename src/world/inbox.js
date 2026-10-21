@@ -1,6 +1,6 @@
-import { get, onValue, push, ref, remove, runTransaction, set, update } from "firebase/database";
+import { get, onValue, push, ref, remove, set, update } from "firebase/database";
 import { db } from "../firebase";
-import { flushPlayer, getPlayer, setPlayer } from "../character/player";
+import { commitPlayerChange, getPlayer, setPlayer } from "../character/player";
 import { gainExp } from "../character/stats";
 import { addGemstone, addItem, createUniqueItem, generateRandomGemstone, generateRandomItem, GEAR_SLOT_TYPES, RARITY_NAMES } from "../items/items";
 import { UNIQUES } from "./dungeonData";
@@ -179,21 +179,24 @@ function grant(a) {
   return lines;
 }
 
-// Marks the message claimed (once, atomically) and then gives the player its attachments.
+// Save the attachments and the claim flag together, so closing the page cannot split them.
 export async function claimMessage(id) {
   const msg = state.messages.find((m) => m.id === id);
   if (!msg || !hasUnclaimed(msg)) return { ok: false, message: "Nothing to claim." };
   if (!getPlayer()) return { ok: false, message: "No character yet." };
-  let result;
+  let lines;
   try {
-    result = await runTransaction(ref(db, `inboxState/${state.uid}/${id}/claimed`), (cur) => (cur ? undefined : true));
-  } catch {
+    await commitPlayerChange(() => {
+      lines = grant(msg.attachments);
+      return {
+        [`inboxState/${state.uid}/${id}/claimed`]: true,
+        [`inboxState/${state.uid}/${id}/read`]: true,
+      };
+    });
+  } catch (error) {
+    console.warn("Couldn't save inbox claim", error);
     return { ok: false, message: "Couldn't claim right now. Try again." };
   }
-  if (!result.committed) return { ok: false, message: "Already claimed." };
-  const lines = grant(msg.attachments);
-  markRead(id);
-  flushPlayer();
   return { ok: true, lines };
 }
 

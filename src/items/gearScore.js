@@ -4,19 +4,19 @@
  Both the main stat and the substats count. Percent stats (fractional values) are weighted per 1.00, so 1% = weight / 100.
 */
 export const GEAR_SCORE_STAT_WEIGHTS = {
-  strength: 1,
-  dexterity: 1,
-  intelligence: 1,
-  vitality: 2,
-  resilience: 2,
-  agility: 2,
-  luck: 3,
-  attackMin: 3,
-  attackMax: 3,
-  magicAttackMin: 3,
-  magicAttackMax: 3,
-  attack: 3,
-  magicAttack: 3,
+  strength: 2,
+  dexterity: 2,
+  intelligence: 2,
+  vitality: 3,
+  resilience: 3,
+  agility: 3,
+  luck: 4,
+  attackMin: 6,
+  attackMax: 6,
+  magicAttackMin: 6,
+  magicAttackMax: 6,
+  attack: 6,
+  magicAttack: 6,
   defense: 4,
   speed: 4,
   criticalDamage: 500,
@@ -24,7 +24,7 @@ export const GEAR_SCORE_STAT_WEIGHTS = {
   evasion: 500,
 };
 
-export const GEAR_SCORE_TWO_HANDED_MULT = 1.5;
+export const GEAR_SCORE_TWO_HANDED_MULT = 2.0;
 export const GEAR_SCORE_ABILITY_BONUS = 25;
 
 export const getItemGearScore = (item) => {
