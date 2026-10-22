@@ -12,9 +12,9 @@ import { MATERIALS, addToMaterials } from "../items/materials";
    inbox/{uid}/{id}      personal messages (admin-written)
    broadcasts/{id}       messages for every player (admin-written)
    inboxState/{uid}/{id} this player's { read, claimed, deleted } flags for either kind
- attachments: { astra, exp, materials: { key: n }, consumables: { key: n }, keyItems: { key: true }, gear: [{ slot, minRarity, count }], gemstones: [{ minRarity, count }], items: [item] }
+ attachments: { astra, exp, materials: { key: n }, consumables: { key: n }, keyItems: { key: true }, gear: [{ slot, minRarity, count }], gemstones: [{ minRarity, count }], gemstoneItems: [gemstone], items: [item] }
  Gear is generated when claimed to match the claiming player's level; gemstones are generated at the selected minimum rarity.
- `items` are exact gear pieces (marketplace purchases), written by players under rules in database.rules.json.
+ `gemstoneItems` and `items` are exact marketplace purchases, written by players under rules in database.rules.json.
 */
 
 let state = { uid: null, admin: false, messages: [] };
@@ -43,13 +43,19 @@ export const normalizeAttachments = (a = {}) => ({
       minRarity: Math.max(0, Math.min(RARITY_NAMES.length - 1, Math.floor(Number(g.minRarity) || 0))),
       count: Math.floor(Number(g.count)),
     })),
+  gemstoneItems: asList(a.gemstoneItems).filter((g) =>
+    g && typeof g.id === "string" && typeof g.name === "string" &&
+    ["ruby", "emerald", "sapphire"].includes(g.type) &&
+    typeof g.stat === "string" && Number.isFinite(Number(g.value)) &&
+    RARITY_NAMES.includes(g.rarity),
+  ),
   // Exact gear pieces (e.g. marketplace purchases), delivered as-is.
   items: asList(a.items).filter((i) => i && typeof i === "object" && i.name && i.slot),
 });
 
 export const hasAttachments = (a) => {
   const n = normalizeAttachments(a);
-  return n.astra > 0 || n.exp > 0 || n.materials.length + n.consumables.length + n.keyItems.length + n.gear.length + n.uniques.length + n.gemstones.length + n.items.length > 0;
+  return n.astra > 0 || n.exp > 0 || n.materials.length + n.consumables.length + n.keyItems.length + n.gear.length + n.uniques.length + n.gemstones.length + n.gemstoneItems.length + n.items.length > 0;
 };
 
 export const hasUnclaimed = (msg) => !msg.claimed && hasAttachments(msg.attachments);
@@ -66,6 +72,7 @@ export const describeAttachments = (a) => {
     ...n.gear.map((g) => `${g.count}× random ${RARITY_NAMES[g.minRarity || 0]}+ ${g.slot}`),
     ...n.uniques.map((u) => `${u.count}× Unique: ${UNIQUES[u.id].name}`),
     ...n.gemstones.map((g) => `${g.count}× random ${RARITY_NAMES[g.minRarity]}+ gemstone${g.count === 1 ? "" : "s"}`),
+    ...n.gemstoneItems.map((g) => `${g.rarity} ${g.name}`),
     ...n.items.map((i) => `${i.rarity ? `${i.rarity} ` : ""}${i.name}`),
   ];
 };
@@ -170,6 +177,10 @@ function grant(a) {
       addGemstone(gemstone);
       lines.push(gemstone.name);
     }
+  });
+  n.gemstoneItems.forEach((gemstone) => {
+    addGemstone(gemstone);
+    lines.push(`${gemstone.rarity} ${gemstone.name}`);
   });
   n.items.forEach((item) => {
     // The database drops empty objects, so restore the shapes items are expected to have.

@@ -1,6 +1,6 @@
 import { getPlayer, setPlayer } from "../character/player";
 import { generateRandomGemstone, generateRandomSlotItem } from "../items/items";
-import { applyConsumable, getKeyItemEffect } from "../items/consumables";
+import { applyConsumable, getKeyItemEffect, ITEM_CERTIFICATE_DROP_CHANCE } from "../items/consumables";
 import {
   SKILLS,
   getSkillLevel,
@@ -465,6 +465,10 @@ export function collapse(p, s, replies, patch) {
     enemy.onPlayerDefeat(p, s, patch, replies);
     return;
   }
+  applyDeathPenalties(p, s, replies, patch);
+}
+
+export function applyDeathPenalties(p, s, replies, patch) {
   s.health = s.maxHealth;
   s.stamina = s.maxStamina;
   s.power = s.maxPower;
@@ -522,6 +526,13 @@ function winCombat(p, s, replies, patch) {
     const gemstone = generateRandomGemstone();
     patch.gemstones = [...(p.gemstones || []), gemstone];
     replies.push(`The ${enemy.name} dropped a {{${gemstone.name}|gemstone:${gemstone.id}}}!`);
+  }
+  const certificateChance = ITEM_CERTIFICATE_DROP_CHANCE[enemy.dungeon ? "dungeon" : "overworld"][enemy.tier];
+  if (certificateChance && Math.random() < certificateChance) {
+    const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
+    consumables.itemCertificate = (consumables.itemCertificate || 0) + 1;
+    patch.consumables = consumables;
+    replies.push(`The ${enemy.name} dropped an {{Item Certificate|consumable:itemCertificate}}!`);
   }
   enemy.onDefeat?.(p, patch.stats || s, patch, replies);
   setPlayer(patch);
@@ -714,6 +725,10 @@ export function attackRound(type, skillKey) {
   if (enemy.hp > 0) {
     if (ab.ignite && Math.random() < ab.ignite)
       inflictOnEnemy("burn", { turns: 3, power: 0.04 }, replies);
+    if (ab.weakened && Math.random() < ab.weakened)
+      inflictOnEnemy("weaken", {}, replies);
+    if (ab.poison && Math.random() < ab.poison)
+      inflictOnEnemy("poison", {}, replies);
     if (cls === "Trickster" && Math.random() < HEX_CHANCE)
       inflictOnEnemy(
         Math.random() < 0.5 ? "weaken" : "vulnerable",

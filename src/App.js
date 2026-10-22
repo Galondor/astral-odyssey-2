@@ -248,7 +248,7 @@ function Game({ uid, onLogout }) {
                 </button>
               );
             })}
-            <span className='sidebar-version' aria-label='Game version'>v0.2.2.1</span>
+            <span className='sidebar-version' aria-label='Game version'>v0.2.3.0</span>
           </div>
         </nav>
         <div className='game-content'>

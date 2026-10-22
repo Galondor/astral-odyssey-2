@@ -158,12 +158,13 @@
 .equip-slot:disabled { cursor: default; opacity: 0.7; }
 .equip-slot.filled { border-color: #ffd866; }
 .inventory-item.too-high { border-color: #e03131; }
-.inventory-item.equipped-gear { border-color: #4dabf7; }
+.inventory-item.equipped-gear, .gemstone-target.equipped-gear { border-color: #4dabf7; }
 .equip-slot:not(:disabled):hover, .inventory-item:hover { background: #2a2a3a; }
 .equip-slot-label, .inventory-item span { font-size: 10px; color: #999; text-transform: uppercase; }
 .equip-slot-item { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .equip-empty { color: #888; font-size: 14px; }
 .inventory-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: 6px; }
+.inventory-panel .inventory-list { max-height: 50vh; min-height: 0; overflow-y: auto; overscroll-behavior: contain; align-content: start; }
 .inventory-item { padding: 8px 6px; font-size: 12px; min-height: 0; overflow: hidden; justify-content: center; }
 .inventory-item { position: relative; }
 .inventory-new-dot { display: inline-block; flex: 0 0 8px; width: 8px; height: 8px; margin: 0 5px; border-radius: 50%; background: #e04848; vertical-align: middle; }
@@ -324,6 +325,11 @@
   width: 50%;
 }
 
+.item-input-form {
+  width: 100%;
+  align-items: center;
+}
+
 .input-field {
   padding: 8px 12px;
   background: var(--surface);
@@ -442,6 +448,16 @@
 .admin-attach { display: flex; flex-wrap: wrap; gap: 6px; }
 .admin-attach .input-field { width: auto; flex: 1 1 120px; }
 .admin-rows li { text-align: left; margin-bottom: 4px; }
+.bug-report > p { color: #aaa; }
+.bug-report-list { display: flex; flex-direction: column; gap: 10px; margin: 8px 0; padding: 0; list-style: none; text-align: left; }
+.bug-report-entry { padding: 12px; border: 1px solid #444; border-radius: 6px; background: #1a1a24; text-align: left; }
+.bug-report-entry.resolved { opacity: 0.7; }
+.bug-report-entry-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; text-align: left; }
+.bug-report-entry h4 { margin: 0; color: #ffd866; overflow-wrap: anywhere; }
+.bug-report-description { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; }
+.bug-report-status { color: #ffd866; font-size: 12px; text-transform: uppercase; }
+.bug-report-status.resolved { color: #7bd88f; }
+.bug-report-meta { margin: 8px 0; color: #999; font-size: 12px; text-align: left; overflow-wrap: anywhere; }
 
 .auth-page {
   min-height: 100vh;
@@ -573,6 +589,38 @@
 @media (min-width: 1600px) {
   .sidebar { width: 190px; }
   .game-screen { font-size: 18px; }
+}
+
+@media (max-width: 800px) {
+  .App-body { flex-direction: column; }
+  .sidebar {
+    width: auto !important;
+    flex: 0 0 auto;
+    min-height: 0;
+    flex-direction: row;
+    padding: 6px;
+    overflow: hidden;
+    border-right: none;
+    border-bottom: 2px solid var(--border);
+  }
+  .sidebar-toggle { display: none; }
+  .sidebar-links {
+    display: flex;
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: none;
+    min-width: 0;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .sidebar-link {
+    flex: 0 0 auto;
+    padding: 8px 4px;
+    white-space: nowrap;
+  }
+  .sidebar-version { flex: 0 0 auto; margin-top: 0; padding: 8px 4px; white-space: nowrap; }
+  .game-content { min-width: 0; min-height: 0; flex: 1; }
 }
 
 @media (max-height: 500px) and (orientation: landscape) {

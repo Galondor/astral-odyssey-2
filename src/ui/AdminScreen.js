@@ -4,6 +4,7 @@ import { GEAR_SLOT_TYPES, RARITY_NAMES } from "../items/items";
 import { MATERIALS } from "../items/materials";
 import { UNIQUES } from "../world/dungeonData";
 import { deleteBroadcast, describeAttachments, getBroadcasts, getDirectory, sendMessage } from "../world/inbox";
+import { resolveBugReport, subscribeBugReports } from "../world/bugReports";
 
 const KINDS = {
   astra: { label: "Astra" },
@@ -38,6 +39,7 @@ const AdminScreen = () => {
   const [activeTab, setActiveTab] = useState("broadcasting");
   const [players, setPlayers] = useState([]);
   const [broadcasts, setBroadcasts] = useState([]);
+  const [bugReports, setBugReports] = useState([]);
   const [to, setTo] = useState("");
   const [search, setSearch] = useState("");
   const [subject, setSubject] = useState("");
@@ -49,12 +51,20 @@ const AdminScreen = () => {
   const [minRarity, setMinRarity] = useState(0);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [bugsNote, setBugsNote] = useState("");
 
   const load = () => {
     getDirectory().then(setPlayers).catch(() => setNote("Couldn't load the player list."));
     getBroadcasts().then(setBroadcasts).catch(() => {});
   };
   useEffect(load, []);
+  useEffect(
+    () => subscribeBugReports(
+      setBugReports,
+      () => setBugsNote("Couldn't load bug reports."),
+    ),
+    [],
+  );
 
   const playerLabel = (p) => `${p.name} - ${p.uid}`;
   const [listOpen, setListOpen] = useState(false);
@@ -105,6 +115,20 @@ const AdminScreen = () => {
     load();
   };
 
+  const resolveReport = async (id) => {
+    setBugsNote("");
+    setBusy(true);
+    try {
+      await resolveBugReport(id);
+      setBugsNote("Bug report resolved.");
+    } catch (err) {
+      console.error("Couldn't resolve bug report", err);
+      setBugsNote("Couldn't resolve that bug report.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className='panel admin-panel'>
       <h2>Admin controls</h2>
@@ -131,7 +155,53 @@ const AdminScreen = () => {
         >
           Individual Message
         </button>
+        <button
+          id='admin-tab-bugs'
+          type='button'
+          role='tab'
+          aria-selected={activeTab === "bugs"}
+          aria-controls='admin-panel-bugs'
+          className={`inventory-tab ${activeTab === "bugs" ? "active" : ""}`}
+          onClick={() => setActiveTab("bugs")}
+        >
+          Bugs
+        </button>
       </div>
+      {activeTab === "bugs" ? (
+        <section
+          id='admin-panel-bugs'
+          role='tabpanel'
+          aria-labelledby='admin-tab-bugs'
+        >
+          <h3>Player bug reports</h3>
+          {bugsNote && <div className='recipe-note' role='status'>{bugsNote}</div>}
+          {!bugReports.length && <div className='equip-empty'>No bug reports.</div>}
+          <ul className='bug-report-list'>
+            {bugReports.map((report) => (
+              <li key={report.id} className={`bug-report-entry ${report.status}`}>
+                <div className='bug-report-entry-header'>
+                  <h4>{report.title}</h4>
+                  <span className={`bug-report-status ${report.status}`}>{report.status}</span>
+                </div>
+                <p className='bug-report-description'>{report.description}</p>
+                <div className='bug-report-meta'>
+                  {report.playerName} ({report.uid}) · {report.createdAt ? new Date(report.createdAt).toLocaleString() : "Unknown date"}
+                </div>
+                {report.status !== "resolved" && (
+                  <button
+                    type='button'
+                    className='buttons input-button'
+                    disabled={busy}
+                    onClick={() => resolveReport(report.id)}
+                  >
+                    Resolve
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : (
       <section
         id={activeTab === "broadcasting" ? "admin-panel-broadcasting" : "admin-panel-other-controls"}
         role='tabpanel'
@@ -245,6 +315,7 @@ const AdminScreen = () => {
           </>
         )}
       </section>
+      )}
     </div>
   );
 };

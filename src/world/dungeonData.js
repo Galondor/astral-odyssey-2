@@ -8,7 +8,8 @@
    mod        - optional multipliers on the dungeon tier's stats: { hp, atk, def, spd } (default 1 each)
    abilities  - enemy abilities, same fields as ENEMIES in enemies.js
    phases     - boss/elite phases, same fields as ENEMIES in enemies.js
-   drops      - boss and elite material drops: [{ key, chance, min, max }]
+   drops      - extra thematic material drops: [{ key, chance, min, max }]
+ Dungeon materials: `materials` maps basic, elite and boss to exclusive material keys.
    unique     - bosses only: the Unique item (see UNIQUES) with a 1% chance to drop
 
  Puzzle / challenge entry: { kind, name, intro, ... } where kind is one of
@@ -18,6 +19,10 @@
    lock      - crack a three digit code from feedback              (lock: noun for the lock)
    gauntlet  - three traps resolved with your stats                (traps: [{ text, type: swing | crush | rune }])
    gamble    - pick one of three containers, one is a snare       (chest: noun for a container)
+   circuit   - light every rune by toggling it and its neighbors
+   scales    - choose weights to balance a target
+   path      - navigate a visible trapped grid to the exit
+   pairs     - reveal and remember four matching rune pairs       (symbols: four names)
 
  Unique items: { id, name, slot, stat, ability, subStats[], twoHanded? }. `ability` is a key of UNIQUE_ABILITIES.
 */
@@ -47,6 +52,7 @@ export const DUNGEON_TYPES = {
     name: "Sunken Crypt",
     color: "#9bb4c9",
     description: "A drowned necropolis where the dead refuse to stay buried.",
+    materials: { basic: "crypt_grave_salt", elite: "crypt_soul_shackle", boss: "crypt_regent_marrow" },
     basics: [
       { id: "dgCryptRevenant", name: "Drowned Revenant", mod: { hp: 1.1 }, abilities: [{ name: "Waterlogged Grip", power: 1.1, status: debuff("weaken", 0.2, 2, 0.6), cooldown: 3 }, { name: "Grave Chill", power: 0, status: debuff("vulnerable", 0.2, 3), cooldown: 4, text: "Cold, black water seeps over you." }] },
       { id: "dgCryptBoneArcher", name: "Bone Sentinel", mod: { atk: 1.2, hp: 0.8, spd: 1.2 }, abilities: [{ name: "Volley", power: 0.6, hits: 3, cooldown: 3 }, { name: "Rattling Shot", power: 1.2, status: dot("bleed", 0.04, 3, 0.7) }] },
@@ -65,6 +71,10 @@ export const DUNGEON_TYPES = {
       { kind: "doors", name: "Hall of Epitaphs", intro: "Four sealed crypt doors, each with an epitaph. Only ONE epitaph speaks the truth.", door: "crypt door" },
       { kind: "gauntlet", name: "Flooded Corridor", intro: "The corridor is rigged to drown trespassers.", traps: [{ text: "Rusted scythes sweep out of the walls.", type: "swing" }, { text: "The ceiling groans and a slab drops.", type: "crush" }, { text: "Drowned runes flare beneath the water.", type: "rune" }, { text: "A pendulum blade arcs across the passage.", type: "swing" }, { text: "A tomb door slams down.", type: "crush" }] },
       { kind: "lock", name: "Reliquary Lock", intro: "A reliquary seals the way, guarded by a three digit bone dial.", lock: "bone dial" },
+      { kind: "circuit", name: "Soul Lanterns", intro: "Five linked soul lanterns must burn together to release the tomb seal." },
+      { kind: "scales", name: "Ferryman's Scales", intro: "Balance the ferryman's offering against the weight of a drowned soul." },
+      { kind: "path", name: "Ossuary Causeway", intro: "Find a route over the intact burial stones without stepping into the drowned pits." },
+      { kind: "pairs", name: "Names of the Drowned", intro: "Reunite the paired grave sigils. False matches awaken the dead.", symbols: ["Skull", "Tide", "Bone", "Soul"] },
     ],
   },
 
@@ -73,6 +83,7 @@ export const DUNGEON_TYPES = {
     name: "Goblin Warren",
     color: "#7bd88f",
     description: "A sprawling nest of tunnels, rigged with traps and ruled by a greedy king.",
+    materials: { basic: "warren_blasting_powder", elite: "warren_hexbone", boss: "warren_hoard_seal" },
     basics: [
       { id: "dgWarrenCutthroat", name: "Warren Cutthroat", mod: { spd: 1.3, hp: 0.8, atk: 1.15 }, abilities: [{ name: "Backstab", power: 1.4, status: dot("bleed", 0.04, 3, 0.8), cooldown: 2 }, { name: "Pocket Sand", power: 0, status: debuff("weaken", 0.25, 2), cooldown: 4, text: "A fistful of grit hits your eyes." }] },
       { id: "dgWarrenBomber", name: "Powder Goblin", mod: { hp: 0.7, atk: 1.3 }, abilities: [{ name: "Blast Charge", power: 1.8, status: dot("burn", 0.05, 3, 0.8), cooldown: 3 }, { name: "Smoke Bomb", power: 0, self: { id: "fortify", turns: 2, power: 0.3 }, cooldown: 5 }] },
@@ -83,7 +94,7 @@ export const DUNGEON_TYPES = {
       { id: "dgWarrenShaman", name: "Hexbone Shaman", mod: { atk: 1.25, hp: 0.85 }, abilities: [{ name: "Hex Bolt", power: 1.5, status: debuff("weaken", 0.3, 3, 0.7), cooldown: 2 }, { name: "Cackling Bind", power: 0.5, status: stun(0.5), cooldown: 4 }, { name: "Blood Offering", power: 0, heal: 0.18, cooldown: 5, text: "The shaman slashes his palm and chants." }], drops: [{ key: "goblin_scrap", chance: 1, min: 4, max: 6 }, { key: "venom_sac", chance: 0.7, min: 1, max: 3 }, { key: "primal_essence", chance: 0.6, min: 1, max: 2 }] },
     ],
     bosses: [
-      { id: "dgWarrenKing", name: "Gorbash the Hoard-King", mod: { hp: 1.2, atk: 1.1, def: 1.2 }, unique: "hoardkingAxe", abilities: [{ name: "Hoard Slam", power: 1.9, status: stun(0.4), cooldown: 3 }, { name: "Gold-Fueled Rage", power: 0, self: { id: "enrage", turns: 3, power: 0.45 }, cooldown: 5, text: "Gorbash throws coins into his mouth and roars." }, { name: "Crown Throw", power: 1.2, ignoreDefense: 0.5, cooldown: 3 }, { name: "Greedy Maul", power: 1.3, leech: 0.5, cooldown: 2 }], phases: [{ below: 0.6, text: "Gorbash calls his guard. A wave of goblins buffs him!", self: { id: "fortify", turns: 4, power: 0.3 } }, { below: 0.3, text: "\"MINE! ALL OF IT MINE!\"", self: { id: "enrage", turns: 99, power: 0.5 } }], drops: [{ key: "goblin_scrap", chance: 1, min: 8, max: 12 }, { key: "gelatinous_core", chance: 0.4, min: 1, max: 1 }, { key: "primal_essence", chance: 1, min: 2, max: 4 }] },
+      { id: "dgWarrenKing", name: "Gorbash the Hoard-King", mod: { hp: 1.2, atk: 1.1, def: 1.2 }, unique: "hoardkingAxe", abilities: [{ name: "Hoard Slam", power: 1.9, status: stun(0.4), cooldown: 3 }, { name: "Gold-Fueled Rage", power: 0, self: { id: "enrage", turns: 3, power: 0.45 }, cooldown: 5, text: "Gorbash throws coins into his mouth and roars." }, { name: "Crown Throw", power: 1.2, ignoreDefense: 0.5, cooldown: 3 }, { name: "Greedy Maul", power: 1.3, leech: 0.5, cooldown: 2 }], phases: [{ below: 0.6, text: "Gorbash calls his guard. A wave of goblins buffs him!", self: { id: "fortify", turns: 4, power: 0.3 } }, { below: 0.3, text: "\"MINE! ALL OF IT MINE!\"", self: { id: "enrage", turns: 99, power: 0.5 } }], drops: [{ key: "goblin_scrap", chance: 1, min: 8, max: 12 }, { key: "primal_essence", chance: 1, min: 2, max: 4 }] },
       { id: "dgWarrenMother", name: "Skreeva, Warren Mother", mod: { hp: 1.1, spd: 1.2 }, unique: "zugRing", abilities: [{ name: "Brood Call", power: 0.6, hits: 4, cooldown: 3 }, { name: "Venom Spit", power: 1.2, status: dot("poison", 0.05, 4), cooldown: 2 }, { name: "Nest Defense", power: 0, self: { id: "fortify", turns: 3, power: 0.4 }, cooldown: 5 }, { name: "Devour Runt", power: 0, heal: 0.15, cooldown: 4, text: "Skreeva devours one of her own brood." }], phases: [{ below: 0.5, text: "The Warren Mother shrieks, and the tunnel walls erupt with goblins!", self: { id: "enrage", turns: 99, power: 0.4 } }], drops: [{ key: "goblin_scrap", chance: 1, min: 8, max: 12 }, { key: "venom_sac", chance: 1, min: 3, max: 5 }, { key: "primal_essence", chance: 1, min: 2, max: 3 }] },
     ],
     puzzles: [
@@ -91,6 +102,10 @@ export const DUNGEON_TYPES = {
       { kind: "gauntlet", name: "Booby-Trapped Tunnel", intro: "The tunnel is thick with goblin engineering.", traps: [{ text: "Spiked logs swing across the tunnel.", type: "swing" }, { text: "A rockfall rigged to a tripwire.", type: "crush" }, { text: "A crude tangle of pressure plates and strings.", type: "rune" }, { text: "Whirling saw blades on a rope.", type: "swing" }, { text: "A barrel of rocks tips from above.", type: "crush" }] },
       { kind: "sequence", name: "Tally Sticks", intro: "A goblin accountant's notches count out a pattern. The next notch opens the door.", unit: "notches" },
       { kind: "doors", name: "Warren Crossroads", intro: "Four tunnels. A goblin has scratched a claim above each. Exactly one claim is true.", door: "tunnel" },
+      { kind: "circuit", name: "Goblin Fuseboard", intro: "Light all five linked fuse lamps to unlock the blast door." },
+      { kind: "scales", name: "Hoardkeeper's Toll", intro: "Choose the right combination of stolen weights to balance the toll." },
+      { kind: "path", name: "Tripwire Walkway", intro: "Cross the tunnel floor using intact stones, avoiding the marked tripwires." },
+      { kind: "pairs", name: "Smuggler's Marks", intro: "Match the hidden smugglers' signs without triggering their traps.", symbols: ["Coin", "Dagger", "Bomb", "Crown"] },
     ],
   },
 
@@ -99,6 +114,7 @@ export const DUNGEON_TYPES = {
     name: "Infernal Forge",
     color: "#ff8a3d",
     description: "A volcanic foundry where fire elementals and bound constructs hammer out war.",
+    materials: { basic: "forge_cinder_flux", elite: "forge_tempered_alloy", boss: "forge_slagheart" },
     basics: [
       { id: "dgForgeSlagling", name: "Slagling", mod: { hp: 1.15 }, abilities: [{ name: "Molten Spit", power: 1.2, status: dot("burn", 0.05, 3, 0.8), cooldown: 2 }, { name: "Cooling Crust", power: 0, self: { id: "fortify", turns: 2, power: 0.35 }, cooldown: 5 }] },
       { id: "dgForgeAutomaton", name: "Bellows Automaton", mod: { def: 1.3, spd: 0.8 }, abilities: [{ name: "Piston Punch", power: 1.5, status: stun(0.35), cooldown: 3 }, { name: "Overpressure", power: 0, self: { id: "enrage", turns: 3, power: 0.3 }, cooldown: 5, text: "Steam screams from its joints." }] },
@@ -117,6 +133,10 @@ export const DUNGEON_TYPES = {
       { kind: "lock", name: "Foreman's Vault", intro: "A heavy vault, closed by a three digit gear lock.", lock: "gear lock" },
       { kind: "gauntlet", name: "Foundry Floor", intro: "Machinery roars on every side.", traps: [{ text: "Hammers swing across the walkway.", type: "swing" }, { text: "A crucible tips, pouring a river of fire.", type: "crush" }, { text: "Fire-runes crackle along the pipes.", type: "rune" }, { text: "A spinning blade-press.", type: "swing" }, { text: "A hydraulic press slams down.", type: "crush" }] },
       { kind: "sequence", name: "Furnace Gauge", intro: "A gauge ticks through readings in a strict pattern. Set the dial to the next reading.", unit: "degrees" },
+      { kind: "circuit", name: "Ignition Array", intro: "Bring all five linked furnace runes online to open the firebreak." },
+      { kind: "scales", name: "Alloy Counterweight", intro: "Balance the forge lift with the correct combination of metal weights." },
+      { kind: "path", name: "Slagstone Crossing", intro: "Plan a route across intact stepping stones above the molten slag." },
+      { kind: "pairs", name: "Smith's Seals", intro: "Match the hidden foundry stamps. Wrong pairs vent searing steam.", symbols: ["Anvil", "Hammer", "Flame", "Tongs"] },
     ],
   },
 
@@ -125,6 +145,7 @@ export const DUNGEON_TYPES = {
     name: "Frozen Citadel",
     color: "#8fd8ff",
     description: "A fortress sealed in ice, held by frost wraiths and a vengeful pale court.",
+    materials: { basic: "citadel_rime_shard", elite: "citadel_pale_sigil", boss: "citadel_winter_heart" },
     basics: [
       { id: "dgCitadelHusk", name: "Frostbitten Husk", mod: { hp: 1.2, spd: 0.8 }, abilities: [{ name: "Numbing Grasp", power: 1.1, status: debuff("weaken", 0.25, 3, 0.8), cooldown: 3 }, { name: "Icy Skin", power: 0, self: { id: "fortify", turns: 2, power: 0.3 }, cooldown: 5 }] },
       { id: "dgCitadelWisp", name: "Rime Wisp", mod: { atk: 1.25, hp: 0.7, spd: 1.3 }, abilities: [{ name: "Shard Barrage", power: 0.6, hits: 3, cooldown: 3 }, { name: "Flash Freeze", power: 0.7, status: stun(0.35), cooldown: 4 }] },
@@ -135,7 +156,7 @@ export const DUNGEON_TYPES = {
       { id: "dgCitadelWitch", name: "Winterbound Witch", mod: { atk: 1.3, hp: 0.85 }, abilities: [{ name: "Blizzard", power: 1.2, hits: 2, status: debuff("weaken", 0.3, 3, 0.6), cooldown: 3 }, { name: "Frostbite Hex", power: 0.9, status: dot("bleed", 0.06, 3), cooldown: 3 }, { name: "Cold Snap", power: 0.5, status: stun(0.5), cooldown: 4 }], drops: [{ key: "wraith_essence", chance: 1, min: 3, max: 5 }, { key: "primal_essence", chance: 0.6, min: 1, max: 2 }] },
     ],
     bosses: [
-      { id: "dgCitadelWyrm", name: "Frostmaw, Glacier Wyrm", mod: { hp: 1.3, def: 1.2 }, unique: "rimeHelm", abilities: [{ name: "Glacial Breath", power: 1.9, status: debuff("weaken", 0.35, 3, 0.9), cooldown: 3 }, { name: "Tail Crash", power: 1.5, status: stun(0.4), cooldown: 3 }, { name: "Ice Plate", power: 0, self: { id: "fortify", turns: 3, power: 0.45 }, cooldown: 5 }, { name: "Rending Fangs", power: 0.8, hits: 3, status: dot("bleed", 0.05, 3, 0.7), cooldown: 3 }], phases: [{ below: 0.6, text: "Frostmaw bursts from the ice, shedding glacial armor!", self: { id: "enrage", turns: 99, power: 0.3 } }, { below: 0.3, text: "The air itself freezes around the Wyrm!", self: { id: "enrage", turns: 99, power: 0.45 } }], drops: [{ key: "wraith_crown", chance: 0.5, min: 1, max: 1 }, { key: "obsidian_shard", chance: 1, min: 5, max: 8 }, { key: "primal_essence", chance: 1, min: 2, max: 4 }] },
+      { id: "dgCitadelWyrm", name: "Frostmaw, Glacier Wyrm", mod: { hp: 1.3, def: 1.2 }, unique: "rimeHelm", abilities: [{ name: "Glacial Breath", power: 1.9, status: debuff("weaken", 0.35, 3, 0.9), cooldown: 3 }, { name: "Tail Crash", power: 1.5, status: stun(0.4), cooldown: 3 }, { name: "Ice Plate", power: 0, self: { id: "fortify", turns: 3, power: 0.45 }, cooldown: 5 }, { name: "Rending Fangs", power: 0.8, hits: 3, status: dot("bleed", 0.05, 3, 0.7), cooldown: 3 }], phases: [{ below: 0.6, text: "Frostmaw bursts from the ice, shedding glacial armor!", self: { id: "enrage", turns: 99, power: 0.3 } }, { below: 0.3, text: "The air itself freezes around the Wyrm!", self: { id: "enrage", turns: 99, power: 0.45 } }], drops: [{ key: "beast_fang", chance: 1, min: 3, max: 5 }, { key: "primal_essence", chance: 1, min: 2, max: 4 }] },
       { id: "dgCitadelQueen", name: "Queen Ysolde the Pale", mod: { atk: 1.2, spd: 1.2 }, unique: "ysoldeRapier", abilities: [{ name: "Thousand Cuts", power: 0.55, hits: 5, cooldown: 3 }, { name: "Frozen Heart", power: 1.8, leech: 0.7, cooldown: 3 }, { name: "Winter's Decree", power: 0, status: stun(0.55), cooldown: 5, text: "\"Kneel.\"" }, { name: "Mirror of Ice", power: 0, self: { id: "fortify", turns: 3, power: 0.4 }, cooldown: 5 }], phases: [{ below: 0.5, text: "Ysolde sheds her crown. The citadel quakes.", self: { id: "enrage", turns: 99, power: 0.45 } }, { below: 0.25, text: "The Pale Queen turns the room to glass and slow death.", self: { id: "regen", turns: 99, power: 0.03 } }], drops: [{ key: "wraith_crown", chance: 0.6, min: 1, max: 1 }, { key: "wraith_essence", chance: 1, min: 6, max: 8 }, { key: "primal_essence", chance: 1, min: 2, max: 4 }] },
     ],
     puzzles: [
@@ -143,6 +164,10 @@ export const DUNGEON_TYPES = {
       { kind: "order", name: "Court of Four Seasons", intro: "Four ice statues each hold a season. The throne room opens only in the right order.", items: ["Spring", "Summer", "Autumn", "Winter"] },
       { kind: "gamble", name: "Frozen Vault", intro: "Frozen caskets line the hall. Some hold treasure, some hold a cold surprise.", chest: "frozen casket" },
       { kind: "gauntlet", name: "Icefall Bridge", intro: "The bridge is brittle and booby-trapped.", traps: [{ text: "Icicle blades swing from the arches.", type: "swing" }, { text: "An avalanche rumbles down.", type: "crush" }, { text: "Frost-runes glow beneath the ice.", type: "rune" }, { text: "Whirling shards of ice.", type: "swing" }, { text: "The bridge collapses in slabs.", type: "crush" }] },
+      { kind: "circuit", name: "Aurora Ward", intro: "Illuminate all five linked frost sigils to lower the winter ward." },
+      { kind: "scales", name: "Icebound Balance", intro: "Select ice weights to balance the frozen court's ceremonial scales." },
+      { kind: "path", name: "Crevasse Crossing", intro: "Cross intact ice tiles and avoid the clearly marked cracks." },
+      { kind: "pairs", name: "Winter's Reflections", intro: "Match the hidden winter emblems. False reflections bite with frost.", symbols: ["Snowflake", "Icicle", "Wolf", "Moon"] },
     ],
   },
 
@@ -151,6 +176,7 @@ export const DUNGEON_TYPES = {
     name: "Verdant Overgrowth",
     color: "#58d68d",
     description: "A ruin swallowed by hungry roots, poison spores and a rotting heart.",
+    materials: { basic: "overgrowth_spore_fiber", elite: "overgrowth_blight_resin", boss: "overgrowth_heartseed" },
     basics: [
       { id: "dgGrowthSporeling", name: "Sporeling", mod: { hp: 0.9, atk: 1.1 }, abilities: [{ name: "Spore Burst", power: 1, status: dot("poison", 0.04, 4, 1), cooldown: 2 }, { name: "Choking Cloud", power: 0, status: debuff("weaken", 0.25, 3), cooldown: 4 }] },
       { id: "dgGrowthVinewalker", name: "Strangler Vine", mod: { hp: 1.2, spd: 0.8 }, abilities: [{ name: "Constrict", power: 1.2, status: stun(0.4), cooldown: 3 }, { name: "Regrowth", power: 0, heal: 0.12, cooldown: 4 }] },
@@ -161,14 +187,18 @@ export const DUNGEON_TYPES = {
       { id: "dgGrowthDruid", name: "Blighted Druid", mod: { atk: 1.25, hp: 0.9 }, abilities: [{ name: "Wither", power: 1.3, status: dot("poison", 0.05, 4), cooldown: 2 }, { name: "Ensnare", power: 0.5, status: stun(0.5), cooldown: 4 }, { name: "Leaf Mend", power: 0, heal: 0.18, cooldown: 5 }], drops: [{ key: "rotwood_bark", chance: 1, min: 3, max: 5 }, { key: "venom_sac", chance: 1, min: 2, max: 4 }, { key: "primal_essence", chance: 0.6, min: 1, max: 2 }] },
     ],
     bosses: [
-      { id: "dgGrowthMother", name: "Thornmother Verdessa", mod: { hp: 1.2, atk: 1.1 }, unique: "verdessaBoots", abilities: [{ name: "Briar Lash", power: 0.7, hits: 4, status: dot("bleed", 0.04, 3, 0.8), cooldown: 3 }, { name: "Strangling Embrace", power: 1.8, status: stun(0.45), cooldown: 4 }, { name: "Spore Bloom", power: 1, status: dot("poison", 0.07, 4, 1), cooldown: 3 }, { name: "Devouring Roots", power: 1.4, leech: 0.8, cooldown: 3 }], phases: [{ below: 0.6, text: "Verdessa's body splits into a thicket of thorns!", self: { id: "fortify", turns: 4, power: 0.35 } }, { below: 0.3, text: "The whole dungeon writhes in answer to her call!", self: { id: "enrage", turns: 99, power: 0.5 } }], drops: [{ key: "widow_heart", chance: 0.5, min: 1, max: 1 }, { key: "venom_sac", chance: 1, min: 5, max: 8 }, { key: "primal_essence", chance: 1, min: 2, max: 4 }] },
-      { id: "dgGrowthHeart", name: "The Rotting Heart", mod: { hp: 1.4, def: 1.2, spd: 0.7 }, unique: "heartwoodStaff", abilities: [{ name: "Pulse of Decay", power: 1.6, status: dot("poison", 0.07, 4), cooldown: 2 }, { name: "Overgrowth", power: 0, heal: 0.15, self: { id: "regen", turns: 3, power: 0.04 }, cooldown: 5 }, { name: "Rot Spears", power: 0.8, hits: 3, ignoreDefense: 0.35, cooldown: 3 }, { name: "Miasma", power: 0, status: debuff("vulnerable", 0.35, 3), cooldown: 4 }], phases: [{ below: 0.5, text: "The Heart pounds faster. Spores fill the air!", self: { id: "enrage", turns: 99, power: 0.45 } }, { below: 0.25, text: "The Rotting Heart tears itself free of its roots!", self: { id: "enrage", turns: 99, power: 0.3 } }], drops: [{ key: "widow_heart", chance: 0.6, min: 1, max: 1 }, { key: "venom_sac", chance: 1, min: 6, max: 9 }, { key: "primal_essence", chance: 1, min: 2, max: 3 }] },
+      { id: "dgGrowthMother", name: "Thornmother Verdessa", mod: { hp: 1.2, atk: 1.1 }, unique: "verdessaBoots", abilities: [{ name: "Briar Lash", power: 0.7, hits: 4, status: dot("bleed", 0.04, 3, 0.8), cooldown: 3 }, { name: "Strangling Embrace", power: 1.8, status: stun(0.45), cooldown: 4 }, { name: "Spore Bloom", power: 1, status: dot("poison", 0.07, 4, 1), cooldown: 3 }, { name: "Devouring Roots", power: 1.4, leech: 0.8, cooldown: 3 }], phases: [{ below: 0.6, text: "Verdessa's body splits into a thicket of thorns!", self: { id: "fortify", turns: 4, power: 0.35 } }, { below: 0.3, text: "The whole dungeon writhes in answer to her call!", self: { id: "enrage", turns: 99, power: 0.5 } }], drops: [{ key: "rotwood_bark", chance: 1, min: 5, max: 8 }, { key: "venom_sac", chance: 1, min: 5, max: 8 }, { key: "primal_essence", chance: 1, min: 2, max: 4 }] },
+      { id: "dgGrowthHeart", name: "The Rotting Heart", mod: { hp: 1.4, def: 1.2, spd: 0.7 }, unique: "heartwoodStaff", abilities: [{ name: "Pulse of Decay", power: 1.6, status: dot("poison", 0.07, 4), cooldown: 2 }, { name: "Overgrowth", power: 0, heal: 0.15, self: { id: "regen", turns: 3, power: 0.04 }, cooldown: 5 }, { name: "Rot Spears", power: 0.8, hits: 3, ignoreDefense: 0.35, cooldown: 3 }, { name: "Miasma", power: 0, status: debuff("vulnerable", 0.35, 3), cooldown: 4 }], phases: [{ below: 0.5, text: "The Heart pounds faster. Spores fill the air!", self: { id: "enrage", turns: 99, power: 0.45 } }, { below: 0.25, text: "The Rotting Heart tears itself free of its roots!", self: { id: "enrage", turns: 99, power: 0.3 } }], drops: [{ key: "rotwood_bark", chance: 1, min: 6, max: 9 }, { key: "venom_sac", chance: 1, min: 6, max: 9 }, { key: "primal_essence", chance: 1, min: 2, max: 3 }] },
     ],
     puzzles: [
       { kind: "doors", name: "Maze of Roots", intro: "Four root-choked passages, each with a carved claim. Exactly one claim is true.", door: "root passage" },
       { kind: "gamble", name: "Fruiting Grove", intro: "Strange fruit hangs everywhere. Some feed you, some poison you, some bite.", chest: "seed pod" },
       { kind: "order", name: "Ritual of the Four Blooms", intro: "Four sacred flowers must bloom in the right order or the grove turns on you.", items: ["Rosebud", "Lotus", "Nightshade", "Fern"] },
       { kind: "lock", name: "Heartwood Gate", intro: "A living gate, twisted shut by a three digit knot of vines.", lock: "vine knot" },
+      { kind: "circuit", name: "Bioluminescent Roots", intro: "Light all five linked root nodes to coax the living gate open." },
+      { kind: "scales", name: "Offering of the Grove", intro: "Choose seed weights to balance the grove's ancient offering bowl." },
+      { kind: "path", name: "Sporebed Passage", intro: "Navigate intact stones without disturbing the marked spore beds." },
+      { kind: "pairs", name: "Twin Blooms", intro: "Find matching flower sigils beneath the leaves. Wrong pairs release thorns.", symbols: ["Rose", "Lotus", "Fern", "Thistle"] },
     ],
   },
 
@@ -177,6 +207,7 @@ export const DUNGEON_TYPES = {
     name: "Void Observatory",
     color: "#c39bff",
     description: "A fallen astral temple where stargazers bargain with the void.",
+    materials: { basic: "observatory_void_dust", elite: "observatory_rift_thread", boss: "observatory_star_core" },
     basics: [
       { id: "dgVoidMote", name: "Void Mote", mod: { hp: 0.8, atk: 1.2, spd: 1.2 }, abilities: [{ name: "Starprick", power: 0.6, hits: 3, cooldown: 3 }, { name: "Nullspark", power: 1.1, status: debuff("vulnerable", 0.25, 3, 0.7), cooldown: 3 }] },
       { id: "dgVoidAcolyte", name: "Star-Blind Acolyte", mod: { atk: 1.1 }, abilities: [{ name: "Cosmic Chant", power: 1.2, status: debuff("weaken", 0.25, 3, 0.8), cooldown: 3 }, { name: "Gravity Well", power: 0.5, status: stun(0.4), cooldown: 4 }] },
@@ -195,6 +226,10 @@ export const DUNGEON_TYPES = {
       { kind: "order", name: "Alignment of the Spheres", intro: "Four celestial spheres must be aligned in the correct order.", items: ["Sun", "Moon", "Comet", "Star"] },
       { kind: "doors", name: "Gates of the Zodiac", intro: "Four gates, each carved with a prophecy. Only ONE prophecy is true.", door: "zodiac gate" },
       { kind: "lock", name: "Astrolabe Lock", intro: "An astrolabe guards the inner sanctum, set by a three digit star code.", lock: "astrolabe" },
+      { kind: "circuit", name: "Starlight Circuit", intro: "Illuminate all five linked star lenses to restore the celestial bridge." },
+      { kind: "scales", name: "Gravity Balance", intro: "Counterbalance a captive star using the observatory's gravity weights." },
+      { kind: "path", name: "Starbridge Route", intro: "Plot a route across intact platforms and avoid the marked void rifts." },
+      { kind: "pairs", name: "Celestial Twins", intro: "Match the hidden celestial signs. False alignments unleash void sparks.", symbols: ["Sun", "Moon", "Comet", "Star"] },
     ],
   },
 };

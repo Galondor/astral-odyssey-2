@@ -17,6 +17,7 @@ export const GEAR_SCORE_STAT_WEIGHTS = {
   magicAttackMax: 4.5,
   attack: 4.5,
   magicAttack: 4.5,
+  maxPower: 3.5,
   defense: 4,
   speed: 4,
   criticalDamage: 500,

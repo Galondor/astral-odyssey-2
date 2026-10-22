@@ -6,6 +6,7 @@ import { RARITY_NAMES, SLOTS, STAT_LABELS, canEquip } from "../items/items";
 import { findAbility } from "../combat/abilities";
 import { getItemGearScore } from "../items/gearScore";
 import { CONSUMABLES } from "../items/consumables";
+import { MATERIALS, MATERIAL_TIERS, addToMaterials } from "../items/materials";
 
 /*
  Player marketplace. Listings live in the database so every player sees them:
@@ -33,7 +34,9 @@ export const getMyUid = uid;
 
 // The database drops empty objects and nulls, so restore the shape items normally have.
 export const isConsumableListing = (item) => item?.kind === "consumable";
-const restoreItem = (item) => isConsumableListing(item)
+export const isMaterialListing = (item) => item?.kind === "material";
+export const isGemstoneListing = (item) => item?.kind === "gemstone";
+const restoreItem = (item) => isConsumableListing(item) || isMaterialListing(item) || isGemstoneListing(item)
   ? item
   : { ...item, subStats: item?.subStats || {}, ability: item?.ability || null };
 // The database rejects undefined values.
@@ -66,8 +69,8 @@ const accessProblem = (player) => {
   return null;
 };
 
-// Lists the inventory item at `index` for `priceInput` astra.
-export async function listItem(index, priceInput, myListingCount = 0) {
+// Lists a gear/consumable index or a material/gemstone object for `priceInput` astra.
+export async function listItem(index, priceInput, myListingCount = 0, amount = 1) {
   const player = getPlayer();
   const problem = accessProblem(player);
   if (problem) return { ok: false, message: problem };
@@ -76,25 +79,56 @@ export async function listItem(index, priceInput, myListingCount = 0) {
   if (myListingCount >= MAX_LISTINGS) return { ok: false, message: `You can only have ${MAX_LISTINGS} listings at a time.` };
   const inventory = [...(player.inventory || [])];
   const consumable = typeof index === "string" && CONSUMABLES[index];
+  const material = isMaterialListing(index) ? index : null;
+  const materialDefinition = material && Object.prototype.hasOwnProperty.call(MATERIALS, material.key)
+    ? MATERIALS[material.key]
+    : null;
+  const gemstone = isGemstoneListing(index)
+    ? (player.gemstones || []).find((owned) => owned.id === index.id)
+    : null;
+  const count = Number(amount);
+  if ((material && (!materialDefinition || !Number.isInteger(count) || count < 1 || count > (player.materials?.[material.key] || 0))) ||
+      (isGemstoneListing(index) && !gemstone))
+    return { ok: false, message: "That item is no longer in your inventory." };
   const item = consumable
     ? { kind: "consumable", key: index, name: consumable.name }
-    : inventory[index];
+    : material
+      ? material
+      : gemstone
+        ? gemstone
+        : inventory[index];
   if (!item || item.twoHandedOf) return { ok: false, message: "That item is no longer in your inventory." };
   if (consumable && !(player.consumables?.[index] > 0))
     return { ok: false, message: "You no longer have that consumable." };
 
-  const listed = cleanItem(consumable ? item : { ...item, originalOwner: item.originalOwner || player.name });
+  const listed = cleanItem(material
+    ? { kind: "material", key: material.key, name: materialDefinition.name, tier: materialDefinition.tier, count }
+    : consumable || gemstone
+      ? item
+      : { ...item, originalOwner: item.originalOwner || player.name });
   const consumables = { ...(player.consumables || {}) };
+  let patch;
   if (consumable) {
     consumables[index] -= 1;
     if (!consumables[index]) delete consumables[index];
-  } else inventory.splice(index, 1);
+    patch = { consumables };
+  } else if (material) {
+    const materials = { ...(player.materials || {}) };
+    materials[material.key] -= count;
+    if (!materials[material.key]) delete materials[material.key];
+    patch = { materials };
+  } else if (gemstone) {
+    patch = { gemstones: (player.gemstones || []).filter((owned) => owned.id !== gemstone.id) };
+  } else {
+    inventory.splice(index, 1);
+    patch = { inventory };
+  }
   try {
     const listingRef = push(ref(db, "marketplace"));
     await commitPlayerChange(() => {
       if (JSON.stringify(getPlayer()) !== JSON.stringify(player))
         throw new Error("Your inventory changed. Try again.");
-      setPlayer(consumable ? { consumables } : { inventory });
+      setPlayer(patch);
       return { [`marketplace/${listingRef.key}`]: {
         sellerUid: uid(),
         sellerName: String(player.name),
@@ -107,7 +141,8 @@ export async function listItem(index, priceInput, myListingCount = 0) {
     console.warn("Listing failed", e);
     return { ok: false, message: "Couldn't reach the marketplace. Try again." };
   }
-  return { ok: true, message: `Listed ${item.name} for ${price} astra. You'll receive ${getPayout(price)} astra after the ${getTax(price)} astra tax when it sells.` };
+  const quantity = material ? ` (${count}×)` : "";
+  return { ok: true, message: `Listed ${item.name}${quantity} for ${price} astra. You'll receive ${getPayout(price)} astra after the ${getTax(price)} astra tax when it sells.` };
 }
 
 const returnItem = (item) => {
@@ -116,6 +151,10 @@ const returnItem = (item) => {
     const consumables = { ...(player.consumables || {}) };
     consumables[item.key] = (consumables[item.key] || 0) + 1;
     setPlayer({ consumables });
+  } else if (isMaterialListing(item)) {
+    setPlayer({ materials: addToMaterials(player.materials, { [item.key]: item.count }) });
+  } else if (isGemstoneListing(item)) {
+    setPlayer({ gemstones: [...(player.gemstones || []), item] });
   } else {
     setPlayer({ inventory: [...(player.inventory || []), restoreItem(item)] });
   }
@@ -167,7 +206,13 @@ export async function buyListing(listing) {
       from: SENDER,
       sentAt: now,
       listingId: listing.id,
-      attachments: isConsumableListing(item) ? { consumables: { [item.key]: 1 } } : { items: [item] },
+      attachments: isConsumableListing(item)
+        ? { consumables: { [item.key]: 1 } }
+        : isMaterialListing(item)
+          ? { materials: { [item.key]: item.count } }
+          : isGemstoneListing(item)
+            ? { gemstoneItems: [item] }
+            : { items: [item] },
     },
     [`inbox/${listing.sellerUid}/market-sale-${listing.id}`]: {
       subject: `Sold: ${item.name}`,
@@ -213,11 +258,15 @@ export const SORTS = [
   ["levelAsc", "Item level: low to high"],
   ["gearScoreDesc", "Gear score: high to low"],
   ["rarityDesc", "Rarity: best first"],
+  ["tierDesc", "Material tier: best first"],
+  ["quantityDesc", "Quantity: high to low"],
+  ["statDesc", "Gemstone stat: high to low"],
   ["nameAsc", "Name: A to Z"],
 ];
 
 export const DEFAULT_FILTERS = {
   kind: "",
+  tier: "",
   query: "",
   slot: "",
   rarity: "",
@@ -235,6 +284,7 @@ export const getItemStats = (item) => {
   if (item.mainStat?.stat) out[item.mainStat.stat] = (out[item.mainStat.stat] || 0) + (Number(item.mainStat.value) || 0);
   for (const [k, v] of Object.entries(item.subStats || {})) out[k] = (out[k] || 0) + (Number(v) || 0);
   if (item.gemstone?.stat) out[item.gemstone.stat] = (out[item.gemstone.stat] || 0) + (Number(item.gemstone.value) || 0);
+  if (isGemstoneListing(item) && item.stat) out[item.stat] = (out[item.stat] || 0) + (Number(item.value) || 0);
   return out;
 };
 
@@ -246,7 +296,9 @@ const searchText = (listing) => {
   const slot = MARKET_SLOTS.find((s) => s.type === item.slot)?.label || item.slot;
   return [
     item.name,
-    isConsumableListing(item) ? "consumable" : "gear",
+    isConsumableListing(item) ? "consumable" : isMaterialListing(item) ? "material" : isGemstoneListing(item) ? "gemstone" : "gear",
+    isMaterialListing(item) && MATERIAL_TIERS[item.tier]?.label,
+    isMaterialListing(item) && MATERIALS[item.key]?.description,
     isConsumableListing(item) && CONSUMABLES[item.key]?.description,
     item.rarity,
     item.condition,
@@ -273,12 +325,15 @@ export const filterListings = (listings, f, level = getPlayer()?.level || 1) => 
   const minStat = num(f.minStat);
   return listings.filter((l) => {
     const { item } = l;
-    if (f.kind && (isConsumableListing(item) ? "consumable" : "gear") !== f.kind) return false;
-    if (f.slot && item.slot !== f.slot) return false;
-    if (f.rarity && item.rarity !== f.rarity) return false;
+    const kind = isConsumableListing(item) ? "consumable" : isMaterialListing(item) ? "material" : isGemstoneListing(item) ? "gemstone" : "gear";
+    if (f.kind && kind !== f.kind) return false;
+    if (f.slot && (kind !== "gear" || item.slot !== f.slot)) return false;
+    const rarity = item.rarity || (item.tier ? MATERIAL_TIERS[item.tier]?.label : "");
+    if (f.rarity && rarity !== f.rarity) return false;
+    if (f.tier && (kind !== "material" || item.tier !== f.tier)) return false;
     if (minPrice !== null && l.price < minPrice) return false;
     if (maxPrice !== null && l.price > maxPrice) return false;
-    if (f.usable && !isConsumableListing(item) && !canEquip(item, level)) return false;
+    if (f.usable && kind === "gear" && !canEquip(item, level)) return false;
     if (f.ability === "__any" && !item.ability) return false;
     if (f.ability === "__none" && item.ability) return false;
     if (f.ability && !f.ability.startsWith("__") && item.ability?.name !== f.ability) return false;
@@ -310,7 +365,10 @@ export const sortListings = (listings, sort) => {
     levelDesc: (a, b) => (b.item.iLevel || 0) - (a.item.iLevel || 0),
     levelAsc: (a, b) => (a.item.iLevel || 0) - (b.item.iLevel || 0),
     gearScoreDesc: (a, b) => getItemGearScore(b.item) - getItemGearScore(a.item),
-    rarityDesc: (a, b) => rarityRank(b.item.rarity) - rarityRank(a.item.rarity),
+    rarityDesc: (a, b) => rarityRank(b.item.rarity || MATERIAL_TIERS[b.item.tier]?.label) - rarityRank(a.item.rarity || MATERIAL_TIERS[a.item.tier]?.label),
+    tierDesc: (a, b) => Object.keys(MATERIAL_TIERS).indexOf(b.item.tier) - Object.keys(MATERIAL_TIERS).indexOf(a.item.tier),
+    quantityDesc: (a, b) => (Number(b.item.count) || 1) - (Number(a.item.count) || 1),
+    statDesc: (a, b) => (Number(b.item.value) || 0) - (Number(a.item.value) || 0),
     nameAsc: (a, b) => String(a.item.name).localeCompare(String(b.item.name)),
   }[sort] || ((a, b) => b.listedAt - a.listedAt);
   return [...listings].sort((a, b) => by(a, b) || b.listedAt - a.listedAt);

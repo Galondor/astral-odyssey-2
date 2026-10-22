@@ -9,6 +9,7 @@ import {
 import {
   RARITY_COLORS,
   SLOTS,
+  STAT_LABELS,
   buyBackGear,
   buyGearTraderItem,
   canEquip,
@@ -28,6 +29,10 @@ import {
   sellInventoryItem,
   unequipItem,
 } from "../items/items";
+import { getItemGearScore } from "../items/gearScore";
+import { applyRune, canApplyRune, RUNE_MAIN_STATS } from "../items/runes";
+import { canRenameItem, renameItem } from "../items/certificates";
+import { getItemStats, MARKET_RARITIES, MARKET_SLOTS, MARKET_STATS } from "../world/marketplace";
 import {
   KEY_ITEMS,
   consumableTooltip,
@@ -93,8 +98,9 @@ import InboxScreen from "./InboxScreen";
 import MarketplaceScreen from "./MarketplaceScreen";
 import { MARKETPLACE_MIN_LEVEL } from "../world/marketplace";
 import AdminScreen from "./AdminScreen";
+import BugReportScreen from "./BugReportScreen";
 import { getUnreadCount } from "../world/inbox";
-import { DUNGEON_MIN_LEVEL, describeOffer, formatTime, getBoard, getBoardRefreshMs, getRun, getStages, getTimeLeftMs } from "../world/dungeons";
+import { DUNGEON_MIN_LEVEL, describeOffer, formatTime, getBoard, getBoardRefreshMs, getRun, getStages, getTimeLeftMs, startDungeon } from "../world/dungeons";
 /*
  Game screens. A scene picks one with `screen: "<key>"` (and optional `screenData`); the sidebar can
  also open the ones with `link: true` at any time. To add a screen, add an entry here.
@@ -213,15 +219,25 @@ const DungeonRunScreen = ({ messages, player }) => {
   );
 };
 
-const DungeonsScreen = ({ player }) => {
+const DungeonsScreen = ({ player, goToScene, inCombat }) => {
   const tab = "solo";
+  const [error, setError] = useState("");
   const now = useNow();
   const run = getRun(player);
   const board = tab === "solo" && player ? getBoard(player) : null;
+  const enter = (offerId) => {
+    const result = startDungeon(offerId);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    setError("");
+    goToScene("dungeon");
+  };
   return (
     <div className='panel dungeons'>
       <h2>Dungeons</h2>
-      <p className='dungeon-warning' role='status'>Dungeons are under construction. Entry is temporarily disabled.</p>
+      {error && <p className='dungeon-warning' role='alert'>{error}</p>}
       <div className='dungeon-tabs'>
         {[["solo", "Solo Dungeons"], ["group", "Group Dungeons"]].map(([key, label]) => (
           <button key={key} type='button' className={`buttons ${tab === key ? "active" : ""}`} disabled>{label}</button>
@@ -231,7 +247,7 @@ const DungeonsScreen = ({ player }) => {
       {tab === "solo" && (
         <>
           <p className='dungeon-rules'>
-            Three new dungeons appear every 30 minutes (next in {formatTime(getBoardRefreshMs())}). <br/>Once you enter, you cannot leave or visit town. You have 5 minutes to clear it.
+            Three new dungeons appear every 30 minutes (next in {formatTime(getBoardRefreshMs())}). <br/>Once you enter, you cannot leave or visit town. You have 5 minutes to clear it.<br/>Running out of time fails the run and removes you from the dungeon.
           </p>
           {run && <p className='dungeon-warning'>You are inside {run.name}. Time left: {formatTime(getTimeLeftMs(run))}. Use the Dungeon tab to continue.</p>}
           <div className='dungeon-offers' data-now={now}>
@@ -246,8 +262,8 @@ const DungeonsScreen = ({ player }) => {
                   <div>Elite: {info.elite}</div>
                   <div>Boss: <span className='dungeon-boss'>{info.boss}</span></div>
                   <div>Unique drop: <span className='unique-text'>{info.unique?.name}</span></div>
-                  <button type='button' className='buttons' disabled>
-                    {offer.cleared ? "Cleared" : "Under Construction"}
+                  <button type='button' className='buttons' disabled={offer.cleared || !!run || inCombat || (player?.level || 1) < DUNGEON_MIN_LEVEL} onClick={() => enter(offer.id)}>
+                    {offer.cleared ? "Cleared" : "Enter Dungeon"}
                   </button>
                 </div>
               );
@@ -632,7 +648,9 @@ const GearTraderScreen = ({ data, onChange }) => {
       {tab === "buy" && (
         <div className='gear-trader-list'>
           <div className='recipe-note'>
-            New stock arrives every 30 minutes.
+            New stock arrives every 30 minutes. Higher town reputation improves
+            gear quality on the next refresh. At 1,800+ reputation, all stats roll
+            T4 or better, with 60% Epic, 20% Legendary, and 20% Rare gear.
           </div>
           {!stock.length && (
             <div className='equip-empty'>This stock has sold out.</div>
@@ -714,6 +732,16 @@ const INVENTORY_TABS = [
   { key: "keyItems", label: "Key Items" },
 ];
 
+const GEAR_SORTS = [
+  ["inventory", "Inventory order"],
+  ["slot", "Slot"],
+  ["levelDesc", "Item level: high to low"],
+  ["levelAsc", "Item level: low to high"],
+  ["gearScoreDesc", "Gear score: high to low"],
+  ["rarityDesc", "Rarity: best first"],
+  ["nameAsc", "Name: A to Z"],
+];
+
 const Inventory = ({ player, onChange, locked }) => {
   const [tab, setTab] = useState("gear");
   const [selectedGemstone, setSelectedGemstone] = useState(null);
@@ -722,11 +750,90 @@ const Inventory = ({ player, onChange, locked }) => {
   const [newName, setNewName] = useState("");
   const [consumableMessage, setConsumableMessage] = useState("");
   const [savingName, setSavingName] = useState(false);
+  const [selectedRune, setSelectedRune] = useState(null);
+  const [runeItemId, setRuneItemId] = useState("");
+  const [runeStat, setRuneStat] = useState("");
+  const [renamingItem, setRenamingItem] = useState(false);
+  const [renameItemId, setRenameItemId] = useState("");
+  const [newItemName, setNewItemName] = useState("");
   const gear = player.inventory || [];
+  const [gearFilters, setGearFilters] = useState({
+    query: "",
+    sort: "inventory",
+    slot: "",
+    rarity: "",
+    ability: "",
+    stat: "",
+    minStat: "",
+    usable: false,
+  });
+  const [gearFiltersOpen, setGearFiltersOpen] = useState(false);
   const gemstones = player.gemstones || [];
   const consumables = getConsumables(player);
   const keyItems = getKeyItems(player);
   const materials = getMaterials(player);
+  const gearAbilities = [...new Set(gear.map((item) => item.ability?.name).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+  const gearTerms = gearFilters.query.toLowerCase().split(/\s+/).filter(Boolean);
+  const minGearStat = gearFilters.minStat === "" || !Number.isFinite(Number(gearFilters.minStat))
+    ? null
+    : Number(gearFilters.minStat);
+  const filteredGear = gear
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => {
+      if (gearFilters.slot && item.slot !== gearFilters.slot) return false;
+      if (gearFilters.rarity && item.rarity !== gearFilters.rarity) return false;
+      if (gearFilters.usable && !canEquip(item, player.level)) return false;
+      if (gearFilters.ability === "__any" && !item.ability) return false;
+      if (gearFilters.ability === "__none" && item.ability) return false;
+      if (gearFilters.ability && !gearFilters.ability.startsWith("__") && item.ability?.name !== gearFilters.ability) return false;
+      if (gearFilters.stat) {
+        const stats = getItemStats(item);
+        if (!(gearFilters.stat in stats)) return false;
+        const value = ["criticalDamage", "criticalHitChance", "evasion"].includes(gearFilters.stat)
+          ? stats[gearFilters.stat] * 100
+          : stats[gearFilters.stat];
+        if (minGearStat !== null && value < minGearStat) return false;
+      }
+      if (gearTerms.length) {
+        const slot = MARKET_SLOTS.find((s) => s.type === item.slot)?.label || item.slot;
+        const searchText = [
+          item.name,
+          item.rarity,
+          item.condition,
+          slot,
+          item.twoHanded && "two-handed",
+          item.ability?.name,
+          item.ability?.description,
+          ...Object.keys(getItemStats(item)).map((key) => STAT_LABELS[key] || key),
+          item.gemstone?.name,
+        ].filter(Boolean).join(" ").toLowerCase();
+        if (!gearTerms.every((term) => searchText.includes(term))) return false;
+      }
+      return true;
+    });
+  const rarityOrder = MARKET_RARITIES;
+  const sortedGear = filteredGear.sort((a, b) => {
+    const slotRank = (item) => {
+      const rank = SLOTS.findIndex((slot) => slot.type === item.slot);
+      return rank < 0 ? Number.MAX_SAFE_INTEGER : rank;
+    };
+    const sorters = {
+      slot: () => slotRank(a.item) - slotRank(b.item),
+      levelDesc: () => (b.item.iLevel || 0) - (a.item.iLevel || 0),
+      levelAsc: () => (a.item.iLevel || 0) - (b.item.iLevel || 0),
+      gearScoreDesc: () => getItemGearScore(b.item) - getItemGearScore(a.item),
+      rarityDesc: () => rarityOrder.indexOf(b.item.rarity) - rarityOrder.indexOf(a.item.rarity),
+      nameAsc: () => String(a.item.name).localeCompare(String(b.item.name)),
+    };
+    return (sorters[gearFilters.sort]?.() || 0) || a.index - b.index;
+  });
+  const activeGearFilterCount = Object.entries(gearFilters)
+    .filter(([key, value]) => key !== "sort" && value !== "" && value !== false).length;
+  const setGearFilter = (key) => (event) => setGearFilters({
+    ...gearFilters,
+    [key]: event.target.type === "checkbox" ? event.target.checked : event.target.value,
+  });
   const counts = {
     gear: gear.length,
     consumables: consumables.reduce((n, c) => n + c.count, 0),
@@ -738,10 +845,47 @@ const Inventory = ({ player, onChange, locked }) => {
     markInventoryItemViewed("consumables", key);
     const result = drinkConsumable(key);
     setConsumableMessage(result.message);
+    if (result.requiresNameChange || result.requiresItemRename || result.requiresRune) {
+      setRenaming(false);
+      setRenamingItem(false);
+      setSelectedRune(null);
+    }
     if (result.requiresNameChange) {
       setNewName("");
       setRenaming(true);
     }
+    if (result.requiresItemRename) {
+      setRenamingItem(true);
+      setRenameItemId("");
+      setNewItemName("");
+    }
+    if (result.requiresRune) {
+      setSelectedRune(key);
+      setRuneItemId("");
+      setRuneStat("");
+    }
+    onChange();
+  };
+  const runeTargets = [
+    ...gear,
+    ...Object.values(player.equipment || {}),
+  ].filter(canApplyRune);
+  const renameTargets = [...gear, ...Object.values(player.equipment || {})].filter(canRenameItem);
+  const renameGear = (e) => {
+    e.preventDefault();
+    if (locked) return;
+    const result = renameItem(renameItemId, newItemName);
+    setConsumableMessage(result.message);
+    if (result.ok) setRenamingItem(false);
+    onChange();
+  };
+  const runeTarget = runeTargets.find((item) => item.id === runeItemId);
+  const craftWithRune = (e) => {
+    e.preventDefault();
+    if (locked) return;
+    const result = applyRune(selectedRune, runeItemId, runeStat);
+    setConsumableMessage(result.message);
+    if (result.ok) setSelectedRune(null);
     onChange();
   };
   const rename = async (e) => {
@@ -830,10 +974,71 @@ const Inventory = ({ player, onChange, locked }) => {
             {gear.length === 0 && (
               <div className='equip-empty'>You have no gear in your pack.</div>
             )}
+            <button
+              type='button'
+              className='buttons market-filters-toggle'
+              aria-expanded={gearFiltersOpen}
+              onClick={() => setGearFiltersOpen((open) => !open)}
+            >
+              Search &amp; Filters{activeGearFilterCount ? ` (${activeGearFilterCount})` : ""} {gearFiltersOpen ? "▴" : "▾"}
+            </button>
+            <div className={`market-filters ${gearFiltersOpen ? "open" : ""}`}>
+              <input
+                className='input-field market-search'
+                aria-label='Search gear'
+                placeholder='Search name, ability, stat...'
+                value={gearFilters.query}
+                onChange={setGearFilter("query")}
+              />
+              <select className='input-field' aria-label='Sort gear' value={gearFilters.sort} onChange={setGearFilter("sort")}>
+                {GEAR_SORTS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+              </select>
+              <select className='input-field' aria-label='Slot' value={gearFilters.slot} onChange={setGearFilter("slot")}>
+                <option value=''>Any slot</option>
+                {MARKET_SLOTS.map((slot) => <option key={slot.type} value={slot.type}>{slot.label}</option>)}
+              </select>
+              <select className='input-field' aria-label='Rarity' value={gearFilters.rarity} onChange={setGearFilter("rarity")}>
+                <option value=''>Any rarity</option>
+                {MARKET_RARITIES.map((rarity) => <option key={rarity} value={rarity}>{rarity}</option>)}
+              </select>
+              <select className='input-field' aria-label='Ability' value={gearFilters.ability} onChange={setGearFilter("ability")}>
+                <option value=''>Any ability</option>
+                <option value='__any'>Has an ability</option>
+                <option value='__none'>No ability</option>
+                {gearAbilities.map((ability) => <option key={ability} value={ability}>{ability}</option>)}
+              </select>
+              <select className='input-field' aria-label='Stat' value={gearFilters.stat} onChange={setGearFilter("stat")}>
+                <option value=''>Any stat</option>
+                {MARKET_STATS.map((stat) => <option key={stat.key} value={stat.key}>{stat.label}</option>)}
+              </select>
+              {gearFilters.stat && (
+                <input
+                  className='input-field market-num'
+                  aria-label='Minimum stat'
+                  type='number'
+                  min='0'
+                  placeholder='Min stat'
+                  value={gearFilters.minStat}
+                  onChange={setGearFilter("minStat")}
+                />
+              )}
+              <label className='market-check'>
+                <input type='checkbox' checked={gearFilters.usable} onChange={setGearFilter("usable")} />
+                Usable at my level
+              </label>
+              <button type='button' className='buttons' onClick={() => setGearFilters({
+                query: "", sort: "inventory", slot: "", rarity: "", ability: "", stat: "", minStat: "", usable: false,
+              })}>
+                Reset
+              </button>
+            </div>
             <div className='inventory-list'>
-              {gear.map((item, i) => (
+              {gear.length > 0 && sortedGear.length === 0 && (
+                <div className='equip-empty'>No gear matches these filters.</div>
+              )}
+              {sortedGear.map(({ item, index }) => (
                 <Tooltip
-                  key={item.id || i}
+                  key={item.id || index}
                   onView={() => viewItem("gear", getInventoryItemKey(item))}
                   content={() =>
                     itemComparisonTooltip(
@@ -850,7 +1055,7 @@ const Inventory = ({ player, onChange, locked }) => {
                     className={`inventory-item ${canEquip(item, player.level) ? "" : "too-high"}`}
                     onClick={() => {
                       markInventoryItemViewed("gear", getInventoryItemKey(item));
-                      equipItem(i);
+                      equipItem(index);
                       onChange();
                     }}
                   >
@@ -869,8 +1074,49 @@ const Inventory = ({ player, onChange, locked }) => {
         {tab === "consumables" && (
           <>
             {consumableMessage && <div role='status'>{consumableMessage}</div>}
+            {selectedRune && (
+              <form className='input-form item-input-form' onSubmit={craftWithRune}>
+                <label>
+                  Rune target
+                  <select className='input-field' value={runeItemId} disabled={locked} onChange={(e) => { setRuneItemId(e.target.value); setRuneStat(""); }}>
+                    <option value=''>Choose an item</option>
+                    {runeTargets.map((item) => <option key={item.id} value={item.id}>{item.name} ({STAT_LABELS[item.mainStat.stat]} +{item.mainStat.value})</option>)}
+                  </select>
+                </label>
+                <label>
+                  New main stat
+                  <select className='input-field' value={runeStat} disabled={locked || !runeTarget} onChange={(e) => setRuneStat(e.target.value)}>
+                    <option value=''>Choose a stat</option>
+                    {RUNE_MAIN_STATS.filter((stat) => stat !== runeTarget?.mainStat.stat).map((stat) => <option key={stat} value={stat}>{STAT_LABELS[stat]}</option>)}
+                  </select>
+                </label>
+                <p>Keeps the main stat's value and tier. Adds Crafted, preventing any further rune use.</p>
+                {!runeTargets.length && <p>You have no eligible items. Crafted items cannot receive runes.</p>}
+                <button type='submit' className='buttons' disabled={locked || !runeTarget || !runeStat}>Apply rune</button>
+                <button type='button' className='buttons' onClick={() => setSelectedRune(null)}>Cancel</button>
+              </form>
+            )}
+            {renamingItem && (
+              <form className='input-form item-input-form' onSubmit={renameGear}>
+                <label>
+                  Item to rename
+                  <select className='input-field' value={renameItemId} disabled={locked} onChange={(e) => setRenameItemId(e.target.value)}>
+                    <option value=''>Choose an item</option>
+                    {renameTargets.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                </label>
+                <label>
+                  New item name
+                  <input className='input-field' value={newItemName} onChange={(e) => setNewItemName(e.target.value)} maxLength={64} disabled={locked} />
+                </label>
+                <p>Letters, numbers, and spaces only, up to 64 characters. Inappropriate names are not allowed.</p>
+                {!renameTargets.length && <p>You have no equipment to rename.</p>}
+                <button type='submit' className='buttons' disabled={locked || !renameItemId || !newItemName.trim()}>Rename item</button>
+                <button type='button' className='buttons' onClick={() => setRenamingItem(false)}>Cancel</button>
+              </form>
+            )}
             {renaming && (
-              <form className='input-form' onSubmit={rename}>
+              <form className='input-form item-input-form' onSubmit={rename}>
                 <label>
                   New character name
                   <input className='input-field' value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={64} disabled={savingName || locked} autoFocus />
@@ -957,7 +1203,10 @@ const Inventory = ({ player, onChange, locked }) => {
             )}
             <div className='gemstone-targets'>
               {gemstoneTargets.map(({ target, label, item }) => (
-                <div className='gemstone-target' key={`${target.kind}-${target.slotKey ?? target.index}`}>
+                <div
+                  className={`gemstone-target ${target.kind === "equipment" ? "equipped-gear" : ""}`}
+                  key={`${target.kind}-${target.slotKey ?? target.index}`}
+                >
                   <span>{label}</span>
                   <strong style={{ color: RARITY_COLORS[item.rarity] }}>{item.name}</strong>
                   {item.gemstone ? (
@@ -1574,9 +1823,10 @@ export const SCREENS = {
     component: InboxScreen,
     badge: () => getUnreadCount(),
   },
-  admin: { label: "Admin", link: true, adminOnly: true, component: AdminScreen },
   leaderboards: { label: "Leaderboards", link: true, component: LeaderboardScreen },
   changelog: { label: "Changelog", link: true, component: ChangelogScreen },
+  bugReport: { label: "Report a Bug", link: true, component: BugReportScreen },
+  admin: { label: "Admin", link: true, adminOnly: true, component: AdminScreen },
   combat: { label: "Combat", component: CombatScreen, hideUnlessActive: true },
   dungeonRun: { label: "Dungeon", component: DungeonRunScreen, hideUnlessActive: true },
   crafting: {

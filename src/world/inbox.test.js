@@ -1,6 +1,6 @@
 import { get, onValue } from "firebase/database";
 import { commitPlayerChange, getPlayer, setPlayer } from "../character/player";
-import { claimMessage, startInbox } from "./inbox";
+import { claimMessage, normalizeAttachments, startInbox } from "./inbox";
 
 jest.mock("../firebase", () => ({ db: {} }));
 jest.mock("../character/player", () => ({
@@ -48,4 +48,45 @@ test("a rejected claim is reported rather than announcing rewards", async () => 
   expect(await claimMessage("gift")).toMatchObject({ ok: false });
   expect(player.astra).toBe(100);
   warn.mockRestore();
+});
+
+test("marketplace material stacks and exact gemstones can be claimed", async () => {
+  const ruby = { id: "ruby-1", name: "Ruby", type: "ruby", stat: "strength", value: 3, rarity: "Rare" };
+  expect(normalizeAttachments({ gemstoneItems: [ruby] }).gemstoneItems).toEqual([ruby]);
+
+  stop();
+  onValue.mockImplementation((path, callback) => {
+    callback({ val: () => path === "inbox/alice"
+      ? { market: { subject: "Purchase", attachments: { materials: { slime_gel: 3 }, gemstoneItems: [ruby] } } }
+      : {} });
+    return () => {};
+  });
+
+  stop = startInbox("alice", () => {});
+
+  expect(await claimMessage("market")).toEqual({
+    ok: true,
+    lines: ["3× Slime Gel", "Rare Ruby"],
+  });
+  expect(player.materials).toEqual({ slime_gel: 3 });
+  expect(player.gemstones).toEqual([ruby]);
+});
+
+test("Architect's Rune attachments are recognized and claimed", async () => {
+  stop();
+  onValue.mockImplementation((path, callback) => {
+    callback({ val: () => path === "inbox/alice"
+      ? { rune: { subject: "Rune gift", attachments: { consumables: { architectsRune: 3 } } } }
+      : {} });
+    return () => {};
+  });
+  stop = startInbox("alice", () => {});
+  expect(normalizeAttachments({ consumables: { architectsRune: 3 } }).consumables)
+    .toEqual([["architectsRune", 3]]);
+  expect(await claimMessage("rune")).toEqual({ ok: true, lines: ["3× Architect's Rune"] });
+  expect(player.consumables.architectsRune).toBe(3);
+  expect(writes).toEqual({
+    "inboxState/alice/rune/claimed": true,
+    "inboxState/alice/rune/read": true,
+  });
 });

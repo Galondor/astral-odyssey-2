@@ -93,6 +93,7 @@ export const STAT_LABELS = {
   strength: "Strength",
   dexterity: "Dexterity",
   intelligence: "Intelligence",
+  maxPower: "Power",
 };
 
 const RARITIES = [
@@ -157,24 +158,27 @@ const SUBSTAT_CAPS = {
   attackMax: 3,
   magicAttackMin: 3,
   magicAttackMax: 3,
+  maxPower: 0.5,
   criticalDamage: 0.02,
 };
 
 // Relative price weight of one point of each substat
 const SUBSTAT_PRICE = {
-  resilience: 3,
-  agility: 3,
-  vitality: 2,
-  luck: 5,
-  attackMin: 1.5,
-  attackMax: 1.5,
-  magicAttackMin: 1.5,
-  magicAttackMax: 1.5,
+  resilience: 2,
+  agility: 2,
+  vitality: 1,
+  luck: 3,
+  attackMin: 3,
+  attackMax: 3,
+  magicAttackMin: 3,
+  magicAttackMax: 3,
+  maxPower: 3,
   criticalDamage: 30,
 };
 
 const SUBSTAT_POOLS = {
   offense: [
+    "maxPower",
     "attackMin",
     "attackMax",
     "magicAttackMin",
@@ -185,7 +189,7 @@ const SUBSTAT_POOLS = {
     "vitality",
     "resilience",
   ],
-  defense: ["resilience", "vitality", "agility", "luck"],
+  defense: ["maxPower", "resilience", "vitality", "agility", "luck"],
 };
 
 // Two-handed weapons occupy the main hand and off hand, so they roll this multiple of the normal stats.
@@ -374,8 +378,10 @@ const randInt = (max) => Math.floor(Math.random() * Math.max(1, max)) + 1;
 const round = (n, d = 3) => Math.round(n * 10 ** d) / 10 ** d;
 
 // minRarity is an index into RARITIES; lower rarities are excluded and the rest keep their relative odds.
-const rollRarity = (minRarity = 0) => {
-  const pool = RARITIES.slice(minRarity);
+const rollRarity = (minRarity = 0, weights) => {
+  const pool = RARITIES.map((rarity, index) =>
+    weights ? { ...rarity, chance: weights[index] } : rarity,
+  ).slice(minRarity);
   let roll = Math.random() * pool.reduce((sum, r) => sum + r.chance, 0);
   for (const r of pool) {
     if (roll < r.chance) return r;
@@ -384,55 +390,101 @@ const rollRarity = (minRarity = 0) => {
   return pool[0];
 };
 
-const rollSubStatValue = (key, iLevel) => {
+const getSubStatRollRange = (key, iLevel) => {
   const cap = SUBSTAT_CAPS[key] * iLevel;
-  if (key === "criticalDamage")
-    return round(Math.max(0.01, Math.ceil(Math.random() * cap * 100) / 100), 2);
-  return randInt(cap);
+  const min = key === "criticalDamage" ? 0.01 : 1;
+  const max =
+    key === "criticalDamage"
+      ? Math.max(0.01, Math.ceil(cap * 100) / 100)
+      : Math.max(1, Math.ceil(cap));
+  return { min, max };
 };
 
 // T0 is the lowest possible roll and T7 the highest, based on where the roll sits in its range.
 const SUBSTAT_MAX_TIER = 7;
-const rollTier = (key, value, iLevel) => {
-  const cap = SUBSTAT_CAPS[key] * iLevel;
-  const isCrit = key === "criticalDamage";
-  const min = isCrit ? 0.01 : 1;
-  const max = isCrit ? Math.max(0.01, Math.ceil(cap * 100) / 100) : Math.max(1, Math.ceil(cap));
-  if (max <= min) return SUBSTAT_MAX_TIER;
-  const fraction = Math.min(1, Math.max(0, (value - min) / (max - min)));
-  return Math.round(fraction * SUBSTAT_MAX_TIER);
-};
+// Main-stat tiers use the final value on one shared scale; 22 is the highest current unique roll.
+const MAIN_STAT_MAX_VALUE = 22;
+const getMainStatTier = (value) =>
+  Math.round(Math.min(1, Math.max(0, value / MAIN_STAT_MAX_VALUE)) * SUBSTAT_MAX_TIER);
 
 const scaleValue = (key, value, scale) =>
   key === "criticalDamage"
     ? round(value * scale, 2)
     : Math.round(value * scale);
 
+const rollTier = (key, value, iLevel, scale = 1) => {
+  const { min, max } = getSubStatRollRange(key, iLevel);
+  const scaledMin = scaleValue(key, min, scale);
+  const scaledMax = scaleValue(key, max, scale);
+  const scaledValue = scaleValue(key, value, scale);
+  if (scaledMax <= scaledMin) return SUBSTAT_MAX_TIER;
+  const fraction = Math.min(
+    1,
+    Math.max(0, (scaledValue - scaledMin) / (scaledMax - scaledMin)),
+  );
+  return Math.round(fraction * SUBSTAT_MAX_TIER);
+};
+
+const rollSubStatValue = (key, iLevel, minTier = 0, scale = 1) => {
+  const cap = SUBSTAT_CAPS[key] * iLevel;
+  const { min: minRoll, max } = getSubStatRollRange(key, iLevel);
+  if (minTier > 0) {
+    const precision = key === "criticalDamage" ? 100 : 1;
+    const firstRoll = Math.ceil(minRoll * precision);
+    const lastRoll = Math.ceil(max * precision);
+    let firstAllowedRoll = firstRoll;
+    while (
+      firstAllowedRoll < lastRoll &&
+      rollTier(key, firstAllowedRoll / precision, iLevel, scale) < minTier
+    ) {
+      firstAllowedRoll++;
+    }
+    return round(
+      (firstAllowedRoll + randInt(lastRoll - firstAllowedRoll + 1) - 1) /
+        precision,
+      2,
+    );
+  }
+  if (key === "criticalDamage")
+    return round(Math.max(0.01, Math.ceil(Math.random() * cap * 100) / 100), 2);
+  return randInt(cap);
+};
+
 // Item Generation
-export const generateRandomItem = (slot, minRarity = 0) => {
+const generateItem = (slot, minRarity = 0, quality = {}, player = getPlayer()) => {
   const config = SLOT_CONFIG[slot];
   if (!config) return null;
-  const p = getPlayer();
-  const level = p?.level || 1;
+  const level = player?.level || 1;
+  const minTier = quality.minTier || 0;
 
   // 80% chance to match the player's level; otherwise roll 1-5 levels higher
   const iLevel = Math.random() < 0.8 ? level : level + randInt(5);
-  const rarity = rollRarity(minRarity);
-  const condition = pick(CONDITIONS);
+  const rarity = rollRarity(minRarity, quality.weights);
   const base = pick(config.bases);
   const twoHanded = !!base.twoHanded;
   const scale = twoHanded ? TWO_HANDED_MULT : 1;
+  const minMainValue = Math.ceil(
+    (Math.max(0, minTier - 0.5) / SUBSTAT_MAX_TIER) * MAIN_STAT_MAX_VALUE,
+  );
+  const condition = pick(CONDITIONS.filter((candidate) =>
+    Math.round((5 + rarity.mainStatBonus) * scale) + candidate.mainStatModifier >= minMainValue,
+  ));
 
   // Base roll 1-5 plus rarity bonus (not scaled by iLevel); two-handed weapons scale that, then condition applies
-  const mainRoll = randInt(5);
+  const mainRolls = [1, 2, 3, 4, 5].filter((roll) =>
+    minTier === 0 ||
+    Math.round((roll + rarity.mainStatBonus) * scale) + condition.mainStatModifier >= minMainValue,
+  );
+  const mainRoll = pick(mainRolls);
+  const mainStatValue = Math.max(
+    0,
+    Math.round((mainRoll + rarity.mainStatBonus) * scale) +
+      condition.mainStatModifier,
+  );
   const mainStat = {
     stat: base.stat,
-    tier: Math.round(((mainRoll - 1) / 4) * SUBSTAT_MAX_TIER),
-    value: Math.max(
-      0,
-      Math.round((mainRoll + rarity.mainStatBonus) * scale) +
-        condition.mainStatModifier,
-    ),
+    tier: getMainStatTier(mainStatValue),
+    value: mainStatValue,
   };
 
   // Unique substats
@@ -442,8 +494,8 @@ export const generateRandomItem = (slot, minRarity = 0) => {
   const count = Math.min(rarity.substats, pool.length);
   for (let i = 0; i < count; i++) {
     const key = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
-    const roll = rollSubStatValue(key, iLevel);
-    subTiers[key] = rollTier(key, roll, iLevel);
+    const roll = rollSubStatValue(key, iLevel, minTier, scale);
+    subTiers[key] = rollTier(key, roll, iLevel, scale);
     subStats[key] = scaleValue(key, roll, scale);
   }
 
@@ -498,6 +550,9 @@ export const generateRandomItem = (slot, minRarity = 0) => {
   };
 };
 
+export const generateRandomItem = (slot, minRarity = 0) =>
+  generateItem(slot, minRarity);
+
 // Unique gear: a tier above Legendary with a fixed ability. Every main stat and substat rolls at T4 or better.
 const UNIQUE_MAIN_BONUS = 6;
 const UNIQUE_PRICE_MULT = 36;
@@ -523,17 +578,18 @@ export const createUniqueItem = (def, iLevel = 1) => {
   const twoHanded = !!def.twoHanded;
   const scale = twoHanded ? TWO_HANDED_MULT : 1;
   const mainRoll = 3 + Math.floor(Math.random() * 3);
+  const mainStatValue = Math.round((mainRoll + UNIQUE_MAIN_BONUS) * scale) + 5;
   const mainStat = {
     stat: def.stat,
-    tier: Math.round(((mainRoll - 1) / 4) * SUBSTAT_MAX_TIER),
-    value: Math.round((mainRoll + UNIQUE_MAIN_BONUS) * scale) + 5,
+    tier: getMainStatTier(mainStatValue),
+    value: mainStatValue,
   };
   const subStats = {};
   const subTiers = {};
   for (const key of def.subStats || []) {
     if (!SUBSTAT_CAPS[key]) continue;
     const value = rollHighSubStat(key, level);
-    subTiers[key] = rollTier(key, value, level);
+    subTiers[key] = rollTier(key, value, level, scale);
     subStats[key] = scaleValue(key, value, scale);
   }
   const subValue = Object.entries(subStats).reduce((sum, [k, v]) => sum + v * SUBSTAT_PRICE[k], 0);
@@ -559,8 +615,8 @@ export const createUniqueItem = (def, iLevel = 1) => {
 export const GEAR_SLOT_TYPES = Object.keys(SLOT_CONFIG);
 export const RARITY_NAMES = RARITIES.map((r) => r.name);
 
-export const generateRandomSlotItem = (minRarity = 0) =>
-  generateRandomItem(pick(Object.keys(SLOT_CONFIG)), minRarity);
+export const generateRandomSlotItem = (minRarity = 0, minTier = 0) =>
+  generateItem(pick(Object.keys(SLOT_CONFIG)), minRarity, { minTier });
 
 export const generateRandomGemstone = (minRarity = 0) => {
   const [type, gemstone] = pick(Object.entries(GEMSTONES));
@@ -614,8 +670,8 @@ export const itemTooltip = (item, extra) => {
       label: STAT_LABELS[item.mainStat.stat] || item.mainStat.stat,
       value: formatValue(item.mainStat.stat, item.mainStat.value),
       color: "#ffd479",
-      tier: item.mainStat.tier !== undefined ? `T${item.mainStat.tier}` : undefined,
-      tierColor: TIER_COLORS[item.mainStat.tier],
+      tier: `T${getMainStatTier(item.mainStat.value)}`,
+      tierColor: TIER_COLORS[getMainStatTier(item.mainStat.value)],
     });
   }
   for (const [k, v] of Object.entries(item.subStats || {})) {
@@ -632,6 +688,7 @@ export const itemTooltip = (item, extra) => {
   const tags = [
     slotLabel,
     item.twoHanded && "Two-handed",
+    item.crafted && "Crafted",
     `Gear score ${getItemGearScore(item)}`,
     item.originalOwner && `Original Owner: ${item.originalOwner}`,
   ].filter(Boolean);
@@ -877,6 +934,14 @@ export function removeGemstone(target) {
 
 const BUYBACK_LIMIT = 10;
 const GEAR_TRADER_STOCK_SIZE = 20;
+const GEAR_TRADER_QUALITY = [
+  { rep: 0, minTier: 0 },
+  { rep: 20, minTier: 0, weights: [35, 30, 20, 14, 1] },
+  { rep: 80, minTier: 1, weights: [15, 30, 30, 22, 3] },
+  { rep: 250, minTier: 2, weights: [0, 15, 35, 45, 5] },
+  { rep: 700, minTier: 3, weights: [0, 0, 32, 60, 8] },
+  { rep: 1800, minTier: 4, weights: [0, 0, 25, 65, 10] },
+];
 export const GEAR_TRADER_REFRESH_MS = 30 * 60 * 1000;
 const getGearTraderHour = () => Math.floor(Date.now() / GEAR_TRADER_REFRESH_MS);
 
@@ -886,8 +951,11 @@ export const getGearTraderStock = (player = getPlayer()) => {
     return player.gearTraderStock.items;
 
   const slots = Object.keys(SLOT_CONFIG);
+  const quality = [...GEAR_TRADER_QUALITY].reverse().find(
+    (entry) => (player?.rep || 0) >= entry.rep,
+  ) || GEAR_TRADER_QUALITY[0];
   const items = Array.from({ length: GEAR_TRADER_STOCK_SIZE }, () =>
-    generateRandomItem(slots[Math.floor(Math.random() * slots.length)]),
+    generateItem(pick(slots), 0, quality, player),
   );
   if (player) setPlayer({ gearTraderStock: { hour, items } });
   return items;

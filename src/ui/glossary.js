@@ -10,7 +10,7 @@ export const GLOSSARY = {
   astra: { title: "Astra", tags: ["Currency"] },
   strength: { title: "Strength", description: "Increases melee damage and health." },
   dexterity: { title: "Dexterity", description: "Increases melee damage and agility." },
-  intelligence: { title: "Intelligence", description: "Increases magic damage and power." },
+  intelligence: { title: "Intelligence", description: "Increases magic damage." },
   vitality: { title: "Vitality", description: "Increases health." },
   resilience: { title: "Resilience", description: "Increases defense." },
   agility: { title: "Agility", description: "Increases speed and evasion." },

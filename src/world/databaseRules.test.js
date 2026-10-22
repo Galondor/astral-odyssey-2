@@ -36,6 +36,8 @@ const request = (method, path, value, uid, query = "") => new Promise((resolve, 
 
 const elixir = { kind: "consumable", key: "elixirOfNameChanging", name: "Elixir of Name Changing" };
 const sword = { id: "sword", name: "Sword", slot: "weapon", rarity: "Rare", iLevel: 10 };
+const slimeGel = { kind: "material", key: "slime_gel", name: "Slime Gel", tier: "common", count: 3 };
+const ruby = { kind: "gemstone", id: "ruby-1", name: "Rare Ruby", type: "ruby", stat: "strength", value: 3, rarity: "Rare" };
 const listing = (item = elixir) => ({
   sellerUid: "seller", sellerName: "Seller", item, price: 101, listedAt: 1,
 });
@@ -107,7 +109,7 @@ rulesTests("Firebase name and consumable marketplace rules", () => {
     expect((await request("GET", "directory", undefined, "buyer")).status).toBe(401);
   });
 
-  test.each([elixir, sword])("sellers can list and cancel $name", async (item) => {
+  test.each([elixir, sword, slimeGel, ruby])("sellers can list and cancel $name", async (item) => {
     expect((await request("PUT", "marketplace/second", listing(item), "seller")).status).toBe(200);
     expect((await request("DELETE", "marketplace/second", undefined, "seller")).status).toBe(200);
   });
@@ -124,6 +126,16 @@ rulesTests("Firebase name and consumable marketplace rules", () => {
   test("gear purchases still deliver the exact gear attachment", async () => {
     await request("PUT", "marketplace/test", listing(sword), "owner");
     expect((await request("PATCH", "", purchase({ items: [sword] }), "buyer")).status).toBe(200);
+  });
+
+  test.each([
+    [slimeGel, { materials: { slime_gel: 3 } }],
+    [ruby, { gemstoneItems: [ruby] }],
+  ])("material and gemstone purchases deliver matching attachments", async (item, attachments) => {
+    await request("PUT", "marketplace/test", listing(item), "owner");
+    expect((await request("PATCH", "", purchase(attachments), "buyer")).status).toBe(200);
+    expect((await request("GET", "inbox/buyer/market-test", undefined, "buyer")).body.attachments)
+      .toEqual(attachments);
   });
 
   test.each([

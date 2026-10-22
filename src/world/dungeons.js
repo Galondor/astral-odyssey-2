@@ -1,5 +1,5 @@
 import { getPlayer, setPlayer } from "../character/player";
-import { endCombat, getEnemy, startCombat } from "../combat/combat";
+import { applyDeathPenalties, endCombat, getEnemy, startCombat } from "../combat/combat";
 import { createUniqueItem } from "../items/items";
 import { MATERIALS, addToMaterials } from "../items/materials";
 import { expForLevel } from "../character/stats";
@@ -18,12 +18,13 @@ import { DUNGEON_TYPES, DUNGEON_TYPE_IDS, TRAP_COUNTERS, UNIQUES, UNIQUE_DROP_CH
 */
 export const DUNGEON_REFRESH_MS = 30 * 60 * 1000;
 export const DUNGEON_TIME_LIMIT_MS = 5 * 60 * 1000;
-export const DUNGEON_MIN_LEVEL = 10;
+export const DUNGEON_MIN_LEVEL = 12;
 export const DUNGEON_MAX_LEVEL = 100;
 export const NAME_ELIXIR_DROP_CHANCE = 0.05;
+export const ARCHITECTS_RUNE_DROP_CHANCE = { elite: 0.05, boss: 0.1 };
 const OFFER_COUNT = 3;
 const BASIC_COUNT = 3;
-const SWAP_CHANCE = 0.3;
+const SWAP_CHANCE = 0.15;
 
 // Dungeon enemies are built from the dungeon rating rather than the overworld curve, and hit much harder.
 const BASE_HP = 14;
@@ -31,13 +32,12 @@ const BASE_ATTACK = 1.1;
 const BASE_DEFENSE = 0.55;
 const BASE_SPEED = 4;
 const TIER = {
-  basic: { label: "Basic", color: "#b0b0b0", hp: 3.6, atk: 4.8, def: 4.2, spd: 1, crit: 0.15, exp: 0.024, astra: 10, dropChance: 0.3, minRarity: 0, stunResist: 0.25, dotResist: 0.8, materials: 2 },
-  elite: { label: "Elite", color: "#0070dd", hp: 7.6, atk: 7.2, def: 6.6, spd: 1.1, crit: 0.25, exp: 0.06, astra: 28, dropChance: 0.75, minRarity: 2, stunResist: 0.6, dotResist: 0.6, materials: 3 },
-  boss: { label: "Boss", color: "#ff2a2a", hp: 12, atk: 7.7, def: 7.2, spd: 1.15, crit: 0.35, exp: 0.12, astra: 68, dropChance: 1, minRarity: 3, stunResist: 1, dotResist: 0.5, materials: 3 },
+  basic: { label: "Basic", color: "#0070dd", hp: 3, atk: 3.3, def: 5.5, spd: 1, crit: 0.15, exp: 0.02, astra: 10, dropChance: 0.3, minRarity: 1, stunResist: 0.25, dotResist: 0.8, materials: 2 },
+  elite: { label: "Elite", color: "#a335ee", hp: 6, atk: 5, def: 8.5, spd: 1.1, crit: 0.25, exp: 0.06, astra: 30, dropChance: 0.75, minRarity: 2, stunResist: 0.6, dotResist: 0.6, materials: 3 },
+  boss: { label: "Boss", color: "#ff2a2a", hp: 10, atk: 7.2, def: 10, spd: 1.15, crit: 0.35, exp: 0.14, astra: 70, dropChance: 1, minRarity: 4, stunResist: 1, dotResist: 0.5, materials: 4 },
 };
-const SURVIVE_HEALTH = 0.25;
-const PUZZLE_ASTRA = 12;
-const MISTAKE_DAMAGE = [0.1, 0.18, 0.28, 0.4];
+const PUZZLE_ASTRA = 15;
+const MISTAKE_DAMAGE = [0.2, 0.25, 0.35, 0.45];
 const LOCK_GUESSES = 6;
 const LOCK_DIGITS = [1, 2, 3, 4, 5, 6];
 
@@ -118,6 +118,12 @@ const withDefaults = (run) => {
     pz.guesses = pz.guesses || [];
     pz.cur = pz.cur || [];
   }
+  if (pz.kind === "scales") pz.selected = pz.selected || [];
+  if (pz.kind === "path") pz.visited = pz.visited || [];
+  if (pz.kind === "pairs") {
+    pz.open = pz.open || [];
+    pz.matched = pz.matched || [];
+  }
   return { ...run, pz };
 };
 
@@ -193,10 +199,12 @@ export function expireIfNeeded() {
 function failRun(message) {
   const p = getPlayer();
   const s = { ...p.stats };
-  s.health = Math.max(1, Math.round(s.maxHealth * SURVIVE_HEALTH));
-  s.power = s.maxPower;
-  setPlayer({ stats: s, dungeon: null });
-  return { reply: [message, "You are dragged out of the dungeon. Your run has failed and must be started again."], next: "menu", clearLog: true };
+  const patch = { dungeon: null };
+  const reply = [message];
+  applyDeathPenalties(p, s, reply, patch);
+  reply.push("You are dragged out of the dungeon. Your run has failed and must be started again.");
+  setPlayer({ ...patch, stats: s });
+  return { reply, next: "menu", clearLog: true };
 }
 
 // Hurts the player by a fraction of max health. Returns { lost, died }.
@@ -249,7 +257,10 @@ const buildEnemy = (run, step) => {
     exp: Math.round(levelExp * t.exp),
     abilities: template.abilities || [],
     phases: template.phases || [],
-    drops: template.drops || [],
+    drops: [
+      ...(template.drops || []),
+      { key: DUNGEON_TYPES[run.type].materials[step.tier], chance: 1, min: 1, max: 2 },
+    ],
     dropChance: t.dropChance,
     minRarity: t.minRarity,
     dotResist: t.dotResist,
@@ -258,11 +269,10 @@ const buildEnemy = (run, step) => {
     dungeon: true,
     onDefeat: (p, s, patch, replies) => onFightWon(p, s, patch, replies, template),
     onPlayerDefeat: (p, s, patch, replies) => {
-      s.health = Math.max(1, Math.round(s.maxHealth * SURVIVE_HEALTH));
-      s.power = s.maxPower;
+      applyDeathPenalties(p, s, replies, patch);
       patch.dungeon = null;
       replies.push(
-        `You collapse inside the dungeon and are dragged out. Your run has failed and must be started again. You wake with ${s.health} health.`,
+        "You collapse inside the dungeon and are dragged out. Your run has failed and must be started again.",
       );
     },
   };
@@ -273,6 +283,13 @@ function onFightWon(p, s, patch, replies, template) {
   const run = p.dungeon;
   if (!run) return;
   const step = currentStep(run);
+  const runeChance = ARCHITECTS_RUNE_DROP_CHANCE[step?.tier];
+  if (runeChance && Math.random() < runeChance) {
+    const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
+    consumables.architectsRune = (consumables.architectsRune || 0) + 1;
+    patch.consumables = consumables;
+    replies.push(`The ${step.tier} drops an Architect's Rune!`);
+  }
   if (step?.tier !== "boss") {
     patch.dungeon = prepareStep({ ...run, index: run.index + 1 });
     return;
@@ -407,6 +424,38 @@ const makeGamble = () => ({ contents: shuffle(["treasure", "snare", "mimic"]), o
 
 const makeGauntlet = (def) => ({ traps: shuffle(def.traps).slice(0, 3), round: 0, hits: 0 });
 
+const toggleRunes = (runes, index) =>
+  runes.map((lit, i) => Math.abs(i - index) <= 1 ? !lit : lit);
+
+const makeCircuit = () => {
+  let runes = Array(5).fill(true);
+  for (const index of shuffle([0, 1, 2, 3, 4]).slice(0, rnd(1, 4))) runes = toggleRunes(runes, index);
+  if (runes.every(Boolean)) runes = toggleRunes(runes, 0);
+  return { runes };
+};
+
+const makeScales = () => {
+  const weights = shuffle(Array.from({ length: 12 }, (_, i) => i + 1)).slice(0, 6);
+  const target = shuffle(weights).slice(0, rnd(2, 3)).reduce((sum, n) => sum + n, 0);
+  return { weights, target, selected: [] };
+};
+
+const pathColumns = (column) => [0, 1, 2].filter((c) => Math.abs(c - column) <= 1);
+
+const makePath = () => {
+  const start = rnd(0, 2);
+  let column = start;
+  const grid = Array.from({ length: 4 }, () => {
+    column = pick(pathColumns(column));
+    return [0, 1, 2].map((c) => c === column || Math.random() < 0.35);
+  });
+  // Only one exit is open; the guaranteed route always reaches it.
+  grid[grid.length - 1] = [0, 1, 2].map((c) => c === column);
+  return { grid, start, exit: column, visited: [] };
+};
+
+const makePairs = (def) => ({ cards: shuffle([...def.symbols, ...def.symbols]), open: [], matched: [] });
+
 const PUZZLE_MAKERS = {
   sequence: () => makeSequence(),
   doors: () => makeDoors(),
@@ -414,6 +463,10 @@ const PUZZLE_MAKERS = {
   lock: () => makeLock(),
   gauntlet: (def) => makeGauntlet(def),
   gamble: () => makeGamble(),
+  circuit: () => makeCircuit(),
+  scales: () => makeScales(),
+  path: () => makePath(),
+  pairs: (def) => makePairs(def),
 };
 
 // Sets up the state for the step the run is on.
@@ -432,10 +485,10 @@ const updatePuzzle = (patch) => {
 };
 
 // A wrong move: take trap damage that grows with every mistake and face a freshly generated puzzle.
-function mistake(run, message, { regenerate = true } = {}) {
+function mistake(run, message, { regenerate = true, damageFraction } = {}) {
   const pz = run.pz;
   const frac = MISTAKE_DAMAGE[Math.min(pz.mistakes, MISTAKE_DAMAGE.length - 1)];
-  const { lost, died } = hurt(frac);
+  const { lost, died } = hurt(damageFraction ?? frac);
   const text = `${message} The dungeon punishes you for [red]${lost}[/red] damage.`;
   if (died) return failRun(`${text} You fall.`);
   const def = DUNGEON_TYPES[run.type].puzzles[currentStep(run).puzzle];
@@ -507,6 +560,32 @@ function describeCurrent(run) {
     }
     case "gamble":
       lines.push(`Three ${def.chest}s. One holds treasure. The others hold something that bites. You must open one.`);
+      break;
+    case "circuit":
+      lines.push(
+        "Light all five runes. Toggling a rune also flips its immediate left and right neighbors. Only checking an unfinished circuit causes damage.",
+        pz.runes.map((lit, i) => `${i + 1}: ${lit ? "ON" : "OFF"}`).join(" | "),
+      );
+      break;
+    case "scales": {
+      const total = pz.selected.reduce((sum, i) => sum + pz.weights[i], 0);
+      lines.push(`Target weight: ${pz.target}. Select any combination of weights, then check the balance. Each weight can be used once.`,
+        `Available weights: ${pz.weights.join(", ")}. Selected: ${pz.selected.map((i) => pz.weights[i]).join(" + ") || "none"} (total ${total}).`);
+      break;
+    }
+    case "path":
+      lines.push(
+        "The map is visible: O = intact, X = trapped. Move forward one row, staying in the same column or shifting one column sideways. You may step back freely. Plan a route to the exit.",
+        `Start: column ${pz.start + 1}. Exit: column ${pz.exit + 1}.`,
+        ...pz.grid.map((row, i) => `Row ${i + 1}: ${row.map((safe, c) => `${c + 1}:${safe ? "O" : "X"}`).join(" | ")}`),
+        pz.visited.length ? `You are at row ${pz.visited.length}, column ${pz.visited[pz.visited.length - 1] + 1}.` : "You are at the start.",
+      );
+      break;
+    case "pairs":
+      lines.push(
+        "Reveal two runes at a time and match all four pairs. A mismatch causes damage; both runes stay visible until you cover them.",
+        ...pz.cards.map((card, i) => `Rune ${i + 1}: ${pz.matched.includes(i) ? `${card} (matched)` : pz.open.includes(i) ? card : "hidden"}`),
+      );
       break;
     default:
       break;
@@ -635,6 +714,84 @@ function puzzleOptions(run) {
           };
         }),
       );
+    case "circuit":
+      return [
+        ...pz.runes.map((_, i) => opt(`Toggle rune ${i + 1}`, () => {
+          const fresh = getRun();
+          const runes = toggleRunes(fresh.pz.runes, i);
+          const next = updatePuzzle({ runes });
+          return { reply: describeCurrent(next), clearLog: true };
+        })),
+        opt("Check circuit", () => {
+          const fresh = getRun();
+          return fresh.pz.runes.every(Boolean)
+            ? solved(fresh, "Every rune shines and the circuit opens the way.", { perfect: fresh.pz.mistakes === 0 })
+            : mistake(fresh, "The unfinished circuit discharges.", { regenerate: false });
+        }),
+      ];
+    case "scales":
+      return [
+        ...pz.weights.map((weight, i) => opt(`${pz.selected.includes(i) ? "Remove" : "Add"} weight ${weight}`, () => {
+          const fresh = getRun();
+          const selected = fresh.pz.selected.includes(i)
+            ? fresh.pz.selected.filter((n) => n !== i) : [...fresh.pz.selected, i];
+          const next = updatePuzzle({ selected });
+          return { reply: describeCurrent(next), clearLog: true };
+        })),
+        opt("Check balance", () => {
+          const fresh = getRun();
+          const total = fresh.pz.selected.reduce((sum, i) => sum + fresh.pz.weights[i], 0);
+          return total === fresh.pz.target
+            ? solved(fresh, "The scales balance and the gate rises.", { perfect: fresh.pz.mistakes === 0 })
+            : mistake(fresh, `The offering is too ${total < fresh.pz.target ? "light" : "heavy"}.`, { regenerate: false });
+        }),
+      ];
+    case "path": {
+      const column = pz.visited.length ? pz.visited[pz.visited.length - 1] : pz.start;
+      const options = pathColumns(column).map((c) => opt(`Step to column ${c + 1}`, () => {
+        const fresh = getRun();
+        const row = fresh.pz.visited.length;
+        if (!fresh.pz.grid[row][c])
+          return mistake(fresh, "You step onto a trapped stone and retreat.", { regenerate: false });
+        const visited = [...fresh.pz.visited, c];
+        if (visited.length === fresh.pz.grid.length)
+          return solved(fresh, "You reach the exit safely.", { perfect: fresh.pz.mistakes === 0 });
+        const next = updatePuzzle({ visited });
+        return { reply: describeCurrent(next), clearLog: true };
+      }));
+      if (pz.visited.length) options.push(opt("Step back", () => {
+        const fresh = getRun();
+        const next = updatePuzzle({ visited: fresh.pz.visited.slice(0, -1) });
+        return { reply: describeCurrent(next), clearLog: true };
+      }));
+      return options;
+    }
+    case "pairs":
+      if (pz.open.length === 2) return [opt("Cover unmatched runes", () => {
+        const next = updatePuzzle({ open: [] });
+        return { reply: describeCurrent(next), clearLog: true };
+      })];
+      return pz.cards.flatMap((_, i) => pz.matched.includes(i) || pz.open.includes(i) ? [] : [
+        opt(`Reveal rune ${i + 1}`, () => {
+          const fresh = getRun();
+          const open = [...fresh.pz.open, i];
+          if (open.length === 1) {
+            const next = updatePuzzle({ open });
+            return { reply: describeCurrent(next), clearLog: true };
+          }
+          if (fresh.pz.cards[open[0]] !== fresh.pz.cards[open[1]]) {
+            const next = updatePuzzle({ open });
+            return mistake(next, "The runes do not match.", {
+              regenerate: false, damageFraction: Math.min(0.15, 0.05 + fresh.pz.mistakes * 0.01),
+            });
+          }
+          const matched = [...fresh.pz.matched, ...open];
+          if (matched.length === fresh.pz.cards.length)
+            return solved(fresh, "All four rune pairs are reunited.", { perfect: fresh.pz.mistakes === 0 });
+          const next = updatePuzzle({ matched, open: [] });
+          return { reply: ["A matching pair locks into place.", ...describeCurrent(next)], clearLog: true };
+        }),
+      ]);
     default:
       return [];
   }

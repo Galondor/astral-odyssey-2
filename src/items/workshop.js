@@ -58,7 +58,7 @@ export const RECIPES = {
     description: "+2 maximum power.",
     cost: { astra: 200, materials: { wraith_essence: 6, obsidian_shard: 3 } },
     bonus: { maxPower: 2 },
-    limit: 3,
+    limit: 10,
   },
   enduranceCharm: {
     name: "Endurance Charm",

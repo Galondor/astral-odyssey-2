@@ -16,8 +16,8 @@ export const STATUSES = {
     kind: "dot",
     defaultPower: 0.04,
     defaultTurns: 3,
-    healPenalty: 0.5,
-    description: "Takes damage each round and receives 50% less healing.",
+    healPenalty: 0.1,
+    description: "Takes damage each round and receives 10% less healing.",
   },
   poison: {
     name: "Poisoned",

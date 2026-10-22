@@ -4,26 +4,28 @@ import { MATERIALS, getMaterialCount, spendMaterials } from "../items/materials"
 import { generateRandomSlotItem } from "../items/items";
 import { CONSUMABLES } from "../items/consumables";
 import { expForLevel, gainExp } from "../character/stats";
+import { DUNGEON_TYPES } from "./dungeonData";
 
 /*
  Quests and town reputation.
  The player saves:
    rep         - town reputation (earned by completing quests)
-   questBoard  - { hour, quests } the tavern's current offers (a new board every 10 minutes)
+   questBoard  - { hour, version, quests } the tavern's current offers (a new board every 10 minutes)
    quests      - accepted quests, newest last. status: "active" | "completed" | "abandoned"
  A quest is { id, tier, kind: "hunt" | "gather", title, description, level, count, target, progress,
-              reqLevel, reqRep, reward: { astra, exp, rep, minRarity?, potion? }, status }
+              reqLevel, reqRep, reward: { astra, exp, rep, minRarity?, minTier?, potion? }, status }
    hunt   - defeat `count` enemies of target.tier (in target.region) after accepting; progress is tracked on kills
+            S+ hunts require a specific dungeon boss (target.enemyId)
    gather - hand in `count` of target.material from the player's materials
  Quest levels follow the player's level only (never gear score). Harder tiers pay more and need more level and rep.
 */
 export const QUEST_TIERS = [
   { key: "D", color: "#b0b0b0", minLevel: 1, minRep: 0, rep: 5, mult: 1, weight: 30, minRarity: null, potion: "minorPotion", hunt: ["basic", 5], gather: [["common"], 5] },
   { key: "C", color: "#1eff00", minLevel: 5, minRep: 20, rep: 10, mult: 1.8, weight: 25, minRarity: null, potion: "healthPotion", hunt: ["basic", 8], gather: [["common"], 8] },
-  { key: "B", color: "#0070dd", minLevel: 12, minRep: 80, rep: 25, mult: 3, weight: 20, minRarity: 1, hunt: ["elite", 3], gather: [["uncommon"], 6] },
-  { key: "A", color: "#a335ee", minLevel: 22, minRep: 250, rep: 60, mult: 5, weight: 13, minRarity: 2, hunt: ["elite", 6], gather: [["uncommon"], 10] },
-  { key: "S", color: "#ff8000", minLevel: 35, minRep: 700, rep: 140, mult: 8.5, weight: 8, minRarity: 3, hunt: ["boss", 1], gather: [["rare"], 8] },
-  { key: "S+", color: "#ff4d6d", minLevel: 50, minRep: 1800, rep: 300, mult: 14, weight: 4, minRarity: 4, hunt: ["boss", 2], gather: [["legendary"], 2] },
+  { key: "B", color: "#0070dd", minLevel: 12, minRep: 80, rep: 25, mult: 3, weight: 20, minRarity: 1, minTier: 1, dungeonMaterialTier: "basic", hunt: ["elite", 3], gather: [["uncommon"], 6] },
+  { key: "A", color: "#a335ee", minLevel: 22, minRep: 250, rep: 60, mult: 5, weight: 13, minRarity: 2, minTier: 2, dungeonMaterialTier: "elite", hunt: ["elite", 6], gather: [["uncommon"], 10] },
+  { key: "S", color: "#ff8000", minLevel: 35, minRep: 700, rep: 140, mult: 8.5, weight: 8, minRarity: 3, minTier: 3, dungeonMaterialTier: "boss", hunt: ["boss", 1], gather: [["rare"], 8] },
+  { key: "S+", color: "#ff4d6d", minLevel: 50, minRep: 1800, rep: 300, mult: 14, weight: 4, minRarity: 4, minTier: 4, hunt: ["boss", 2] },
 ];
 
 const TITLES = {
@@ -44,6 +46,7 @@ export const MAX_ACTIVE_QUESTS = 5;
 const BOARD_SIZE = 8;
 const HISTORY_LIMIT = 30;
 const RARITY_NAMES = ["Common", "Uncommon", "Rare", "Epic", "Legendary"];
+const DUNGEON_MATERIALS = new Set(Object.values(DUNGEON_TYPES).flatMap((type) => Object.values(type.materials)));
 
 const randInt = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
@@ -58,23 +61,33 @@ export const getQuestTier = tierOf;
 
 const generateQuest = (tier, playerLevel) => {
   const level = Math.max(1, playerLevel + randInt(-1, 2));
-  const kind = Math.random() < 0.5 ? "hunt" : "gather";
+  const kind = tier.key === "S+" || Math.random() < 0.5 ? "hunt" : "gather";
   const variance = 0.9 + Math.random() * 0.2;
   let target;
   let count;
   let description;
   if (kind === "hunt") {
     const [enemyTier, baseCount] = tier.hunt;
-    const regions = [...new Set(ENEMIES.filter((e) => e.tier === enemyTier).flatMap((e) => e.regions))];
-    target = { tier: enemyTier, region: pick(regions) };
     count = Math.max(1, Math.round(baseCount * (0.8 + Math.random() * 0.4)));
-    description = `Defeat ${count} ${TIERS[enemyTier].label.toLowerCase()} enemies in ${regionLabel(target.region)}.`;
+    if (tier.key === "S+") {
+      const dungeon = pick(Object.values(DUNGEON_TYPES));
+      const boss = pick(dungeon.bosses);
+      target = { tier: enemyTier, region: "Dungeon", enemyId: boss.id };
+      description = `Defeat ${boss.name} ${count} times in the ${dungeon.name}.`;
+    } else {
+      const regions = [...new Set(ENEMIES.filter((e) => e.tier === enemyTier).flatMap((e) => e.regions))];
+      target = { tier: enemyTier, region: pick(regions) };
+      description = `Defeat ${count} ${TIERS[enemyTier].label.toLowerCase()} enemies in ${regionLabel(target.region)}.`;
+    }
   } else {
     const [tiers, baseCount] = tier.gather;
-    const material = pick(Object.keys(MATERIALS).filter((k) => tiers.includes(MATERIALS[k].tier)));
+    const dungeon = tier.dungeonMaterialTier && Math.random() < 0.5 ? pick(Object.values(DUNGEON_TYPES)) : null;
+    const material = dungeon
+      ? dungeon.materials[tier.dungeonMaterialTier]
+      : pick(Object.keys(MATERIALS).filter((k) => !DUNGEON_MATERIALS.has(k) && tiers.includes(MATERIALS[k].tier)));
     target = { material };
     count = Math.max(1, Math.round(baseCount * (0.8 + Math.random() * 0.4)));
-    description = `Hand in ${count} ${MATERIALS[material].name}.`;
+    description = `Hand in ${count} ${MATERIALS[material].name}${dungeon ? ` from the ${dungeon.name}` : ""}.`;
   }
   return {
     id: questId(),
@@ -93,6 +106,7 @@ const generateQuest = (tier, playerLevel) => {
       exp: Math.round(expForLevel(level) * 0.04 * tier.mult * variance),
       rep: tier.rep,
       ...(tier.minRarity !== null ? { minRarity: tier.minRarity } : {}),
+      ...(tier.minTier !== undefined ? { minTier: tier.minTier } : {}),
       ...(tier.potion ? { potion: tier.potion } : {}),
     },
     status: "active",
@@ -100,13 +114,14 @@ const generateQuest = (tier, playerLevel) => {
 };
 
 const BOARD_REFRESH_MS = 10 * 60 * 1000;
+const BOARD_VERSION = 2;
 const getBoardHour = () => Math.floor(Date.now() / BOARD_REFRESH_MS);
 export const getQuestBoardRefreshMs = () => (getBoardHour() + 1) * BOARD_REFRESH_MS - Date.now();
 
 // The tavern's offers for the current 10-minute window. Includes quests above the player's tier, shown locked.
 export const getQuestBoard = (player = getPlayer()) => {
   const hour = getBoardHour();
-  if (player?.questBoard?.hour === hour && Array.isArray(player.questBoard.quests))
+  if (player?.questBoard?.version === BOARD_VERSION && player.questBoard.hour === hour && Array.isArray(player.questBoard.quests))
     return player.questBoard.quests;
   const level = Math.max(1, Number(player?.level) || 1);
   const tiers = QUEST_TIERS.filter((t) => t.minLevel <= level + 10);
@@ -116,7 +131,7 @@ export const getQuestBoard = (player = getPlayer()) => {
     return tiers.find((t) => (r -= t.weight) < 0) || tiers[0];
   };
   const quests = Array.from({ length: BOARD_SIZE }, () => generateQuest(rollTier(), level));
-  if (player) setPlayer({ questBoard: { hour, quests } });
+  if (player) setPlayer({ questBoard: { hour, version: BOARD_VERSION, quests } });
   return quests;
 };
 
@@ -160,6 +175,7 @@ export const rewardText = (reward) =>
     `${reward.exp} exp`,
     `${reward.rep} reputation`,
     reward.minRarity !== undefined && `${RARITY_NAMES[reward.minRarity]}+ gear`,
+    reward.minTier !== undefined && `T${reward.minTier}+ gear stats`,
     reward.potion && CONSUMABLES[reward.potion]?.name,
   ]
     .filter(Boolean)
@@ -210,7 +226,7 @@ export const turnInQuest = (id) => {
     patch.materials = spendMaterials(player, { [quest.target.material]: quest.count });
   messages.push(`You receive ${reward.astra} astra and ${reward.rep} reputation (${getRepRank(patch.rep)}).`);
   if (reward.minRarity !== undefined) {
-    const item = generateRandomSlotItem(reward.minRarity);
+    const item = generateRandomSlotItem(reward.minRarity, reward.minTier ?? tierOf(quest.tier)?.minTier ?? 0);
     if (item) {
       patch.inventory = [...(player.inventory || []), item];
       messages.push(`Reward gear: {{${item.name}|item:${item.id}}}.`);
@@ -236,10 +252,10 @@ export const recordQuestKill = (quests = [], enemy) => {
   const updated = quests.map((q) => {
     if (q.status !== "active" || q.kind !== "hunt" || (q.progress || 0) >= q.count) return q;
     if (q.target.tier !== enemy.tier || (q.target.region && q.target.region !== enemy.region)) return q;
+    if (q.target.enemyId && q.target.enemyId !== enemy.id) return q;
     const progress = (q.progress || 0) + 1;
     messages.push(`Quest progress: ${q.title} (${progress}/${q.count})${progress >= q.count ? ". Return to the tavern!" : ""}`);
     return { ...q, progress };
   });
   return { quests: messages.length ? updated : quests, messages };
 };
-

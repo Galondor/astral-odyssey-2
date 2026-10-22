@@ -113,6 +113,44 @@ test.each(["", "123", "Two Names", "a".repeat(65)])("invalid name %s is not save
   expect(runTransaction).not.toHaveBeenCalled();
 });
 
+test.each(["Fuck", "Fucking", "Nigger", "Bitch"])(
+  "inappropriate character name %s is rejected before reservation or payment", async (name) => {
+    const player = existingPlayer();
+    expect(await savePlayerName(name)).toEqual({ ok: false, message: "Please choose an appropriate name." });
+    expect(getPlayer()).toEqual(player);
+    expect(runTransaction).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  },
+);
+
+test("inappropriate names are rejected for new characters too", async () => {
+  expect(await savePlayerName("Fuck")).toMatchObject({ ok: false });
+  expect(runTransaction).not.toHaveBeenCalled();
+  expect(update).not.toHaveBeenCalled();
+});
+
+test("renaming releases an old inappropriate name reservation", async () => {
+  const player = existingPlayer();
+  localStorage.setItem("Player", JSON.stringify({ ...player, name: "Fuck" }));
+  records["characterNames/Fuck"] = "alice";
+  expect(await savePlayerName("Nova")).toMatchObject({ ok: true });
+  expect(records["characterNames/Fuck"]).toBeNull();
+});
+
+test("a certificate rename and its cost persist together to the player save", async () => {
+  const { renameItem } = require("../items/certificates");
+  const player = existingPlayer();
+  const item = { id: "sword", slot: "weapon", name: "Iron Sword", originalOwner: "Alice" };
+  localStorage.setItem("Player", JSON.stringify({
+    ...player, inventory: [item], consumables: { itemCertificate: 1, healthPotion: 4 },
+  }));
+  expect(renameItem("sword", "Alice Blade 42")).toMatchObject({ ok: true });
+  await flushPlayer();
+  expect(records["users/alice/player"].inventory).toEqual([{ ...item, name: "Alice Blade 42" }]);
+  expect(records["users/alice/player"].consumables).toEqual({ healthPotion: 4 });
+  expect(JSON.parse(localStorage.getItem("Player")).inventory[0].name).toBe("Alice Blade 42");
+});
+
 test("existing players cannot rename without an elixir or reuse their own name", async () => {
   const player = existingPlayer();
   expect(await savePlayerName("Alice")).toMatchObject({ ok: false });
@@ -154,6 +192,31 @@ test("returning browsers always replace a clean local cache with cloud progress"
   await loadPlayer("alice");
   expect(getPlayer().astra).toBe(900);
   expect(get).toHaveBeenCalledWith("users/alice");
+});
+
+test("loading an existing character migrates level power and recalculates max power", async () => {
+  const player = {
+    ...existingPlayer(),
+    level: 8,
+    baseStats: { strength: 1, dexterity: 1, intelligence: 25 },
+    bonusStats: { maxPower: 10 },
+    stats: { health: 100, maxHealth: 100, power: 20, maxPower: 20 },
+  };
+  localStorage.setItem("Player", JSON.stringify(player));
+  records["users/alice"].player = player;
+
+  await loadPlayer("alice");
+
+  expect(getPlayer()).toMatchObject({
+    powerLevelVersion: 1,
+    bonusStats: { maxPower: 3 },
+    stats: { maxPower: 15, power: 15 },
+  });
+  expect(records["users/alice"].player).toMatchObject({
+    powerLevelVersion: 1,
+    bonusStats: { maxPower: 3 },
+    stats: { maxPower: 15 },
+  });
 });
 
 test("stale dirty progress cannot overwrite a newer save and is backed up", async () => {

@@ -16,6 +16,8 @@ jest.mock("firebase/database", () => ({
 let player;
 const elixir = { kind: "consumable", key: "elixirOfNameChanging", name: "Elixir of Name Changing" };
 const gear = { id: "sword", name: "Sword", slot: "weapon", rarity: "Rare", iLevel: 10, subStats: {} };
+const material = { kind: "material", key: "slime_gel", name: "Slime Gel", tier: "common", count: 3 };
+const gemstone = { kind: "gemstone", id: "ruby-1", name: "Rare Ruby", type: "ruby", stat: "strength", value: 3, rarity: "Rare" };
 const listing = (item = elixir) => ({
   id: "listing", sellerUid: "seller", sellerName: "Seller", item, price: 101, listedAt: 1,
 });
@@ -23,7 +25,7 @@ const listing = (item = elixir) => ({
 beforeEach(() => {
   jest.clearAllMocks();
   auth.currentUser = { uid: "seller" };
-  player = { name: "Seller", level: 25, astra: 1000, consumables: { elixirOfNameChanging: 2 }, inventory: [gear] };
+  player = { name: "Seller", level: 25, astra: 1000, consumables: { elixirOfNameChanging: 2 }, materials: { slime_gel: 5 }, gemstones: [gemstone], inventory: [gear] };
   getPlayer.mockImplementation(() => player);
   setPlayer.mockImplementation((patch) => { player = { ...player, ...patch }; });
   update.mockResolvedValue();
@@ -56,6 +58,26 @@ test("cancelling a consumable listing restores the consumable count", async () =
   expect(update).toHaveBeenCalledWith(undefined, { "marketplace/listing": null });
 });
 
+test("materials can be listed in selected stacks and restored when a listing is cancelled", async () => {
+  expect(await listItem({ kind: "material", key: "slime_gel" }, 101, 0, 3)).toMatchObject({ ok: true });
+  expect(player.materials).toEqual({ slime_gel: 2 });
+  expect(update).toHaveBeenCalledWith(undefined, {
+    "marketplace/listing": expect.objectContaining({ item: material, price: 101 }),
+  });
+
+  get.mockResolvedValue({ val: () => listing(material) });
+  expect(await cancelListing(listing(material))).toMatchObject({ ok: true });
+  expect(player.materials).toEqual({ slime_gel: 5 });
+});
+
+test("gemstones can be listed and restored with their exact stats", async () => {
+  expect(await listItem(gemstone, 250, 0)).toMatchObject({ ok: true });
+  expect(player.gemstones).toEqual([]);
+  get.mockResolvedValue({ val: () => listing(gemstone) });
+  expect(await cancelListing(listing(gemstone))).toMatchObject({ ok: true });
+  expect(player.gemstones).toEqual([gemstone]);
+});
+
 test("purchases atomically mail a consumable and the taxed seller payout", async () => {
   auth.currentUser.uid = "buyer";
   expect(await buyListing(listing())).toMatchObject({ ok: true });
@@ -67,6 +89,18 @@ test("purchases atomically mail a consumable and the taxed seller payout", async
     "inbox/seller/market-sale-listing": expect.objectContaining({ attachments: { astra: 90 } }),
   }));
   expect(player.astra).toBe(899);
+});
+
+test.each([
+  [material, { materials: { slime_gel: 3 } }],
+  [gemstone, { gemstoneItems: [gemstone] }],
+])("material and gemstone purchases deliver the exact attachment", async (item, attachment) => {
+  auth.currentUser.uid = "buyer";
+  get.mockResolvedValue({ val: () => listing(item) });
+  await buyListing(listing(item));
+  expect(update).toHaveBeenCalledWith(undefined, expect.objectContaining({
+    [`inbox/buyer/market-${listing().id}`]: expect.objectContaining({ attachments: attachment }),
+  }));
 });
 
 test("gear purchases retain their exact gear attachment format", async () => {
@@ -83,6 +117,17 @@ test("type filters distinguish consumables and gear, including usable consumable
   expect(filterListings(rows, { ...DEFAULT_FILTERS, kind: "consumable", usable: true }, 1)).toEqual([rows[0]]);
   expect(filterListings(rows, { ...DEFAULT_FILTERS, kind: "gear" })).toEqual([rows[1]]);
   expect(sortListings(rows, "gearScoreDesc")).toHaveLength(2);
+});
+
+test("material and gemstone filters include tier, stat, and quantity-aware sorting", () => {
+  const rows = [
+    listing({ ...material, count: 1 }),
+    { ...listing({ ...material, count: 4 }), id: "stack" },
+    { ...listing(gemstone), id: "gemstone" },
+  ];
+  expect(filterListings(rows, { ...DEFAULT_FILTERS, kind: "material", tier: "common" })).toHaveLength(2);
+  expect(filterListings(rows, { ...DEFAULT_FILTERS, kind: "gemstone", stat: "strength", minStat: "3" })).toEqual([rows[2]]);
+  expect(sortListings(rows.slice(0, 2), "quantityDesc")[0].item.count).toBe(4);
 });
 
 test("missing consumables, invalid prices, and signed-out listings are rejected", async () => {

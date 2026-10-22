@@ -41,6 +41,20 @@ export const CONSUMABLES = {
     name: "Elixir of Name Changing",
     description: "Allows you to change your character's name.",
   },
+  architectsRune: {
+    name: "Architect's Rune",
+    description: "Change an owned item's main stat to Strength, Dexterity, or Intelligence, keeping its value and tier. Crafted items cannot receive runes.",
+    rune: true,
+  },
+  itemCertificate: {
+    name: "Item Certificate",
+    description: "Allows you to rename an owned item.",
+  },
+};
+
+export const ITEM_CERTIFICATE_DROP_CHANCE = {
+  overworld: { elite: 0.1, boss: 0.25 },
+  dungeon: { elite: 0.15, boss: 0.3 },
 };
 
 // Key items: { key: { name, description, effects } }. Effects are summed across owned items.
@@ -132,6 +146,10 @@ export function applyConsumable(player, key, s, { healScale = 1 } = {}) {
     return { ok: false, message: "You don't have that item." };
   if (key === "elixirOfNameChanging")
     return { ok: false, message: "Use this elixir from your inventory outside combat to choose a new name." };
+  if (key === "itemCertificate")
+    return { ok: false, message: "Use this certificate from your inventory outside combat to rename an item." };
+  if (c.rune)
+    return { ok: false, message: "Use runes from your inventory outside combat to choose an item." };
   const canHeal = c.heal && s.health < s.maxHealth;
   const canRestorePower = c.power && s.power < s.maxPower;
   if (c.heal && !canHeal)
@@ -168,6 +186,16 @@ export function applyConsumable(player, key, s, { healScale = 1 } = {}) {
 // Uses a consumable outside of combat.
 export function drinkConsumable(key) {
   const p = getPlayer();
+  if (key === "itemCertificate") {
+    return p?.consumables?.[key] > 0
+      ? { ok: true, requiresItemRename: true, message: "Choose an item and a new name. The certificate is used only when applied." }
+      : { ok: false, message: "You don't have that item." };
+  }
+  if (CONSUMABLES[key]?.rune) {
+    return p?.consumables?.[key] > 0
+      ? { ok: true, requiresRune: true, message: "Choose an item and a different main stat. The rune is used only when applied." }
+      : { ok: false, message: "You don't have that item." };
+  }
   if (key === "elixirOfNameChanging") {
     return p?.consumables?.[key] > 0
       ? { ok: true, requiresNameChange: true, message: "Choose your new name. The elixir is used only after it is saved." }

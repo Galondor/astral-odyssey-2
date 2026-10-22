@@ -1,6 +1,8 @@
 import { equalTo, get, onValue, orderByChild, query, ref, remove, runTransaction, update } from "firebase/database";
 import { db } from "../firebase";
 import { publishLeaderboardEntry } from "../world/leaderboards";
+import { migratePowerProgression, recalculateStats } from "./stats";
+import { hasInappropriateName } from "../shared/names";
 
 const PLAYER_KEY = "Player";
 const META_KEY = "PlayerMeta";
@@ -21,6 +23,7 @@ let notice = null;
 export const validatePlayerName = (name) => {
   if (!/^[a-zA-Z]+$/.test(name)) return "Please enter letters only.";
   if (name.length > 64) return "Names must be 64 letters or fewer.";
+  if (hasInappropriateName(name)) return "Please choose an appropriate name.";
   return null;
 };
 
@@ -71,7 +74,7 @@ export async function savePlayerName(input) {
     const writes = {
       [`directory/${uid}`]: { name, level: current?.level || 1 },
     };
-    if (current?.name !== name && !validatePlayerName(current?.name || "")) {
+    if (current?.name !== name && /^[a-zA-Z]{1,64}$/.test(current?.name || "")) {
       const old = await get(ref(db, `characterNames/${current.name}`));
       if (old.val() === uid) writes[`characterNames/${current.name}`] = null;
     }
@@ -315,7 +318,20 @@ const backfillOwnership = () => {
 // Always read the cloud, including returning sessions in the same browser.
 export const loadPlayer = async (uid) => {
   await loadPlayerData(uid);
-  const player = getPlayer();
+  let player = getPlayer();
+  if (player?.stats?.maxPower != null) {
+    const migrated = migratePowerProgression(player);
+    const recalculated = recalculateStats(migrated);
+    if (
+      migrated.powerLevelVersion !== player.powerLevelVersion ||
+      JSON.stringify(migrated.bonusStats) !== JSON.stringify(player.bonusStats) ||
+      JSON.stringify(recalculated.stats) !== JSON.stringify(player.stats) ||
+      recalculated.class !== player.class
+    ) {
+      setPlayer({ ...migrated, ...recalculated });
+      player = getPlayer();
+    }
+  }
   if (player?.name) {
     const valid = !validatePlayerName(player.name);
     const result = valid ? await reserveName(player.name, uid, true) : null;

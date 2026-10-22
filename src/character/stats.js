@@ -91,7 +91,7 @@ const compute = (player) => {
   const physical = [line(`Strength ${strength} × 1`, strength), line(`Dexterity ${dexterity} × 1`, dexterity)];
   const attackMin = define("attackMin", [line("Base", 1), ...physical, ...gearLines("attack"), ...gearLines("attackMin"), ...bonusLines("attack", "attackMin")]);
   const attackMaxLines = [line("Base", 5), ...physical, ...gearLines("attack"), ...gearLines("attackMax"), ...bonusLines("attack", "attackMax")];
-  const magical = [line(`Intelligence ${intelligence} × 1`, intelligence)];
+  const magical = [line(`Intelligence ${intelligence} × 2`, intelligence * 2)];
   const magicMin = define("magicAttackMin", [line("Base", 1), ...magical, ...gearLines("magicAttack"), ...gearLines("magicAttackMin"), ...bonusLines("magicAttack", "magicAttackMin")]);
   const magicMaxLines = [line("Base", 5), ...magical, ...gearLines("magicAttack"), ...gearLines("magicAttackMax"), ...bonusLines("magicAttack", "magicAttackMax")];
 
@@ -111,7 +111,13 @@ const compute = (player) => {
 
   define("maxHealth", [line("Base", 90), line(`Vitality ${vitality} × 5`, vitality * 5), ...bonusLines("maxHealth")]);
   define("maxStamina", [line("Base", 8), ...bonusLines("maxStamina")]);
-  define("maxPower", [line("Base", 5), line(`Intelligence ${intelligence} ÷ 5 (rounded down)`, Math.floor(intelligence / 5)), ...bonusLines("maxPower")]);
+  const levelPower = Math.max(0, (player.level || 1) - 1);
+  define("maxPower", [
+    line("Base", 5),
+    line(`Level ${player.level || 1} (${levelPower} gained levels)`, levelPower),
+    ...gearLines("maxPower"),
+    ...bonusLines("maxPower"),
+  ]);
 
   define(
     "gearScore",
@@ -150,7 +156,6 @@ export function gainExp(player, amount) {
     gained += 1;
     bonusStats.maxHealth = (bonusStats.maxHealth || 0) + LEVEL_UP.health;
     bonusStats.maxStamina = (bonusStats.maxStamina || 0) + LEVEL_UP.stamina;
-    bonusStats.maxPower = (bonusStats.maxPower || 0) + LEVEL_UP.power;
     statPoints += LEVEL_UP.statPoints;
     const skill = level % 2 === 0;
     if (skill) skillPoints += 1;
@@ -188,15 +193,15 @@ export const getStatBreakdown = (player) => compute(player).breakdown;
 export const STAT_INFO = {
   strength: { title: "Strength", description: "Increases melee damage and health.", formula: "+1 Attack per point, +1 Vitality per 2 points." },
   dexterity: { title: "Dexterity", description: "Increases melee damage and agility.", formula: "+1 Attack per point, +1 Agility per 2 points." },
-  intelligence: { title: "Intelligence", description: "Increases magic damage and power.", formula: "+1 Magic Attack per point. Every 5 points: +1 Max Power." },
+  intelligence: { title: "Intelligence", description: "Increases magic damage.", formula: "+2 Magic Attack per point." },
   vitality: { title: "Vitality", description: "Increases maximum health.", formula: "+1 Health per 2 points of Vitality. Each point: +5 Max Health." },
   resilience: { title: "Resilience", description: "Increases defense.", formula: "+1 Defense per 3 points of Resilience." },
   agility: { title: "Agility", description: "Increases speed and evasion.", formula: "+1 Speed per 3 points, +1% Evasion per 5 points." },
   luck: { title: "Luck", description: "Increases critical hit chance and item drop rates.", formula: "+1% Critical Hit Chance per 5 points, +1% Item Drop Chance per 3 points." },
   attackMin: { title: "Minimum attack", description: "The lowest damage of a physical attack.", formula: "1 + Strength + Dexterity + equipment min attack." },
   attackMax: { title: "Maximum attack", description: "The highest damage of a physical attack.", formula: "5 + Strength + Dexterity + equipment max attack." },
-  magicAttackMin: { title: "Minimum magic attack", description: "The lowest damage of a magical attack.", formula: "1 + Intelligence + equipment min magic attack." },
-  magicAttackMax: { title: "Maximum magic attack", description: "The highest damage of a magical attack.", formula: "5 + Intelligence + equipment max magic attack." },
+  magicAttackMin: { title: "Minimum magic attack", description: "The lowest damage of a magical attack.", formula: "1 + (Intelligence × 2) + equipment min magic attack." },
+  magicAttackMax: { title: "Maximum magic attack", description: "The highest damage of a magical attack.", formula: "5 + (Intelligence × 2) + equipment max magic attack." },
   defense: { title: "Defense", description: "Reduces the damage taken from each hit.", formula: "1 per 3 Resilience + equipment defense." },
   evasion: { title: "Evasion", description: "Chance to avoid an incoming attack.", formula: "Base + 1% per 5 Agility + equipment." },
   speed: { title: "Speed", description: "How quickly you act.", formula: "Agility ÷ 3 + equipment." },
@@ -205,7 +210,17 @@ export const STAT_INFO = {
   maxHealth: { title: "Maximum health", description: "How much damage you can take before collapsing.", formula: "Base + Vitality × 5." },
   maxStamina: { title: "Maximum stamina", description: "Your energy reserve for actions.", formula: "Base + 1 per level." },
   gearScore: { title: "Gear score", description: "The overall power of all equipped gear.", formula: "Per item: stats × weights × 1.5 if two-handed, +25 with an ability." },
-  maxPower: { title: "Maximum power", description: "Your reserve for magical abilities.", formula: "Base + 1 per 5 Intelligence." },
+  maxPower: { title: "Maximum power", description: "Your reserve for magical abilities.", formula: "Base + 1 per level gained + equipment and permanent bonuses." },
+};
+
+// Older saves stored level-up Power in bonusStats.maxPower alongside permanent upgrades.
+export const migratePowerProgression = (player) => {
+  if (!player || player.powerLevelVersion) return player;
+  const bonusStats = { ...player.bonusStats };
+  const previousLevelPower = Math.max(0, (player.level || 1) - 1);
+  bonusStats.maxPower = Math.max(0, (bonusStats.maxPower || 0) - previousLevelPower);
+  if (!bonusStats.maxPower) delete bonusStats.maxPower;
+  return { ...player, bonusStats, powerLevelVersion: 1 };
 };
 
 // Returns a patch for setPlayer: the recalculated stats, plus any changes made to the player (e.g. equipment).

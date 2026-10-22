@@ -21,7 +21,7 @@ export const CLASSES = {
     bonus: { name: "Arcane Flow", description: "Recover 1 power at the end of every round, and your spell skills cost 1 less power (minimum 1)." },
     glossary: "spellcaster",
     subtitle: "Magic Fighter",
-    description: "A master of magic. Intelligence raises magic damage and maximum power.",
+    description: "A master of magic. Intelligence raises magic damage.",
     requirement: "When Intelligence is the highest stat.",
   },
   Duelist: {
