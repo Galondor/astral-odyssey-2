@@ -103,9 +103,11 @@ export async function listItem(index, priceInput, myListingCount = 0, amount = 1
 
   const listed = cleanItem(material
     ? { kind: "material", key: material.key, name: materialDefinition.name, tier: materialDefinition.tier, count }
-    : consumable || gemstone
+    : consumable
       ? item
-      : { ...item, originalOwner: item.originalOwner || player.name });
+      : gemstone
+        ? { ...item, kind: "gemstone" }
+        : { ...item, originalOwner: item.originalOwner || player.name });
   const consumables = { ...(player.consumables || {}) };
   let patch;
   if (consumable) {

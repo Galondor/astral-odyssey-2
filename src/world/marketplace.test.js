@@ -1,6 +1,8 @@
 import { get, update } from "firebase/database";
 import { commitPlayerChange, getPlayer, setPlayer } from "../character/player";
 import { auth } from "../firebase";
+import { CONSUMABLES } from "../items/consumables";
+import { generateRandomGemstone } from "../items/items";
 import { DEFAULT_FILTERS, buyListing, cancelListing, filterListings, listItem, sortListings } from "./marketplace";
 
 jest.mock("../firebase", () => ({ db: {}, auth: { currentUser: { uid: "seller" } } }));
@@ -42,6 +44,18 @@ test("selling a consumable removes exactly one and keeps gear untouched", async 
   });
 });
 
+test.each(Object.keys(CONSUMABLES))("selling %s preserves its listing type and removes only one", async (key) => {
+  player.consumables = { [key]: 1 };
+  expect(await listItem(key, 101)).toMatchObject({ ok: true });
+  expect(player.consumables).toEqual({});
+  expect(player.inventory).toEqual([gear]);
+  expect(update).toHaveBeenCalledWith(undefined, {
+    "marketplace/listing": expect.objectContaining({
+      item: { kind: "consumable", key, name: CONSUMABLES[key].name },
+    }),
+  });
+});
+
 test("listing failure is reported without a second compensating transfer", async () => {
   const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
   update.mockRejectedValueOnce(new Error("offline"));
@@ -76,6 +90,23 @@ test("gemstones can be listed and restored with their exact stats", async () => 
   get.mockResolvedValue({ val: () => listing(gemstone) });
   expect(await cancelListing(listing(gemstone))).toMatchObject({ ok: true });
   expect(player.gemstones).toEqual([gemstone]);
+});
+
+test.each([0, 1, 2, 3, 4])("generated gemstones can be listed and cancelled (minimum rarity %s)", async (minRarity) => {
+  const owned = generateRandomGemstone(minRarity);
+  expect(owned.kind).toBeUndefined();
+  player.gemstones = [owned, gemstone];
+  expect(await listItem({ ...owned, kind: "gemstone" }, 250)).toMatchObject({ ok: true });
+  const listed = { ...owned, kind: "gemstone" };
+  expect(update).toHaveBeenCalledWith(undefined, {
+    "marketplace/listing": expect.objectContaining({ item: listed }),
+  });
+  expect(player.gemstones).toEqual([gemstone]);
+  expect(owned.kind).toBeUndefined();
+
+  get.mockResolvedValue({ val: () => listing(listed) });
+  expect(await cancelListing(listing(listed))).toMatchObject({ ok: true });
+  expect(player.gemstones).toEqual([gemstone, listed]);
 });
 
 test("purchases atomically mail a consumable and the taxed seller payout", async () => {

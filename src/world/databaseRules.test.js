@@ -1,4 +1,16 @@
 import http from "http";
+import { CONSUMABLES } from "../items/consumables";
+import databaseRules from "../../database.rules.json";
+
+jest.mock("../character/player", () => ({ getPlayer: jest.fn(), setPlayer: jest.fn() }));
+
+test("marketplace rules accept exactly the current consumable catalog", () => {
+  const validation = databaseRules.rules.marketplace.$listingId[".validate"];
+  const pattern = validation.match(/child\('item\/key'\)\.val\(\)\.matches\(\/(.+?)\/\)/);
+  expect(pattern).not.toBeNull();
+  const allowedKeys = pattern[1].replace(/^\^\(|\)\$$/g, "").split("|");
+  expect(allowedKeys.sort()).toEqual(Object.keys(CONSUMABLES).sort());
+});
 
 // Optional integration tier: run against an isolated Firebase Database emulator.
 // Start with: firebase emulators:start --only database --project demo-name-elixir
@@ -38,6 +50,9 @@ const elixir = { kind: "consumable", key: "elixirOfNameChanging", name: "Elixir 
 const sword = { id: "sword", name: "Sword", slot: "weapon", rarity: "Rare", iLevel: 10 };
 const slimeGel = { kind: "material", key: "slime_gel", name: "Slime Gel", tier: "common", count: 3 };
 const ruby = { kind: "gemstone", id: "ruby-1", name: "Rare Ruby", type: "ruby", stat: "strength", value: 3, rarity: "Rare" };
+const consumableItems = Object.entries(CONSUMABLES).map(([key, item]) => ({
+  kind: "consumable", key, name: item.name,
+}));
 const listing = (item = elixir) => ({
   sellerUid: "seller", sellerName: "Seller", item, price: 101, listedAt: 1,
 });
@@ -109,9 +124,22 @@ rulesTests("Firebase name and consumable marketplace rules", () => {
     expect((await request("GET", "directory", undefined, "buyer")).status).toBe(401);
   });
 
-  test.each([elixir, sword, slimeGel, ruby])("sellers can list and cancel $name", async (item) => {
+  test.each([...consumableItems, sword, slimeGel, ruby])("sellers can list and cancel $name", async (item) => {
     expect((await request("PUT", "marketplace/second", listing(item), "seller")).status).toBe(200);
     expect((await request("DELETE", "marketplace/second", undefined, "seller")).status).toBe(200);
+  });
+
+  test.each(consumableItems)("versioned sales and purchases accept $name", async (item) => {
+    await request("DELETE", "marketplace/test", undefined, "owner");
+    await request("PATCH", "users/seller", { saveRevision: 1 }, "seller");
+    expect((await request("PATCH", "", {
+      "marketplace/test": listing(item),
+      "users/seller/player": { name: "Seller" },
+      "users/seller/saveRevision": 2,
+    }, "seller")).status).toBe(200);
+    expect((await request("PATCH", "", purchase({ consumables: { [item.key]: 1 } }), "buyer")).status).toBe(200);
+    expect((await request("GET", "inbox/buyer/market-test", undefined, "buyer")).body.attachments)
+      .toEqual({ consumables: { [item.key]: 1 } });
   });
 
   test("consumable purchases deliver one elixir and the taxed payout exactly once", async () => {
