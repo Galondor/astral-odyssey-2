@@ -32,9 +32,9 @@ const BASE_ATTACK = 1.1;
 const BASE_DEFENSE = 0.55;
 const BASE_SPEED = 4;
 const TIER = {
-  basic: { label: "Basic", color: "#0070dd", hp: 3, atk: 3.3, def: 5.5, spd: 1, crit: 0.15, exp: 0.02, astra: 10, dropChance: 0.3, minRarity: 1, stunResist: 0.25, dotResist: 0.8, materials: 2 },
-  elite: { label: "Elite", color: "#a335ee", hp: 6, atk: 5, def: 8.5, spd: 1.1, crit: 0.25, exp: 0.06, astra: 30, dropChance: 0.75, minRarity: 2, stunResist: 0.6, dotResist: 0.6, materials: 3 },
-  boss: { label: "Boss", color: "#ff2a2a", hp: 10, atk: 7.2, def: 10, spd: 1.15, crit: 0.35, exp: 0.14, astra: 70, dropChance: 1, minRarity: 4, stunResist: 1, dotResist: 0.5, materials: 4 },
+  basic: { label: "Basic", color: "#0070dd", hp: 4, atk: 3.6, def: 5.5, spd: 1, crit: 0.15, exp: 0.02, astra: 10, dropChance: 0.3, minRarity: 1, stunResist: 0.25, dotResist: 0.8 },
+  elite: { label: "Elite", color: "#a335ee", hp: 6, atk: 5, def: 8.5, spd: 1.1, crit: 0.25, exp: 0.06, astra: 30, dropChance: 0.75, minRarity: 2, stunResist: 0.6, dotResist: 0.6 },
+  boss: { label: "Boss", color: "#ff2a2a", hp: 10, atk: 7.2, def: 10.5, spd: 1.15, crit: 0.35, exp: 0.14, astra: 70, dropChance: 1, minRarity: 4, stunResist: 1, dotResist: 0.5 },
 };
 const PUZZLE_ASTRA = 15;
 const MISTAKE_DAMAGE = [0.2, 0.25, 0.35, 0.45];
@@ -260,12 +260,17 @@ const buildEnemy = (run, step) => {
     drops: [
       ...(template.drops || []),
       { key: DUNGEON_TYPES[run.type].materials[step.tier], chance: 1, min: 1, max: 2 },
-    ],
+    ].map((drop) => {
+      const rarity = MATERIALS[drop.key].tier;
+      if (rarity === "legendary") return { ...drop, chance: 0.5, min: 1, max: 2 };
+      if (rarity === "unique") return { ...drop, chance: 0.1, min: 1, max: 1 };
+      return { ...drop, chance: drop.chance / 2, min: 1, max: Math.ceil(drop.max / 4) };
+    }),
     dropChance: t.dropChance,
     minRarity: t.minRarity,
     dotResist: t.dotResist,
     stunResist: t.stunResist,
-    materialAmount: t.materials,
+    materialAmount: 1,
     dungeon: true,
     onDefeat: (p, s, patch, replies) => onFightWon(p, s, patch, replies, template),
     onPlayerDefeat: (p, s, patch, replies) => {
@@ -307,7 +312,7 @@ function onFightWon(p, s, patch, replies, template) {
   if (board?.offers?.some((o) => o.id === run.offerId))
     patch.dungeonBoard = { ...board, offers: board.offers.map((o) => (o.id === run.offerId ? { ...o, cleared: true } : o)) };
   const mats = {};
-  for (const [key, n] of Object.entries({ primal_essence: 2 + Math.floor(run.level / 25) })) if (MATERIALS[key]) mats[key] = n;
+  for (const [key, n] of Object.entries({ primal_essence: 1 })) if (MATERIALS[key]) mats[key] = n;
   patch.materials = addToMaterials(patch.materials ?? p.materials, mats);
   replies.push(`[gold]Dungeon cleared![/gold] The ${run.name} falls silent. Completion bonus: ${astra} {{astra|astra}} and ${mats.primal_essence} {{Primal Essence|material:primal_essence}}.`);
   const unique = UNIQUES[template.unique];

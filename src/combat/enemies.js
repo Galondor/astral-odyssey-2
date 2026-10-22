@@ -29,8 +29,8 @@ export const TIERS = {
     label: "Basic",
     color: "#b0b0b0",
     hp: 1,
-    attack: 1.8,
-    defense: 4,
+    attack: 2.2,
+    defense: 4.5,
     reward: 1,
     dropChance: 0.25,
     minRarity: 0,
@@ -42,8 +42,8 @@ export const TIERS = {
     label: "Elite",
     color: "#0070dd",
     hp: 2,
-    attack: 2.5,
-    defense: 6.5,
+    attack: 2.8,
+    defense: 6,
     reward: 3,
     dropChance: 0.5,
     minRarity: 2,
@@ -55,8 +55,8 @@ export const TIERS = {
     label: "Boss",
     color: "#ff8000",
     hp: 4,
-    attack: 1.8,
-    defense: 6,
+    attack: 3.5,
+    defense: 7,
     reward: 8,
     dropChance: 0.75,
     minRarity: 3,
@@ -864,13 +864,14 @@ export const getRandomEnemy = (
   };
 };
 
-// Rolls the materials an enemy drops. `chanceBonus` is added to each drop chance. Returns { key: amount }.
+// Dungeon legendary/unique material rates are fixed; other drops receive `chanceBonus`. Returns { key: amount }.
 export const rollMaterialDrops = (enemy, chanceBonus = 0) => {
   const out = {};
   for (const d of enemy.drops || []) {
+    const fixedChance = enemy.dungeon && ["legendary", "unique"].includes(MATERIALS[d.key]?.tier);
     if (
       !MATERIALS[d.key] ||
-      Math.random() >= Math.min(1, d.chance + chanceBonus)
+      Math.random() >= Math.min(1, d.chance + (fixedChance ? 0 : chanceBonus))
     )
       continue;
     const amount = Math.max(

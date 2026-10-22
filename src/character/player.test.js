@@ -309,6 +309,25 @@ test("tab working copies are not changed by another tab's localStorage writes", 
   expect(getPlayer().consumables.healthPotion).toBe(4);
 });
 
+test("inventory favorites persist locally and remotely without marking gear as new", async () => {
+  existingPlayer();
+  await loadPlayer("alice");
+  const { toggleFavorite, isFavorite } = require("../items/favorites");
+  setPlayer({ inventory: [{ id: "keepsake", name: "Keepsake" }] });
+  const unseen = getPlayer().unseenInventoryItems;
+  expect(toggleFavorite("gear", "keepsake")).toEqual({ ok: true, favorite: true });
+  expect(getPlayer().unseenInventoryItems).toEqual(unseen);
+  expect(JSON.parse(localStorage.getItem("Player")).favoriteInventoryItems.gear).toEqual(["keepsake"]);
+  await flushPlayer();
+  expect(records["users/alice/player"].favoriteInventoryItems.gear).toEqual(["keepsake"]);
+  await loadPlayer("alice");
+  expect(isFavorite(getPlayer(), "gear", "keepsake")).toBe(true);
+  toggleFavorite("gear", "keepsake");
+  await flushPlayer();
+  await loadPlayer("alice");
+  expect(isFavorite(getPlayer(), "gear", "keepsake")).toBe(false);
+});
+
 test("failed atomic transfers are never recovered as ordinary unsynced progress", async () => {
   existingPlayer();
   await loadPlayer("alice");

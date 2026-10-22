@@ -8,7 +8,9 @@
    mod        - optional multipliers on the dungeon tier's stats: { hp, atk, def, spd } (default 1 each)
    abilities  - enemy abilities, same fields as ENEMIES in enemies.js
    phases     - boss/elite phases, same fields as ENEMIES in enemies.js
-   drops      - extra thematic material drops: [{ key, chance, min, max }]
+   drops      - base thematic material drops: [{ key, chance, min, max }]; dungeons.js
+                halves ordinary chances and quarters maximum quantities (rounded up), with minimum 1.
+                Legendary materials roll at a fixed 50% for 1-2; Unique materials at 10% for 1.
  Dungeon materials: `materials` maps basic, elite and boss to exclusive material keys.
    unique     - bosses only: the Unique item (see UNIQUES) with a 1% chance to drop
 

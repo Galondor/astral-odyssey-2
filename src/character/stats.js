@@ -104,7 +104,7 @@ const compute = (player) => {
   define("magicAttackMax", atLeast(magicMaxLines, magicMin));
 
   define("defense", [line(`Resilience ${resilience} ÷ 3 (rounded down)`, Math.floor(resilience / 3)), ...gearLines("defense"), ...bonusLines("defense")]);
-  define("evasion", [line("Base", 0.01), line(`Agility ${agility} ÷ 5 × 1% (rounded down)`, Math.floor(agility / 5) * 0.01), ...gearLines("evasion"), ...bonusLines("evasion")], "percent");
+  define("evasion", [line("Base", 0.01), line(`Agility ${agility} ÷ 8 × 1% (rounded down)`, Math.floor(agility / 8) * 0.01), ...gearLines("evasion"), ...bonusLines("evasion")], "percent");
   define("speed", [line(`Agility ${agility} ÷ 3 (rounded down)`, Math.floor(agility / 3)), ...gearLines("speed"), ...bonusLines("speed")]);
   define("criticalHitChance", [line("Base", 0.05), line(`Luck ${luck} ÷ 5 × 1% (rounded down)`, Math.floor(luck / 5) * 0.01), ...gearLines("criticalHitChance"), ...bonusLines("criticalHitChance")], "percent");
   define("criticalDamageBonus", [line("Base", 1.5), ...gearLines("criticalDamage"), ...bonusLines("criticalDamage", "criticalDamageBonus")], "percent");
@@ -196,14 +196,14 @@ export const STAT_INFO = {
   intelligence: { title: "Intelligence", description: "Increases magic damage.", formula: "+2 Magic Attack per point." },
   vitality: { title: "Vitality", description: "Increases maximum health.", formula: "+1 Health per 2 points of Vitality. Each point: +5 Max Health." },
   resilience: { title: "Resilience", description: "Increases defense.", formula: "+1 Defense per 3 points of Resilience." },
-  agility: { title: "Agility", description: "Increases speed and evasion.", formula: "+1 Speed per 3 points, +1% Evasion per 5 points." },
+  agility: { title: "Agility", description: "Increases speed and evasion.", formula: "+1 Speed per 3 points, +1% Evasion per 8 points." },
   luck: { title: "Luck", description: "Increases critical hit chance and item drop rates.", formula: "+1% Critical Hit Chance per 5 points, +1% Item Drop Chance per 3 points." },
   attackMin: { title: "Minimum attack", description: "The lowest damage of a physical attack.", formula: "1 + Strength + Dexterity + equipment min attack." },
   attackMax: { title: "Maximum attack", description: "The highest damage of a physical attack.", formula: "5 + Strength + Dexterity + equipment max attack." },
   magicAttackMin: { title: "Minimum magic attack", description: "The lowest damage of a magical attack.", formula: "1 + (Intelligence × 2) + equipment min magic attack." },
   magicAttackMax: { title: "Maximum magic attack", description: "The highest damage of a magical attack.", formula: "5 + (Intelligence × 2) + equipment max magic attack." },
   defense: { title: "Defense", description: "Reduces the damage taken from each hit.", formula: "1 per 3 Resilience + equipment defense." },
-  evasion: { title: "Evasion", description: "Chance to avoid an incoming attack.", formula: "Base + 1% per 5 Agility + equipment." },
+  evasion: { title: "Evasion", description: "Chance to avoid an incoming attack.", formula: "Base + 1% per 8 Agility + equipment." },
   speed: { title: "Speed", description: "How quickly you act.", formula: "Agility ÷ 3 + equipment." },
   criticalHitChance: { title: "Critical chance", description: "Chance for an attack to be a critical hit.", formula: "Base + 1% per 5 Luck + equipment." },
   criticalDamageBonus: { title: "Critical damage", description: "Damage multiplier applied on a critical hit.", formula: "Base + equipment critical damage." },

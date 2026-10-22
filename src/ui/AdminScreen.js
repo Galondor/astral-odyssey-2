@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CONSUMABLES, KEY_ITEMS } from "../items/consumables";
 import { GEAR_SLOT_TYPES, RARITY_NAMES } from "../items/items";
 import { MATERIALS } from "../items/materials";
+import { isHolofoilColors } from "../items/holofoil";
 import { UNIQUES } from "../world/dungeonData";
 import { deleteBroadcast, describeAttachments, getBroadcasts, getDirectory, sendMessage } from "../world/inbox";
 import { resolveBugReport, subscribeBugReports } from "../world/bugReports";
@@ -21,13 +22,14 @@ const KINDS = {
 const buildAttachments = (rows) => {
   const out = { astra: 0, exp: 0, materials: {}, consumables: {}, keyItems: {}, gear: [], uniques: [], gemstones: [] };
   for (const r of rows) {
+    const foil = r.holofoil ? { holofoil: r.holofoil } : {};
     if (r.kind === "astra") out.astra += r.amount;
     else if (r.kind === "exp") out.exp += r.amount;
     else if (r.kind === "material") out.materials[r.key] = (out.materials[r.key] || 0) + r.amount;
     else if (r.kind === "consumable") out.consumables[r.key] = (out.consumables[r.key] || 0) + r.amount;
     else if (r.kind === "keyItem") out.keyItems[r.key] = true;
-    else if (r.kind === "gear") out.gear.push({ slot: r.key, minRarity: r.minRarity, count: r.amount });
-    else if (r.kind === "unique") out.uniques.push({ id: r.key, count: r.amount });
+    else if (r.kind === "gear") out.gear.push({ slot: r.key, minRarity: r.minRarity, count: r.amount, ...foil });
+    else if (r.kind === "unique") out.uniques.push({ id: r.key, count: r.amount, ...foil });
     else out.gemstones.push({ minRarity: r.minRarity, count: r.amount });
   }
   return out;
@@ -49,6 +51,9 @@ const AdminScreen = () => {
   const [key, setKey] = useState("");
   const [amount, setAmount] = useState(1);
   const [minRarity, setMinRarity] = useState(0);
+  const [forceHolofoil, setForceHolofoil] = useState(false);
+  const [color1, setColor1] = useState("");
+  const [color2, setColor2] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [bugsNote, setBugsNote] = useState("");
@@ -85,10 +90,21 @@ const AdminScreen = () => {
 
   const options = KINDS[kind].options;
   const selectedKey = options ? key || options[0][0] : "";
+  const isGear = kind === "gear" || kind === "unique";
 
   const addRow = () => {
+    let holofoil;
+    if (isGear && forceHolofoil) {
+      const colors = [color1.trim(), color2.trim()];
+      if (colors.some(Boolean) && !isHolofoilColors(colors)) {
+        setNote("Enter both holofoil colors as #RRGGBB hex codes, or leave both blank for random colors.");
+        return;
+      }
+      holofoil = colors.some(Boolean) ? colors : true;
+    }
     const n = Math.max(1, Math.floor(Number(amount) || 0));
-    setRows((r) => [...r, { kind, key: selectedKey, amount: n, minRarity: Number(minRarity) }]);
+    setRows((r) => [...r, { kind, key: selectedKey, amount: n, minRarity: Number(minRarity), ...(holofoil ? { holofoil } : {}) }]);
+    setNote("");
   };
 
   const send = async (e) => {
@@ -283,6 +299,25 @@ const AdminScreen = () => {
             {kind !== "keyItem" && (
               <input className='input-field' type='number' min={1} value={amount} onChange={(e) => setAmount(e.target.value)} />
             )}
+            {isGear && (
+              <label>
+                <input type='checkbox' checked={forceHolofoil} onChange={(e) => setForceHolofoil(e.target.checked)} />
+                Force holofoil
+              </label>
+            )}
+            {isGear && forceHolofoil && (
+              <>
+                <label>
+                  Holofoil color 1
+                  <input className='input-field' placeholder='#RRGGBB' value={color1} onChange={(e) => setColor1(e.target.value)} />
+                </label>
+                <label>
+                  Holofoil color 2
+                  <input className='input-field' placeholder='#RRGGBB' value={color2} onChange={(e) => setColor2(e.target.value)} />
+                </label>
+                <span>Leave both colors blank for random colors.</span>
+              </>
+            )}
             <button type='button' className='buttons input-button' onClick={addRow}>Attach</button>
           </div>
           {rows.length > 0 && (
@@ -290,6 +325,7 @@ const AdminScreen = () => {
               {rows.map((r, i) => (
                 <li key={i}>
                   {rowLabel(r)}{" "}
+                  {Array.isArray(r.holofoil) && `(${r.holofoil.join(" / ")}) `}
                   <button type='button' className='buttons' onClick={() => setRows((all) => all.filter((_, j) => j !== i))}>Remove</button>
                 </li>
               ))}

@@ -2,6 +2,7 @@ import { Fragment } from "react";
 import Tooltip from "./Tooltip";
 import { GLOSSARY } from "./glossary";
 import { RARITY_COLORS, findGemstone, findItem, gemstoneTooltip, itemTooltip } from "../items/items";
+import { consumableTooltip } from "../items/consumables";
 import { MATERIAL_TIERS, getMaterialCount, MATERIALS, materialTooltip } from "../items/materials";
 import { getPlayer } from "../character/player";
 
@@ -13,6 +14,7 @@ import { getPlayer } from "../character/player";
  *   {{word|key}}  hoverable highlighted word; key is a GLOSSARY entry or a plain tooltip string
  *   {{name|item:ID}}  item link: rarity-colored name with the item's tooltip (ID from item.id)
  *   {{name|material:KEY}}  material link: rarity-colored name with material information
+ *   {{name|consumable:KEY}}  consumable link with the consumable's tooltip
  * Tags can be nested, e.g. **[gold]Rare[/gold] item**
  */
 const COLORS = {
@@ -52,6 +54,7 @@ function parse(text, keyPrefix = "") {
       const itemId = target.startsWith("item:") ? target.slice(5) : null;
       const gemstoneId = target.startsWith("gemstone:") ? target.slice(9) : null;
       const materialKey = target.startsWith("material:") ? target.slice(9) : null;
+      const consumableKey = target.startsWith("consumable:") ? target.slice(11) : null;
       const criticalDamage = target.startsWith("damage-critical:");
       const damageCalculation = target.startsWith("damage:")
         ? target.slice(7).split("~").map((line) => formatDamageCalculation(decodeURIComponent(line)))
@@ -69,6 +72,12 @@ function parse(text, keyPrefix = "") {
         out.push(
           <Tooltip key={key} content={() => materialTooltip(materialKey, getMaterialCount(getPlayer(), materialKey))}>
             <span className='tip-word' tabIndex={0} style={{ color: MATERIAL_TIERS[material.tier].color }}>{parse(m[1], key + ".")}</span>
+          </Tooltip>
+        );
+      } else if (consumableKey) {
+        out.push(
+          <Tooltip key={key} content={() => consumableTooltip(consumableKey) || "This consumable is unknown."}>
+            <span className='tip-word' tabIndex={0}>{parse(m[1], key + ".")}</span>
           </Tooltip>
         );
       } else if (gemstoneId) {

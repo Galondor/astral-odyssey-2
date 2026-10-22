@@ -59,6 +59,33 @@ test("Bloom of Decay does not apply effects when their chance roll fails", () =>
   expect(getEnemy().statuses).toEqual([]);
 });
 
+test("Fireball burn reduces enemy healing by 25%", () => {
+  getPlayer.mockReturnValue({
+    ...player,
+    skills: { fireball: 1 },
+    stats: {
+      ...player.stats,
+      magicAttackMin: 300,
+      magicAttackMax: 300,
+      power: 5,
+      maxPower: 5,
+    },
+  });
+  startCombat({
+    name: "Target",
+    maxHp: 1000,
+    defense: 0,
+    speed: 1,
+    abilities: [],
+    phases: [{ below: 1.1, text: "The target recovers.", heal: 0.2 }],
+  });
+
+  const { replies } = attackRound("magic", "fireball");
+
+  expect(getEnemy().statuses.map(({ id }) => id)).toContain("burn");
+  expect(replies).toContain("The Target recovers 150 health.");
+});
+
 test.each([
   [false, "elite", 0.1], [false, "boss", 0.25],
   [true, "elite", 0.15], [true, "boss", 0.3],

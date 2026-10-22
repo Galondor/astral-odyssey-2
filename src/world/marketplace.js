@@ -7,6 +7,7 @@ import { findAbility } from "../combat/abilities";
 import { getItemGearScore } from "../items/gearScore";
 import { CONSUMABLES } from "../items/consumables";
 import { MATERIALS, MATERIAL_TIERS, addToMaterials } from "../items/materials";
+import { isFavorite } from "../items/favorites";
 
 /*
  Player marketplace. Listings live in the database so every player sees them:
@@ -100,6 +101,9 @@ export async function listItem(index, priceInput, myListingCount = 0, amount = 1
   if (!item || item.twoHandedOf) return { ok: false, message: "That item is no longer in your inventory." };
   if (consumable && !(player.consumables?.[index] > 0))
     return { ok: false, message: "You no longer have that consumable." };
+  const category = consumable ? "consumables" : material ? "materials" : gemstone ? "gemstones" : "gear";
+  if (isFavorite(player, category, item))
+    return { ok: false, message: "Unfavorite that item in your inventory before selling it." };
 
   const listed = cleanItem(material
     ? { kind: "material", key: material.key, name: materialDefinition.name, tier: materialDefinition.tier, count }
@@ -259,8 +263,8 @@ export const SORTS = [
   ["levelDesc", "Item level: high to low"],
   ["levelAsc", "Item level: low to high"],
   ["gearScoreDesc", "Gear score: high to low"],
-  ["rarityDesc", "Rarity: best first"],
-  ["tierDesc", "Material tier: best first"],
+  ["rarityDesc", "Rarity: high to low"],
+  ["tierDesc", "Material tier: high to low"],
   ["quantityDesc", "Quantity: high to low"],
   ["statDesc", "Gemstone stat: high to low"],
   ["nameAsc", "Name: A to Z"],

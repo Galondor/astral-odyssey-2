@@ -23,7 +23,7 @@ export const SKILLS = {
     name: "Backstab",
     description: "A precise strike from the shadows.",
     type: "melee",
-    powerCost: 2,
+    powerCost: 3,
     multiplier: 1.2,
     perLevel: 0.15,
     maxLevel: 5,
@@ -79,31 +79,31 @@ export const SKILLS = {
     name: "Fireball",
     description: "Hurl a ball of flame that sets the enemy ablaze.",
     type: "magic",
-    powerCost: 4,
+    powerCost: 5,
     multiplier: 1.6,
     perLevel: 0.2,
     maxLevel: 5,
     onHit: (ctx) => ctx.applyStatus("burn", { turns: 3, power: 0.04 + 0.01 * ctx.level }),
     describe: (lvl) => [
       `Burns the enemy for ${pct(0.04 + 0.01 * lvl)} of their max health per round for 3 rounds.`,
-      "Burning enemies receive 50% less healing.",
+      "Burning enemies receive 25% less healing.",
     ],
   },
   frostLance: {
     name: "Frost Lance",
     description: "A shard of ice that numbs and slows its target.",
     type: "magic",
-    powerCost: 3,
+    powerCost: 4,
     multiplier: 1.3,
     perLevel: 0.15,
     maxLevel: 5,
     onHit: (ctx) => {
       ctx.applyStatus("weaken", { turns: 2, power: 0.2 });
-      if (Math.random() < 0.2 + 0.05 * ctx.level) ctx.applyStatus("stun");
+      if (Math.random() < 0.2 + 0.025 * ctx.level) ctx.applyStatus("stun");
     },
     describe: (lvl) => [
       "Weakens the enemy (-20% damage) for 2 rounds.",
-      `${pct(0.2 + 0.05 * lvl)} chance to stun the enemy.`,
+      `${pct(0.2 + 0.025 * lvl)} chance to stun the enemy.`,
     ],
   },
   soulSiphon: {
@@ -112,10 +112,10 @@ export const SKILLS = {
     type: "magic",
     powerCost: 5,
     multiplier: 1.3,
-    perLevel: 0.15,
+    perLevel: 0.1,
     maxLevel: 5,
-    onHit: (ctx) => ctx.heal(Math.round(ctx.dealt * (0.3 + 0.05 * ctx.level))),
-    describe: (lvl) => [`Heals you for ${pct(0.3 + 0.05 * lvl)} of the damage dealt.`],
+    onHit: (ctx) => ctx.heal(Math.round(ctx.dealt * (0.05 + 0.05 * ctx.level))),
+    describe: (lvl) => [`Heals you for ${pct(0.05 + 0.05 * lvl)} of the damage dealt.`],
   },
 };
 

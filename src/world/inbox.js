@@ -6,6 +6,7 @@ import { addGemstone, addItem, createUniqueItem, generateRandomGemstone, generat
 import { UNIQUES } from "./dungeonData";
 import { CONSUMABLES, KEY_ITEMS, addConsumable, addKeyItem } from "../items/consumables";
 import { MATERIALS, addToMaterials } from "../items/materials";
+import { validateHolofoil } from "../items/holofoil";
 
 /*
  Inbox. Messages come from the game/admins:
@@ -14,6 +15,7 @@ import { MATERIALS, addToMaterials } from "../items/materials";
    inboxState/{uid}/{id} this player's { read, claimed, deleted } flags for either kind
  attachments: { astra, exp, materials: { key: n }, consumables: { key: n }, keyItems: { key: true }, gear: [{ slot, minRarity, count }], gemstones: [{ minRarity, count }], gemstoneItems: [gemstone], items: [item] }
  Gear is generated when claimed to match the claiming player's level; gemstones are generated at the selected minimum rarity.
+ Gear and unique attachments may include `holofoil: true` for random colors or two #RRGGBB colors to force a holofoil.
  `gemstoneItems` and `items` are exact marketplace purchases, written by players under rules in database.rules.json.
 */
 
@@ -36,7 +38,7 @@ export const normalizeAttachments = (a = {}) => ({
   gear: asList(a.gear).filter((g) => GEAR_SLOT_TYPES.includes(g.slot) && g.count > 0),
   uniques: asList(a.uniques)
     .filter((u) => UNIQUES[u.id] && Math.floor(Number(u.count)) > 0)
-    .map((u) => ({ id: u.id, count: Math.floor(Number(u.count)) })),
+    .map((u) => ({ id: u.id, count: Math.floor(Number(u.count)), ...(u.holofoil !== undefined ? { holofoil: u.holofoil } : {}) })),
   gemstones: asList(a.gemstones)
     .filter((g) => Number.isFinite(Number(g.count)) && Math.floor(Number(g.count)) > 0)
     .map((g) => ({
@@ -69,11 +71,11 @@ export const describeAttachments = (a) => {
     ...n.materials.map(([k, c]) => `${c}× ${MATERIALS[k].name}`),
     ...n.consumables.map(([k, c]) => `${c}× ${CONSUMABLES[k].name}`),
     ...n.keyItems.map((k) => `Key item: ${KEY_ITEMS[k].name}`),
-    ...n.gear.map((g) => `${g.count}× random ${RARITY_NAMES[g.minRarity || 0]}+ ${g.slot}`),
-    ...n.uniques.map((u) => `${u.count}× Unique: ${UNIQUES[u.id].name}`),
+    ...n.gear.map((g) => `${g.count}× random ${g.holofoil ? "Holofoil " : ""}${RARITY_NAMES[g.minRarity || 0]}+ ${g.slot}`),
+    ...n.uniques.map((u) => `${u.count}× ${u.holofoil ? "Holofoil " : ""}Unique: ${UNIQUES[u.id].name}`),
     ...n.gemstones.map((g) => `${g.count}× random ${RARITY_NAMES[g.minRarity]}+ gemstone${g.count === 1 ? "" : "s"}`),
     ...n.gemstoneItems.map((g) => `${g.rarity} ${g.name}`),
-    ...n.items.map((i) => `${i.rarity ? `${i.rarity} ` : ""}${i.name}`),
+    ...n.items.map((i) => `${i.holofoil ? "Holofoil " : ""}${i.rarity ? `${i.rarity} ` : ""}${i.name}`),
   ];
 };
 
@@ -128,6 +130,7 @@ export const deleteMessage = (id) => update(stateRef(id), { deleted: true });
 
 function grant(a) {
   const n = normalizeAttachments(a);
+  [...n.gear, ...n.uniques].forEach((item) => validateHolofoil(item.holofoil));
   const lines = [];
   const p = getPlayer();
   const patch = {};
@@ -155,7 +158,7 @@ function grant(a) {
   });
   n.gear.forEach((g) => {
     for (let i = 0; i < g.count; i++) {
-      const item = generateRandomItem(g.slot, g.minRarity || 0);
+      const item = generateRandomItem(g.slot, g.minRarity || 0, g.holofoil);
       if (item) {
         addItem(item);
         lines.push(item.name);
@@ -164,7 +167,7 @@ function grant(a) {
   });
   n.uniques.forEach((u) => {
     for (let i = 0; i < u.count; i++) {
-      const item = createUniqueItem(UNIQUES[u.id], getPlayer()?.level || 1);
+      const item = createUniqueItem(UNIQUES[u.id], getPlayer()?.level || 1, u.holofoil);
       if (item) {
         addItem(item);
         lines.push(item.name);
@@ -232,13 +235,14 @@ export const deleteBroadcast = (id) => remove(ref(db, `broadcasts/${id}`));
 // `to` is a player uid or "all". Returns once written.
 export async function sendMessage({ to, subject, body, attachments }) {
   const n = normalizeAttachments(attachments);
+  [...n.gear, ...n.uniques].forEach((item) => validateHolofoil(item.holofoil));
   const clean = {
     ...(n.astra ? { astra: n.astra } : {}),
     ...(n.exp ? { exp: n.exp } : {}),
     ...(n.materials.length ? { materials: Object.fromEntries(n.materials) } : {}),
     ...(n.consumables.length ? { consumables: Object.fromEntries(n.consumables) } : {}),
     ...(n.keyItems.length ? { keyItems: Object.fromEntries(n.keyItems.map((k) => [k, true])) } : {}),
-    ...(n.gear.length ? { gear: n.gear.map((g) => ({ slot: g.slot, minRarity: g.minRarity || 0, count: g.count })) } : {}),
+    ...(n.gear.length ? { gear: n.gear.map((g) => ({ slot: g.slot, minRarity: g.minRarity || 0, count: g.count, ...(g.holofoil !== undefined ? { holofoil: g.holofoil } : {}) })) } : {}),
     ...(n.uniques.length ? { uniques: n.uniques } : {}),
     ...(n.gemstones.length ? { gemstones: n.gemstones } : {}),
   };

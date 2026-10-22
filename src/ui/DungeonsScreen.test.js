@@ -17,6 +17,21 @@ jest.mock("../world/dungeons", () => ({
 }));
 
 const DungeonsScreen = SCREENS.dungeons.component;
+
+test("screen registry keeps permanent navigation grouped before contextual screens", () => {
+  const groups = ["adventure", "character", "community", undefined].map((group) =>
+    Object.entries(SCREENS).filter(([, definition]) => definition.sidebarGroup === group).map(([key]) => key)
+  );
+  expect(groups).toEqual([
+    ["adventure", "dungeons", "arena"],
+    ["character", "progression", "quests", "inbox"],
+    ["leaderboards", "changelog", "bugReport"],
+    ["admin", "combat", "dungeonRun", "crafting", "gearTrader", "marketplace", "questBoard"],
+  ]);
+  expect(Object.keys(SCREENS)).toEqual(groups.flat());
+  expect(SCREENS.arena.link).toBe(true);
+});
+
 const offer = {
   id: "crypt-offer", type: "crypt", name: "Sunken Crypt", level: 20,
   boss: "dgCryptLich", elite: "dgCryptKnight",

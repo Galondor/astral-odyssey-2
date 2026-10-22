@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { getHolofoilStyle } from "../items/holofoil";
 import {
   getInventoryItemKey,
   getPlayer,
@@ -30,6 +31,7 @@ import {
   unequipItem,
 } from "../items/items";
 import { getItemGearScore } from "../items/gearScore";
+import { isFavorite, toggleFavorite } from "../items/favorites";
 import { applyRune, canApplyRune, RUNE_MAIN_STATS } from "../items/runes";
 import { canRenameItem, renameItem } from "../items/certificates";
 import { getItemStats, MARKET_RARITIES, MARKET_SLOTS, MARKET_STATS } from "../world/marketplace";
@@ -75,6 +77,7 @@ import { getRespecCost, getUnspentPoints, respecSkills, respecStatPoints, spendS
 import RichText from "./RichText";
 import ChangelogScreen from "./ChangelogScreen";
 import LeaderboardScreen from "./LeaderboardScreen";
+import ArenaScreen from "./ArenaScreen";
 import {
   MAX_ACTIVE_QUESTS,
   abandonQuest,
@@ -105,6 +108,7 @@ import { DUNGEON_MIN_LEVEL, describeOffer, formatTime, getBoard, getBoardRefresh
  Game screens. A scene picks one with `screen: "<key>"` (and optional `screenData`); the sidebar can
  also open the ones with `link: true` at any time. To add a screen, add an entry here.
    label     - sidebar text
+   sidebarGroup - desktop navigation group; omitted for Admin and contextual screens at the end
    link      - always available from the sidebar (otherwise only enabled while a scene uses it)
    hideUnlessActive - hidden from the sidebar unless a scene is using it (highlighted when shown)
    badge     - (player) => number, shown as a notification on the tab when above 0
@@ -483,6 +487,8 @@ const GearTraderScreen = ({ data, onChange }) => {
       setNote(
         result.reason === "astra"
           ? `You need ${result.price} astra for that gear.`
+          : result.reason === "favorite"
+            ? "Unfavorite that item in your inventory before selling it."
           : "That gear can no longer be traded.",
       );
     }
@@ -528,7 +534,8 @@ const GearTraderScreen = ({ data, onChange }) => {
     >
       <button
         type='button'
-        className={`inventory-item ${isEquipped ? "equipped-gear" : ""}`}
+        className={`inventory-item ${isEquipped ? "equipped-gear" : ""} ${isFavorite(player, "gear", item) ? "favorite-item" : ""}`}
+        style={getHolofoilStyle(item)}
         aria-disabled={unavailable || undefined}
         onClick={onClick}
       >
@@ -576,15 +583,16 @@ const GearTraderScreen = ({ data, onChange }) => {
             {inventory.map((item, index) =>
               gearButton(
                 item,
-                `Sell for ${getSellPrice(item) ?? 0} astra • `,
+                isFavorite(player, "gear", item) ? "Favorite • cannot sell " : `Sell for ${getSellPrice(item) ?? 0} astra • `,
                 item.id || `pack-${index}`,
                 () => act(sellInventoryItem, index),
+                isFavorite(player, "gear", item),
               ),
             )}
             {equipped.map(([slot, item]) =>
               gearButton(
                 item,
-                `Sell for ${getSellPrice(item) ?? 0} astra • Equipped `,
+                isFavorite(player, "gear", item) ? "Favorite • equipped, cannot sell " : `Sell for ${getSellPrice(item) ?? 0} astra • Equipped `,
                 item.id || slot,
                 () => {
                   const result = sellEquippedItem(slot);
@@ -592,10 +600,12 @@ const GearTraderScreen = ({ data, onChange }) => {
                     setNote(`${result.item.name}: ${result.value} astra.`);
                     refresh();
                   } else {
-                    setNote("That gear can no longer be traded.");
+                    setNote(result.reason === "favorite"
+                      ? "Unfavorite that item in your inventory before selling it."
+                      : "That gear can no longer be traded.");
                   }
                 },
-                false,
+                isFavorite(player, "gear", item),
                 true,
               ),
             )}
@@ -612,13 +622,14 @@ const GearTraderScreen = ({ data, onChange }) => {
               <Tooltip key={gemstone.id || index} content={gemstoneTooltip(gemstone)}>
                 <button
                   type='button'
-                  className='inventory-item'
+                  className={`inventory-item ${isFavorite(player, "gemstones", gemstone) ? "favorite-item" : ""}`}
+                  aria-disabled={isFavorite(player, "gemstones", gemstone) || undefined}
                   onClick={() => act(sellGemstone, index)}
                 >
                   <strong style={{ color: RARITY_COLORS[gemstone.rarity] }}>
                     {gemstone.name}
                   </strong>
-                  <span>Sell for {getGemstoneValue(gemstone) ?? 0} astra</span>
+                  <span>{isFavorite(player, "gemstones", gemstone) ? "Favorite • cannot sell " : `Sell for ${getGemstoneValue(gemstone) ?? 0} astra`}</span>
                 </button>
               </Tooltip>
             ))}
@@ -649,8 +660,7 @@ const GearTraderScreen = ({ data, onChange }) => {
         <div className='gear-trader-list'>
           <div className='recipe-note'>
             New stock arrives every 30 minutes. Higher town reputation improves
-            gear quality on the next refresh. At 1,800+ reputation, all stats roll
-            T4 or better, with 60% Epic, 20% Legendary, and 20% Rare gear.
+            gear quality.
           </div>
           {!stock.length && (
             <div className='equip-empty'>This stock has sold out.</div>
@@ -699,6 +709,7 @@ const Equipment = ({ player, onChange, locked }) => {
                 <button
                   type='button'
                   className={`equip-slot ${item ? "filled" : ""}`}
+                  style={getHolofoilStyle(item)}
                   disabled={!item || locked}
                   onClick={() => {
                     unequipItem(slot.key);
@@ -738,12 +749,31 @@ const GEAR_SORTS = [
   ["levelDesc", "Item level: high to low"],
   ["levelAsc", "Item level: low to high"],
   ["gearScoreDesc", "Gear score: high to low"],
-  ["rarityDesc", "Rarity: best first"],
+  ["rarityDesc", "Rarity: high to low"],
   ["nameAsc", "Name: A to Z"],
 ];
 
 const Inventory = ({ player, onChange, locked }) => {
   const [tab, setTab] = useState("gear");
+  const [favoriteFilter, setFavoriteFilter] = useState("");
+  const [favoriteMessage, setFavoriteMessage] = useState("");
+  const matchesFavorite = (category, item) => !favoriteFilter ||
+    isFavorite(player, category, item) === (favoriteFilter === "favorites");
+  const favoriteOrder = (category, a, b) =>
+    Number(isFavorite(player, category, b)) - Number(isFavorite(player, category, a));
+  const favoriteItems = (category, items) => items
+    .filter((item) => matchesFavorite(category, item))
+    .sort((a, b) => favoriteOrder(category, a, b));
+  const favoriteProps = (category, item) => ({
+    onContextMenu: (event) => {
+      event.preventDefault();
+      const result = toggleFavorite(category, item);
+      setFavoriteMessage(result.ok ? "" : result.message);
+      onChange();
+    },
+    title: isFavorite(player, category, item) ? "Right-click to unfavorite" : "Right-click to favorite",
+  });
+  const favoriteClass = (category, item) => isFavorite(player, category, item) ? "favorite-item" : "";
   const [selectedGemstone, setSelectedGemstone] = useState(null);
   const [gemstoneMessage, setGemstoneMessage] = useState("");
   const [renaming, setRenaming] = useState(false);
@@ -781,6 +811,7 @@ const Inventory = ({ player, onChange, locked }) => {
   const filteredGear = gear
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => {
+      if (!matchesFavorite("gear", item)) return false;
       if (gearFilters.slot && item.slot !== gearFilters.slot) return false;
       if (gearFilters.rarity && item.rarity !== gearFilters.rarity) return false;
       if (gearFilters.usable && !canEquip(item, player.level)) return false;
@@ -826,7 +857,7 @@ const Inventory = ({ player, onChange, locked }) => {
       rarityDesc: () => rarityOrder.indexOf(b.item.rarity) - rarityOrder.indexOf(a.item.rarity),
       nameAsc: () => String(a.item.name).localeCompare(String(b.item.name)),
     };
-    return (sorters[gearFilters.sort]?.() || 0) || a.index - b.index;
+    return favoriteOrder("gear", a.item, b.item) || (sorters[gearFilters.sort]?.() || 0) || a.index - b.index;
   });
   const activeGearFilterCount = Object.entries(gearFilters)
     .filter(([key, value]) => key !== "sort" && value !== "" && value !== false).length;
@@ -969,6 +1000,22 @@ const Inventory = ({ player, onChange, locked }) => {
             </button>
           ))}
         </div>
+        <p className='recipe-kind'>Right-click an item to favorite or unfavorite it. Favorites cannot be sold.</p>
+        <select className='input-field inventory-favorite-filter' aria-label='Filter favorites' value={favoriteFilter} onChange={(event) => setFavoriteFilter(event.target.value)}>
+          <option value=''>All items</option>
+          <option value='favorites'>Favorites only</option>
+          <option value='nonFavorites'>Non-favorites only</option>
+        </select>
+        {favoriteMessage && <div role='status'>{favoriteMessage}</div>}
+        {favoriteFilter && !({
+          gear,
+          consumables,
+          gemstones,
+          materials,
+          keyItems,
+        }[tab]).some((item) => matchesFavorite(tab, item)) && (
+          <div className='equip-empty'>No items match this favorites filter.</div>
+        )}
         {tab === "gear" && (
           <>
             {gear.length === 0 && (
@@ -1052,7 +1099,9 @@ const Inventory = ({ player, onChange, locked }) => {
                   <button
                     type='button'
                     disabled={locked}
-                    className={`inventory-item ${canEquip(item, player.level) ? "" : "too-high"}`}
+                    className={`inventory-item ${canEquip(item, player.level) ? "" : "too-high"} ${favoriteClass("gear", item)}`}
+                    style={getHolofoilStyle(item)}
+                    {...favoriteProps("gear", item)}
                     onClick={() => {
                       markInventoryItemViewed("gear", getInventoryItemKey(item));
                       equipItem(index);
@@ -1129,7 +1178,7 @@ const Inventory = ({ player, onChange, locked }) => {
               <div className='equip-empty'>You have no consumables.</div>
             )}
             <div className='inventory-list'>
-              {consumables.map((c) => (
+              {favoriteItems("consumables", consumables).map((c) => (
                 <Tooltip
                   key={c.key}
                   onView={() => viewItem("consumables", c.key)}
@@ -1141,7 +1190,8 @@ const Inventory = ({ player, onChange, locked }) => {
                   <button
                     type='button'
                     disabled={locked || savingName}
-                    className='inventory-item'
+                    className={`inventory-item ${favoriteClass("consumables", c)}`}
+                    {...favoriteProps("consumables", c)}
                     onClick={() => use(c.key)}
                   >
                     {isNew("consumables", c.key) && (
@@ -1172,7 +1222,7 @@ const Inventory = ({ player, onChange, locked }) => {
                   {selectedGemstone ? "Select gear to socket into" : "Select a gemstone to use"}
                 </div>
                 <div className='inventory-list'>
-                  {gemstones.map((gemstone) => (
+                  {favoriteItems("gemstones", gemstones).map((gemstone) => (
                     <Tooltip
                       key={gemstone.id}
                       onView={() => viewItem("gemstones", gemstone.id)}
@@ -1180,7 +1230,8 @@ const Inventory = ({ player, onChange, locked }) => {
                     >
                       <button
                         type='button'
-                        className={`inventory-item ${selectedGemstone === gemstone.id ? "gemstone-selected" : ""}`}
+                        className={`inventory-item ${selectedGemstone === gemstone.id ? "gemstone-selected" : ""} ${favoriteClass("gemstones", gemstone)}`}
+                        {...favoriteProps("gemstones", gemstone)}
                         disabled={locked}
                         onClick={() => {
                           markInventoryItemViewed("gemstones", gemstone.id);
@@ -1205,6 +1256,7 @@ const Inventory = ({ player, onChange, locked }) => {
               {gemstoneTargets.map(({ target, label, item }) => (
                 <div
                   className={`gemstone-target ${target.kind === "equipment" ? "equipped-gear" : ""}`}
+                  style={getHolofoilStyle(item)}
                   key={`${target.kind}-${target.slotKey ?? target.index}`}
                 >
                   <span>{label}</span>
@@ -1241,13 +1293,13 @@ const Inventory = ({ player, onChange, locked }) => {
               </div>
             )}
             <div className='inventory-list'>
-              {materials.map((m) => (
+              {favoriteItems("materials", materials).map((m) => (
                 <Tooltip
                   key={m.key}
                   onView={() => viewItem("materials", m.key)}
                   content={materialTooltip(m.key, m.count)}
                 >
-                  <div className='inventory-item'>
+                  <div className={`inventory-item ${favoriteClass("materials", m)}`} {...favoriteProps("materials", m)}>
                     {isNew("materials", m.key) && (
                       <span className='inventory-new-dot' aria-label='New item' />
                     )}
@@ -1266,13 +1318,13 @@ const Inventory = ({ player, onChange, locked }) => {
               <div className='equip-empty'>You have no key items.</div>
             )}
             <div className='inventory-list'>
-              {keyItems.map((k) => (
+              {favoriteItems("keyItems", keyItems).map((k) => (
                 <Tooltip
                   key={k.key}
                   onView={() => viewItem("keyItems", k.key)}
                   content={keyItemTooltip(k.key)}
                 >
-                  <div className='inventory-item'>
+                  <div className={`inventory-item ${favoriteClass("keyItems", k)}`} {...favoriteProps("keyItems", k)}>
                     {isNew("keyItems", k.key) && (
                       <span className='inventory-new-dot' aria-label='New item' />
                     )}
@@ -1802,30 +1854,34 @@ const QuestsScreen = ({ onChange }) => {
 };
 
 export const SCREENS = {
-  adventure: { label: "Adventure", link: true, component: AdventureScreen },
-  dungeons: { label: "Dungeons", link: true, minLevel: DUNGEON_MIN_LEVEL, component: DungeonsScreen },
-  character: { label: "Character", link: true, component: CharacterScreen },
+  adventure: { label: "Adventure", sidebarGroup: "adventure", link: true, component: AdventureScreen },
+  dungeons: { label: "Dungeons", sidebarGroup: "adventure", link: true, minLevel: DUNGEON_MIN_LEVEL, component: DungeonsScreen },
+  arena: { label: "Arena", sidebarGroup: "adventure", link: true, component: ArenaScreen },
+  character: { label: "Character", sidebarGroup: "character", link: true, component: CharacterScreen },
   progression: {
     label: "Progression",
+    sidebarGroup: "character",
     link: true,
     component: ProgressionScreen,
     badge: (p) => getUnspentPoints(p),
   },
   quests: {
     label: "Quests",
+    sidebarGroup: "character",
     link: true,
     component: QuestsScreen,
     badge: (p) => getReadyQuestCount(p),
   },
   inbox: {
     label: "Inbox",
+    sidebarGroup: "character",
     link: true,
     component: InboxScreen,
     badge: () => getUnreadCount(),
   },
-  leaderboards: { label: "Leaderboards", link: true, component: LeaderboardScreen },
-  changelog: { label: "Changelog", link: true, component: ChangelogScreen },
-  bugReport: { label: "Report a Bug", link: true, component: BugReportScreen },
+  leaderboards: { label: "Leaderboards", sidebarGroup: "community", link: true, component: LeaderboardScreen },
+  changelog: { label: "Changelog", sidebarGroup: "community", link: true, component: ChangelogScreen },
+  bugReport: { label: "Report a Bug", sidebarGroup: "community", link: true, component: BugReportScreen },
   admin: { label: "Admin", link: true, adminOnly: true, component: AdminScreen },
   combat: { label: "Combat", component: CombatScreen, hideUnlessActive: true },
   dungeonRun: { label: "Dungeon", component: DungeonRunScreen, hideUnlessActive: true },

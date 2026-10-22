@@ -165,7 +165,7 @@ export default function Tooltip({ content, delay = 150, onView, openOnClick = fa
             ref={tipRef}
             role='tooltip'
             className='tooltip'
-            style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos ? "visible" : "hidden" }}
+            style={{ ...state.data.backgroundStyle, left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos ? "visible" : "hidden" }}
           >
             <TooltipContent data={state.data} />
           </div>,

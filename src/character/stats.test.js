@@ -23,6 +23,20 @@ test("intelligence adds two magic attack per point and does not increase max pow
   expect(stats.maxPower).toBe(5);
 });
 
+test("agility adds one percent evasion per eight points", () => {
+  const atEightAgility = calculateStats(makePlayer({
+    baseStats: { strength: 1, dexterity: 14, intelligence: 1 },
+  }));
+  const atSixteenAgility = calculateStats(makePlayer({
+    baseStats: { strength: 1, dexterity: 30, intelligence: 1 },
+  }));
+
+  expect(atEightAgility.agility).toBe(8);
+  expect(atEightAgility.evasion).toBe(0.02);
+  expect(atSixteenAgility.agility).toBe(16);
+  expect(atSixteenAgility.evasion).toBe(0.03);
+});
+
 test("existing level power bonuses migrate without losing permanent upgrades", () => {
   const existing = makePlayer({
     level: 8,

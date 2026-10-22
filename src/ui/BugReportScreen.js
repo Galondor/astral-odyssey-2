@@ -34,7 +34,7 @@ const BugReportScreen = () => {
   return (
     <div className='panel bug-report'>
       <h2>Report a bug</h2>
-      <p>Tell us what happened and how we can reproduce it. Please don't include personal information.</p>
+      <p>Tell me what happened and how we I can reproduce it. Please don't include personal information.</p>
       <form className='admin-form' onSubmit={submit}>
         <label htmlFor='bug-report-title'>
           Title

@@ -3,6 +3,8 @@ import { recalculateStats } from "../character/stats";
 import { getEnemy } from "../combat/combat";
 import { ABILITIES, UNIQUE_ABILITIES, findAbility } from "../combat/abilities";
 import { getItemGearScore } from "./gearScore";
+import { isFavorite } from "./favorites";
+import { getHolofoilStyle, rollHolofoil } from "./holofoil";
 
 /*
  Equipment and inventory.
@@ -12,6 +14,7 @@ import { getItemGearScore } from "./gearScore";
  A two-handed weapon is stored in equipment.mainHand and a placeholder { twoHandedOf: "mainHand", name, rarity } in equipment.offHand.
  Equipped item stats are added directly onto player.stats when equipped and removed when unequipped.
  Fixed items live in ITEMS as templates (same shape, no id/iLevel); use createItem(templateKey) to get an instance.
+ Newly generated equipment has a 1% holofoil chance; `holofoil` stores its two permanent #RRGGBB gradient colors.
 */
 export const SLOTS = [
   { key: "mainHand", label: "Main Hand", type: "weapon" },
@@ -66,6 +69,7 @@ export const createItem = (key) => {
     mainStat: { ...t.mainStat },
     subStats: { ...t.subStats },
     ability: t.ability ? { ...t.ability } : null,
+    ...rollHolofoil(),
   };
 };
 
@@ -547,11 +551,12 @@ const generateItem = (slot, minRarity = 0, quality = {}, player = getPlayer()) =
     subStats,
     subTiers,
     ability,
+    ...rollHolofoil(quality.holofoil),
   };
 };
 
-export const generateRandomItem = (slot, minRarity = 0) =>
-  generateItem(slot, minRarity);
+export const generateRandomItem = (slot, minRarity = 0, holofoil) =>
+  generateItem(slot, minRarity, { holofoil });
 
 // Unique gear: a tier above Legendary with a fixed ability. Every main stat and substat rolls at T4 or better.
 const UNIQUE_MAIN_BONUS = 6;
@@ -570,7 +575,7 @@ const rollHighSubStat = (key, iLevel) => {
   return max;
 };
 
-export const createUniqueItem = (def, iLevel = 1) => {
+export const createUniqueItem = (def, iLevel = 1, holofoil) => {
   const config = SLOT_CONFIG[def?.slot];
   const ability = UNIQUE_ABILITIES.find((a) => a.name === def?.ability);
   if (!config || !ability) return null;
@@ -609,6 +614,7 @@ export const createUniqueItem = (def, iLevel = 1) => {
     subStats,
     subTiers,
     ability: { name: ability.name, description: ability.description },
+    ...rollHolofoil(holofoil),
   };
 };
 
@@ -697,8 +703,9 @@ export const itemTooltip = (item, extra) => {
     : "";
   return {
     title: item.name,
+    backgroundStyle: getHolofoilStyle(item),
     titleColor: RARITY_COLORS[item.rarity],
-    subtitle: `${item.rarity}, Item Level ${item.iLevel} • Equip level ${getEquipLevel(item)}`,
+    subtitle: `${item.holofoil ? "Holofoil " : ""}${item.rarity}, Item Level ${item.iLevel} • Equip level ${getEquipLevel(item)}`,
     description: [abilityText].filter(Boolean),
     stats,
     footer: [
@@ -845,6 +852,7 @@ export function sellGemstone(index) {
   const gemstone = gemstones[index];
   const value = getGemstoneValue(gemstone);
   if (!gemstone || value === null) return { ok: false };
+  if (isFavorite(player, "gemstones", gemstone)) return { ok: false, reason: "favorite" };
   gemstones.splice(index, 1);
   setPlayer({ gemstones, astra: (player.astra || 0) + value });
   return { ok: true, item: gemstone, value };
@@ -968,6 +976,7 @@ export function sellInventoryItem(index) {
   const item = inventory[index];
   const value = getSellPrice(item);
   if (!item || value === null) return { ok: false };
+  if (isFavorite(player, "gear", item)) return { ok: false, reason: "favorite" };
   inventory.splice(index, 1);
   const buyback = [{ item, price: value }, ...(player.gearTraderBuyback || [])].slice(0, BUYBACK_LIMIT);
   setPlayer({ inventory, astra: (player.astra || 0) + value, gearTraderBuyback: buyback });
@@ -981,6 +990,7 @@ export function sellEquippedItem(slotKey) {
   const item = equipment[slotKey];
   const value = getSellPrice(item);
   if (!item || item.twoHandedOf || value === null) return { ok: false };
+  if (isFavorite(player, "gear", item)) return { ok: false, reason: "favorite" };
 
   delete equipment[slotKey];
   if (item.twoHanded) delete equipment.offHand;

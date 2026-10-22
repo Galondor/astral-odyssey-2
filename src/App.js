@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import "./App.css";
 import { auth } from "./firebase";
@@ -227,28 +227,30 @@ function Game({ uid, onLogout }) {
             <span aria-hidden='true'>{sidebarOpen ? "-" : "+"}</span>
           </button>
           <div id='sidebar-links' className={`sidebar-links ${sidebarOpen ? "open" : ""}`}>
-            {Object.entries(SCREENS).filter(([key, s]) => (!s.hideUnlessActive || key === sceneScreen) && (!s.adminOnly || isAdmin())).map(([key, s]) => {
+            {Object.entries(SCREENS).filter(([key, s]) => (!s.hideUnlessActive || key === sceneScreen) && (!s.adminOnly || isAdmin())).map(([key, s], index, visibleScreens) => {
               const enabled = !!player?.stats && !player.needsNameChange && (s.link || key === sceneScreen) && (player.level || 1) >= (s.minLevel || 0);
               const badge = player && s.badge ? s.badge(player) : 0;
               const attention = s.hideUnlessActive && key !== activeScreen;
               return (
-                <button
-                  key={key}
-                  type='button'
-                  disabled={!enabled}
-                  aria-current={key === activeScreen ? "page" : undefined}
-                  className={`sidebar-link ${key === activeScreen ? "active" : ""} ${s.hideUnlessActive ? "highlight" : ""} ${attention ? "attention" : ""}`}
-                  onClick={() => {
-                    setViewOverride(key === sceneScreen ? null : key);
-                    closeSidebar();
-                  }}
-                >
-                  {s.label}
-                  {badge > 0 && <span className='sidebar-badge'>{badge}</span>}
-                </button>
+                <Fragment key={key}>
+                  {index > 0 && s.sidebarGroup !== visibleScreens[index - 1][1].sidebarGroup && <hr className='sidebar-divider' />}
+                  <button
+                    type='button'
+                    disabled={!enabled}
+                    aria-current={key === activeScreen ? "page" : undefined}
+                    className={`sidebar-link ${key === activeScreen ? "active" : ""} ${s.hideUnlessActive ? "highlight" : ""} ${attention ? "attention" : ""}`}
+                    onClick={() => {
+                      setViewOverride(key === sceneScreen ? null : key);
+                      closeSidebar();
+                    }}
+                  >
+                    {s.label}
+                    {badge > 0 && <span className='sidebar-badge'>{badge}</span>}
+                  </button>
+                </Fragment>
               );
             })}
-            <span className='sidebar-version' aria-label='Game version'>v0.2.3.0</span>
+            <span className='sidebar-version' aria-label='Game version'>v0.2.3.1</span>
           </div>
         </nav>
         <div className='game-content'>

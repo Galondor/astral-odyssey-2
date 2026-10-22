@@ -42,6 +42,38 @@ test("selling a consumable removes exactly one and keeps gear untouched", async 
   expect(update).toHaveBeenCalledWith(undefined, {
     "marketplace/listing": expect.objectContaining({ item: elixir, price: 101 }),
   });
+
+});
+
+test("holofoil equipment keeps its exact colors when listed and returned", async () => {
+  const foil = { ...gear, holofoil: ["#ABCDEF", "#123456"] };
+  player.inventory = [foil];
+  expect(await listItem(0, 101)).toMatchObject({ ok: true });
+  const stored = update.mock.calls[0][1]["marketplace/listing"];
+  expect(stored.item.holofoil).toEqual(foil.holofoil);
+  expect(player.inventory).toEqual([]);
+  get.mockResolvedValue({ val: () => stored });
+  expect(await cancelListing({ id: "listing", ...stored })).toMatchObject({ ok: true });
+  expect(player.inventory[0].holofoil).toEqual(foil.holofoil);
+});
+
+test.each([
+  ["gear", "sword", 0],
+  ["consumables", "elixirOfNameChanging", "elixirOfNameChanging"],
+  ["materials", "slime_gel", { kind: "material", key: "slime_gel" }],
+  ["gemstones", "ruby-1", gemstone],
+])("favorite %s cannot be listed, but can be listed after unfavoriting", async (category, key, target) => {
+  player.favoriteInventoryItems = { [category]: [key] };
+  const before = JSON.parse(JSON.stringify(player));
+  expect(await listItem(target, 100)).toEqual({
+    ok: false, message: "Unfavorite that item in your inventory before selling it.",
+  });
+  expect(player).toEqual(before);
+  expect(setPlayer).not.toHaveBeenCalled();
+  expect(commitPlayerChange).not.toHaveBeenCalled();
+  expect(update).not.toHaveBeenCalled();
+  player.favoriteInventoryItems[category] = [];
+  expect(await listItem(target, 100)).toMatchObject({ ok: true });
 });
 
 test.each(Object.keys(CONSUMABLES))("selling %s preserves its listing type and removes only one", async (key) => {

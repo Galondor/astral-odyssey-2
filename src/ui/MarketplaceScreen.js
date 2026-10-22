@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { getPlayer } from "../character/player";
 import { RARITY_COLORS, STAT_LABELS, canEquip, formatValue, gemstoneTooltip, getEquipLevel, itemComparisonTooltip, itemTooltip } from "../items/items";
 import { getItemGearScore } from "../items/gearScore";
+import { isFavorite } from "../items/favorites";
+import { getHolofoilStyle } from "../items/holofoil";
 import { consumableTooltip, getConsumables } from "../items/consumables";
 import { getMaterials, materialTooltip, MATERIAL_TIERS } from "../items/materials";
 import {
@@ -47,12 +49,13 @@ const itemKindLabel = (item) => isConsumableListing(item)
       : `${item.rarity} ${slotLabel(item)}`;
 
 // Card body shared by every tab: name, rarity/slot, level, main stat, ability, then a tab-specific footer.
-const ItemCard = ({ item, tooltip, selected, dimmed, onClick, children }) => (
+const ItemCard = ({ item, tooltip, selected, dimmed, favorite, onClick, children }) => (
   <Tooltip content={tooltip}>
     <button
       type='button'
-      className={`market-card ${selected ? "selected" : ""} ${dimmed ? "dimmed" : ""}`}
-      style={{ "--rarity": itemColor(item) }}
+      className={`market-card ${selected ? "selected" : ""} ${dimmed ? "dimmed" : ""} ${favorite ? "favorite-item" : ""}`}
+      aria-disabled={favorite || undefined}
+      style={{ "--rarity": itemColor(item), ...getHolofoilStyle(item) }}
       onClick={onClick}
     >
       <strong className='market-card-name' style={{ color: itemColor(item) }}>
@@ -60,6 +63,7 @@ const ItemCard = ({ item, tooltip, selected, dimmed, onClick, children }) => (
       </strong>
       <span className='market-card-sub'>
         {itemKindLabel(item)}
+        {item.holofoil ? " • Holofoil" : ""}
         {item.twoHanded ? " • Two-handed" : ""}
       </span>
       {item.kind === "material" && <span className='market-card-sub'>{item.count} available</span>}
@@ -206,6 +210,11 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
     ...(player.gemstones || []).map((gemstone) => ({ ...gemstone, kind: "gemstone" })),
   ];
   const sellItem = sellIndex !== null ? inventory[sellIndex] : null;
+  const favorite = (item) => isFavorite(player,
+    isConsumableListing(item) ? "consumables"
+      : isMaterialListing(item) ? "materials"
+        : isGemstoneListing(item) ? "gemstones" : "gear",
+    item);
 
   if (!isMarketUnlocked(player)) {
     return (
@@ -355,7 +364,7 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
       {tab === "sell" && (
         <>
           <KindFilter filters={filters} setFilters={setFilters} />
-          <p>Each listing sells one gear piece, consumable, or gemstone. Materials can be listed in stacks.</p>
+          <p>Each listing sells one gear piece, consumable, or gemstone. Materials can be listed in stacks. Unfavorite items in your inventory before selling them.</p>
           {sellItem && (
             <div className='market-confirm'>
               <span>
@@ -383,7 +392,7 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
               <span className='recipe-kind'>
                 {validPrice ? `Tax ${getTax(parsedPrice)} • You receive ${getPayout(parsedPrice)} astra` : "Enter a whole number of astra"}
               </span>
-              <button type='button' className='buttons' disabled={busy || inCombat || !validPrice || mine.length >= MAX_LISTINGS || (isMaterialListing(sellItem) && (!Number.isInteger(Number(sellAmount)) || Number(sellAmount) < 1 || Number(sellAmount) > sellItem.count))} onClick={list}>
+              <button type='button' className='buttons' disabled={busy || inCombat || favorite(sellItem) || !validPrice || mine.length >= MAX_LISTINGS || (isMaterialListing(sellItem) && (!Number.isInteger(Number(sellAmount)) || Number(sellAmount) < 1 || Number(sellAmount) > sellItem.count))} onClick={list}>
                 List item
               </button>
               <button type='button' className='buttons' onClick={() => setSellIndex(null)}>Cancel</button>
@@ -402,7 +411,12 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
                       : isGemstoneListing(item) ? gemstoneTooltip(item)
                         : itemTooltip(item, `Vendor value: ${item.price ?? 0} astra`)}
                   selected={index === sellIndex}
+                  favorite={favorite(item)}
                   onClick={() => {
+                    if (favorite(item)) {
+                      setNote("Unfavorite that item in your inventory before selling it.");
+                      return;
+                    }
                     setSellIndex(index);
                     setSellAmount(1);
                     setPrice(String(item.price || ""));
@@ -410,7 +424,7 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
                   }}
                 >
                   <span className='market-card-footer'>
-                    <span className='market-card-seller'>Click to list</span>
+                    <span className='market-card-seller'>{favorite(item) ? "Favorite • cannot sell " : "Click to list"}</span>
                     <span>{isConsumableListing(item) || isMaterialListing(item) ? `${item.count} available` : isGemstoneListing(item) ? item.rarity : `Value ${item.price ?? 0}`}</span>
                   </span>
                 </ItemCard>
