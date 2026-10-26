@@ -37,6 +37,7 @@ test("applies a random foil to a non-Holofoil item", () => {
     ...item,
     holofoil: ["#800000", "#800000"],
     holofoilEffect: HOLOFOIL_EFFECTS[Math.floor(0.5 * HOLOFOIL_EFFECTS.length)],
+    prismatic: true,
   });
   expect(player.consumables).toEqual({});
 });
@@ -48,6 +49,7 @@ test("rerolls an existing Holofoil and leaves its other item data unchanged", ()
     ...item,
     holofoil: ["#800000", "#800000"],
     holofoilEffect: HOLOFOIL_EFFECTS[Math.floor(0.5 * HOLOFOIL_EFFECTS.length)],
+    prismatic: true,
   });
   expect(player.consumables).toEqual({});
 });

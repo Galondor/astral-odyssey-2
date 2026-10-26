@@ -127,6 +127,15 @@ test("gear favorites override sorting and right-click does not equip or change f
   expect(player.inventory).toEqual([sword]);
 });
 
+test.each(["Consumables", "Gemstones", "Materials", "Key Items", "Titles"])(
+  "%s inventory does not show the favorites filter",
+  (tab) => {
+    renderCharacter();
+    fireEvent.click(screen.getByRole("tab", { name: new RegExp(tab) }));
+    expect(screen.queryByRole("combobox", { name: "Filter favorites" })).not.toBeInTheDocument();
+  },
+);
+
 test("inventory gear opens a details popup with comparison, favorite, and equip actions", () => {
   const item = {
     ...sword,

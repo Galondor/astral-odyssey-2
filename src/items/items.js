@@ -1049,6 +1049,7 @@ export const itemTooltip = (item, extra) => {
     slotLabel,
     item.twoHanded && "Two-handed",
     item.crafted && "Crafted",
+    item.prismatic && "Prismatic",
     `Gear score ${getItemGearScore(item)}`,
     item.originalOwner && `Original Owner: ${item.originalOwner}`,
   ].filter(Boolean);

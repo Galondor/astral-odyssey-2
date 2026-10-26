@@ -26,6 +26,17 @@ test.each([
   expect(tooltip.stats[0].tier).toBe(`T${tier}`);
 });
 
+test("item tooltip tags gear treated with Prismatic Alloy", () => {
+  expect(itemTooltip({
+    name: "Prismatic Sword",
+    slot: "weapon",
+    rarity: "Rare",
+    iLevel: 1,
+    price: 1,
+    prismatic: true,
+  }).tags).toContain("Prismatic");
+});
+
 test("weapon can roll Power as a substat", () => {
   jest.spyOn(Math, "random").mockReturnValue(0);
   const item = generateRandomItem("weapon");

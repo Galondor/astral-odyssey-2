@@ -411,8 +411,10 @@ test("safe paths always have a reachable exit, allow backtracking, and can be so
     expect(route[route.length - 1]).toBe(exit);
     expect(getDungeonText()).toContain("O = intact, X = trapped");
     choose(`Step to column ${route[0] + 1}`);
+    expect(getDungeonText()).toContain(`[green]${route[0] + 1}:O[/green]`);
     choose("Step back");
     expect(player.dungeon.pz.visited).toEqual([]);
+    expect(getDungeonText()).not.toContain("[green]");
     route.forEach((c) => choose(`Step to column ${c + 1}`));
     expect(player.dungeon.index).toBe(1);
     expect(player.stats.health).toBe(100);

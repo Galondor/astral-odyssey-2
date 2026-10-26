@@ -70,6 +70,7 @@ test("title mail only grants catalog titles when claimed and equips the first cl
   expect(writes).toEqual({
     "inboxState/alice/title/claimed": true,
     "inboxState/alice/title/read": true,
+    "users/alice/accountWideTitles/monarchOfTheOdyssey": true,
   });
 });
 

@@ -21,7 +21,7 @@ import { TITLES } from "../character/titles";
  Player-written `gemstoneItems` and `items` are restricted to marketplace purchases by database rules.
 */
 
-let state = { uid: null, admin: false, messages: [] };
+let state = { uid: null, accountId: null, admin: false, messages: [] };
 const listeners = new Set();
 const emit = () => listeners.forEach((fn) => fn());
 
@@ -108,7 +108,7 @@ export const startInbox = (uid, onChange, accountId = uid) => {
   let states = {};
   const refresh = () => compute(inbox, broadcasts, states);
   const warn = (e) => console.warn("Inbox unavailable", e);
-  state = { uid, admin: false, messages: [] };
+  state = { uid, accountId, admin: false, messages: [] };
   listeners.add(onChange);
   const stops = [
     onValue(ref(db, `inbox/${uid}`), (s) => { inbox = s.val() || {}; refresh(); }, warn),
@@ -124,7 +124,7 @@ export const startInbox = (uid, onChange, accountId = uid) => {
   return () => {
     stops.forEach((stop) => stop());
     listeners.delete(onChange);
-    state = { uid: null, admin: false, messages: [] };
+    state = { uid: null, accountId: null, admin: false, messages: [] };
   };
 };
 
@@ -209,6 +209,7 @@ function grant(a) {
 // Save the attachments and the claim flag together, so closing the page cannot split them.
 export async function claimMessage(id) {
   const uid = state.uid;
+  const accountId = state.accountId;
   const msg = state.messages.find((m) => m.id === id);
   if (!msg || !hasUnclaimed(msg)) return { ok: false, message: "Nothing to claim." };
   if (!getPlayer()) return { ok: false, message: "No character yet." };
@@ -216,10 +217,16 @@ export async function claimMessage(id) {
   try {
     await commitPlayerChange(() => {
       lines = grant(msg.attachments);
-      return {
+      const writes = {
         [`inboxState/${uid}/${id}/claimed`]: true,
         [`inboxState/${uid}/${id}/read`]: true,
       };
+      normalizeAttachments(msg.attachments).titles
+        .filter((titleId) => TITLES[titleId].accountWide)
+        .forEach((titleId) => {
+          writes[`users/${accountId}/accountWideTitles/${titleId}`] = true;
+        });
+      return writes;
     });
   } catch (error) {
     console.warn("Couldn't save inbox claim", error);

@@ -74,7 +74,7 @@ import {
 } from "../character/skills";
 import { getBaseStatPoints, getStatBreakdown } from "../character/stats";
 import CharacterSummary, { Bar, statTooltip } from "./CharacterSummary";
-import { TITLES } from "../character/titles";
+import { TITLES, titleTooltip } from "../character/titles";
 import { getRespecCost, getUnspentPoints, respecSkills, respecStatPoints, spendStatPoint } from "../character/progression";
 import RichText from "./RichText";
 import ItemPopup from "./ItemPopup";
@@ -233,12 +233,13 @@ const DungeonsScreen = ({ player, goToScene, inCombat, onChange }) => {
   };
   return (
     <div className='panel dungeons'>
-      <h2>Dungeons</h2>
+      <h2>Adventures</h2>
       {error && <p className='dungeon-warning' role='alert'>{error}</p>}
       <div className='dungeon-tabs'>
-        {[["solo", "Solo Dungeons"], ["group", "Group Dungeons"]].map(([key, label]) => (
+        {[["solo", "Solo Dungeons"], ["labyrinth", "Labyrinth"], ["group", "Group Dungeons"]].map(([key, label]) => (
           <button key={key} type='button' className={`buttons ${tab === key ? "active" : ""}`} disabled>{label}</button>
         ))}
+        <button type='button' className='buttons' disabled>Raids (Coming Soon)</button>
       </div>
       {tab === "group" && <p>Group dungeons are coming soon!</p>}
       {tab === "solo" && (
@@ -1017,9 +1018,6 @@ const Inventory = ({ player, onChange, locked }) => {
     isFavorite(player, category, item) === (favoriteFilter === "favorites");
   const favoriteOrder = (category, a, b) =>
     Number(isFavorite(player, category, b)) - Number(isFavorite(player, category, a));
-  const favoriteItems = (category, items) => items
-    .filter((item) => matchesFavorite(category, item))
-    .sort((a, b) => favoriteOrder(category, a, b));
   const favoriteClass = (category, item) => isFavorite(player, category, item) ? "favorite-item" : "";
   const [selectedGemstone, setSelectedGemstone] = useState(null);
   const [gemstoneMessage, setGemstoneMessage] = useState("");
@@ -1273,19 +1271,13 @@ const Inventory = ({ player, onChange, locked }) => {
           ))}
         </div>
         {tab !== "titles" && <p className='recipe-kind'>Select gear to inspect its details and choose an action.</p>}
-        {tab !== "titles" && <select className='input-field inventory-favorite-filter' aria-label='Filter favorites' value={favoriteFilter} onChange={(event) => setFavoriteFilter(event.target.value)}>
+        {tab === "gear" && <select className='input-field inventory-favorite-filter' aria-label='Filter favorites' value={favoriteFilter} onChange={(event) => setFavoriteFilter(event.target.value)}>
           <option value=''>All items</option>
           <option value='favorites'>Favorites only</option>
           <option value='nonFavorites'>Non-favorites only</option>
         </select>}
         {favoriteMessage && <div role='status'>{favoriteMessage}</div>}
-        {tab !== "titles" && favoriteFilter && !({
-          gear,
-          consumables,
-          gemstones,
-          materials,
-          keyItems,
-        }[tab]).some((item) => matchesFavorite(tab, item)) && (
+        {tab === "gear" && favoriteFilter && !gear.some((item) => matchesFavorite("gear", item)) && (
           <div className='equip-empty'>No items match this favorites filter.</div>
         )}
         {tab === "titles" && (
@@ -1305,7 +1297,9 @@ const Inventory = ({ player, onChange, locked }) => {
                     onChange();
                   }}
                 >
-                  <strong style={{ color: title.color }}>{title.name}</strong>
+                  <Tooltip content={titleTooltip(title)}>
+                    <strong style={{ color: title.color }}>{title.name}</strong>
+                  </Tooltip>
                   <span>{title.rarity} title{equipped ? " · Equipped (click to unequip)" : " · Click to equip"}</span>
                 </button>
               );
@@ -1477,7 +1471,7 @@ const Inventory = ({ player, onChange, locked }) => {
               <div className='equip-empty'>You have no consumables.</div>
             )}
             <div className='inventory-list'>
-              {favoriteItems("consumables", consumables).map((c) => (
+              {consumables.map((c) => (
                 <Tooltip
                   key={c.key}
                   onView={() => viewItem("consumables", c.key)}
@@ -1520,7 +1514,7 @@ const Inventory = ({ player, onChange, locked }) => {
                   {selectedGemstone ? "Select gear to socket into" : "Select a gemstone to use"}
                 </div>
                 <div className='inventory-list'>
-                  {favoriteItems("gemstones", gemstones).map((gemstone) => (
+                  {gemstones.map((gemstone) => (
                     <Tooltip
                       key={gemstone.id}
                       onView={() => viewItem("gemstones", gemstone.id)}
@@ -1590,7 +1584,7 @@ const Inventory = ({ player, onChange, locked }) => {
               </div>
             )}
             <div className='inventory-list'>
-              {favoriteItems("materials", materials).map((m) => (
+              {materials.map((m) => (
                 <Tooltip
                   key={m.key}
                   onView={() => viewItem("materials", m.key)}
@@ -1615,7 +1609,7 @@ const Inventory = ({ player, onChange, locked }) => {
               <div className='equip-empty'>You have no key items.</div>
             )}
             <div className='inventory-list'>
-              {favoriteItems("keyItems", keyItems).map((k) => (
+              {keyItems.map((k) => (
                 <Tooltip
                   key={k.key}
                   onView={() => viewItem("keyItems", k.key)}
@@ -2087,8 +2081,8 @@ const QuestsScreen = ({ onChange }) => {
 };
 
 export const SCREENS = {
-  adventure: { label: "Adventure", sidebarGroup: "adventure", link: true, component: AdventureScreen },
-  dungeons: { label: "Dungeons", sidebarGroup: "adventure", link: true, minLevel: DUNGEON_MIN_LEVEL, component: DungeonsScreen },
+  adventure: { label: "Game", sidebarGroup: "adventure", link: true, component: AdventureScreen },
+  dungeons: { label: "Adventures", sidebarGroup: "adventure", link: true, minLevel: DUNGEON_MIN_LEVEL, component: DungeonsScreen },
   arena: { label: "Arena", sidebarGroup: "adventure", link: true, component: ArenaScreen },
   character: {
     label: "Character",

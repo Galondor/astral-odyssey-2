@@ -120,7 +120,7 @@ export const rerollDungeons = () => {
   if ((player.level || 1) < DUNGEON_MIN_LEVEL) return { ok: false, message: `Dungeons unlock at level ${DUNGEON_MIN_LEVEL}.` };
   if (getEnemy()) return { ok: false, message: "Finish your fight first." };
   if ((player.astra || 0) < DUNGEON_REROLL_COST)
-    return { ok: false, message: `You need ${DUNGEON_REROLL_COST.toLocaleString()} astra to roll new dungeons.` };
+    return { ok: false, message: `You need ${DUNGEON_REROLL_COST.toLocaleString()} astra to generate new dungeons.` };
 
   const currentBoard = getBoard(player);
   const slot = getBoardSlot();
@@ -609,14 +609,22 @@ function describeCurrent(run) {
         `Available weights: ${pz.weights.join(", ")}. Selected: ${pz.selected.map((i) => pz.weights[i]).join(" + ") || "none"} (total ${total}).`);
       break;
     }
-    case "path":
+    case "path": {
+      const currentRow = pz.visited.length - 1;
+      const currentColumn = pz.visited[currentRow];
       lines.push(
         "The map is visible: O = intact, X = trapped. Move forward one row, staying in the same column or shifting one column sideways. You may step back freely. Plan a route to the exit.",
         `Start: column ${pz.start + 1}. Exit: column ${pz.exit + 1}.`,
-        ...pz.grid.map((row, i) => `Row ${i + 1}: ${row.map((safe, c) => `${c + 1}:${safe ? "O" : "X"}`).join(" | ")}`),
+        ...pz.grid.map((row, i) =>
+          `Row ${i + 1}: ${row.map((safe, c) => {
+            const position = `${c + 1}:${safe ? "O" : "X"}`;
+            return i === currentRow && c === currentColumn ? `[green]${position}[/green]` : position;
+          }).join(" | ")}`
+        ),
         pz.visited.length ? `You are at row ${pz.visited.length}, column ${pz.visited[pz.visited.length - 1] + 1}.` : "You are at the start.",
       );
       break;
+    }
     case "pairs":
       lines.push(
         "Reveal two runes at a time and match all four pairs. A mismatch causes damage; both runes stay visible until you cover them.",

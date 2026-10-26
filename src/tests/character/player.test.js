@@ -363,6 +363,40 @@ test("character saves use numeric account keys and never overwrite another slot"
   expect(records["users/alice/lastCharacterIdentity"]).toBe(first);
 });
 
+test("account-wide titles are included in every character's owned titles", async () => {
+  records["users/alice"] = {
+    saveRevision: 4,
+    accountWideTitles: {
+      monarchOfTheOdyssey: true,
+      unknownTitle: true,
+    },
+    characters: {
+      "123": {
+        externalId: "123",
+        player: { publicProfile: true, titles: ["characterTitle"] },
+      },
+    },
+  };
+  await loadPlayer("alice", "123");
+  expect(getPlayer().titles).toEqual(["characterTitle", "monarchOfTheOdyssey"]);
+});
+
+test("existing account-wide titles are recorded on the account during load", async () => {
+  records["users/alice"] = {
+    saveRevision: 4,
+    characters: {
+      "123": {
+        externalId: "123",
+        player: { publicProfile: true, titles: ["monarchOfTheOdyssey"] },
+      },
+    },
+  };
+  await loadPlayer("alice", "123");
+  expect(update.mock.calls.some(([, writes]) =>
+    writes["users/alice/accountWideTitles/monarchOfTheOdyssey"] === true,
+  )).toBe(true);
+});
+
 test("another character's dirty cache is never recovered into the selected slot", async () => {
   localStorage.setItem("Player", JSON.stringify({ name: "Other", astra: 999 }));
   localStorage.setItem("PlayerMeta", JSON.stringify({

@@ -1,4 +1,5 @@
-import { getTitle } from "../character/titles";
+import { getTitle, titleTooltip } from "../character/titles";
+import Tooltip from "./Tooltip";
 
 export default function PlayerName({ name, activeTitle }) {
   const title = getTitle(activeTitle);
@@ -6,9 +7,9 @@ export default function PlayerName({ name, activeTitle }) {
     <span className='player-name'>
       <span>{name}</span>
       {title && (
-        <span className='player-title' style={{ color: title.color }} title={`${title.rarity} title`}>
-          {title.name}
-        </span>
+        <Tooltip content={titleTooltip(title)}>
+          <span className='player-title' style={{ color: title.color }}>{title.name}</span>
+        </Tooltip>
       )}
     </span>
   );

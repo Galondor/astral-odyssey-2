@@ -9,7 +9,15 @@ export const TITLES = {
     rarity: "Unique",
     color: RARITY_COLORS.Unique,
     criteria: "Reach level 100 before version 0.3.0.0.",
+    accountWide: true,
   },
 };
 
 export const getTitle = (id) => TITLES[id] || null;
+
+export const titleTooltip = (title) => ({
+  title: title.name,
+  titleColor: title.color,
+  subtitle: `${title.rarity} title`,
+  description: `${title.criteria}`,
+});

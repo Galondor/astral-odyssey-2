@@ -4,6 +4,7 @@ import { publishLeaderboardEntry } from "../world/leaderboards";
 import { migratePowerProgression, recalculateStats } from "./stats";
 import { hasInappropriateName } from "../shared/names";
 import { createDirectoryEntry, createPublicProfile } from "./profiles";
+import { TITLES } from "./titles";
 
 const PLAYER_KEY = "Player";
 const META_KEY = "PlayerMeta";
@@ -275,9 +276,14 @@ const writePlayer = async (writes = {}) => {
       [`directory/${meta.uid}`]: null,
       [`publicProfiles/${meta.uid}`]: null,
     };
+  const accountWideTitleWrites = Object.fromEntries(
+    [...new Set((player?.titles || []).filter((id) => TITLES[id]?.accountWide))]
+      .map((id) => [`${accountPath(meta)}/accountWideTitles/${id}`, true]),
+  );
   // The revision and any external effects must pass the rules in the same write.
   flushing = Promise.resolve().then(() => update(ref(db), {
     ...profileWrites,
+    ...accountWideTitleWrites,
     ...writes,
     [playerPath(meta)]: player,
     [`${accountPath(meta)}/saveRevision`]: writingRevision,
@@ -401,13 +407,28 @@ const loadPlayerData = async (accountId, characterId) => {
     localStorage.setItem(meta.characterId ? `PlayerRecovery/${meta.accountId}/${meta.characterId}` : `PlayerRecovery/${meta.uid}`, JSON.stringify({ player: cached, meta }));
     notice = "Loaded newer cloud progress. An older unsynced save was kept on this device for recovery.";
   }
-  currentPlayer = recover || legacy ? cached : cloud.player || null;
+  const loadedPlayer = recover || legacy ? cached : cloud.player || null;
+  if (loadedPlayer) {
+    const accountWideTitles = Object.keys(account.accountWideTitles || {})
+      .filter((id) => account.accountWideTitles[id] && TITLES[id]?.accountWide);
+    const unrecordedAccountWideTitles = (loadedPlayer.titles || [])
+      .filter((id) => TITLES[id]?.accountWide && !account.accountWideTitles?.[id]);
+    currentPlayer = accountWideTitles.length
+      ? { ...loadedPlayer, titles: [...new Set([...(loadedPlayer.titles || []), ...accountWideTitles])] }
+      : loadedPlayer;
+    if (unrecordedAccountWideTitles.length) {
+      currentPlayer.titles = [...new Set([...(currentPlayer.titles || []), ...unrecordedAccountWideTitles])];
+    }
+  } else currentPlayer = null;
   if (currentPlayer) localStorage.setItem(PLAYER_KEY, JSON.stringify(currentPlayer));
   else localStorage.removeItem(PLAYER_KEY);
   syncError = null;
   connected = true;
   setMeta({ uid, accountId, ...(characterId ? { characterId } : {}), revision, dirty: false, savedAt: sameCharacter ? meta.savedAt : null });
-  if (recover || legacy || (cloud.player && !revision)) {
+  const needsAccountWideTitleMigration = loadedPlayer?.titles?.some(
+    (id) => TITLES[id]?.accountWide && !account.accountWideTitles?.[id],
+  );
+  if (recover || legacy || (cloud.player && !revision) || needsAccountWideTitleMigration) {
     markDirty();
     await flushPlayer();
   }

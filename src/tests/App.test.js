@@ -40,8 +40,8 @@ jest.mock("../world/inbox", () => ({ isAdmin: jest.fn(() => false), startInbox: 
 jest.mock("../ui/screens", () => ({
   DEFAULT_SCREEN: "adventure",
   SCREENS: {
-    adventure: { label: "Adventure", sidebarGroup: "adventure", link: true, component: () => <h1>Adventure screen</h1> },
-    dungeons: { label: "Dungeons", sidebarGroup: "adventure", link: true, component: () => null },
+    adventure: { label: "Game", sidebarGroup: "adventure", link: true, component: () => <h1>Adventure screen</h1> },
+    dungeons: { label: "Adventures", sidebarGroup: "adventure", link: true, component: () => null },
     arena: { label: "Arena", sidebarGroup: "adventure", link: true, component: () => <h1>Arena screen</h1> },
     character: {
       label: "Character", sidebarGroup: "character", link: true, badge: () => 2,
@@ -117,7 +117,7 @@ test("mobile menu overlays the screen, makes the background inert and traps focu
   });
   render(<App />);
   await enterGame();
-  const toggle = await screen.findByRole("button", { name: "Menu: Adventure" });
+  const toggle = await screen.findByRole("button", { name: "Menu: Game" });
   const header = screen.getByRole("banner");
   const content = document.querySelector(".game-content");
   expect(header.hasAttribute("inert")).toBe(false);
@@ -155,7 +155,7 @@ test("number keys activate visible button options from left to right", async () 
   getVisibleOptions.mockReturnValue([{ label: "First option" }, { label: "Second option" }]);
   render(<App />);
   await enterGame();
-  await screen.findByRole("button", { name: "Menu: Adventure" });
+  await screen.findByRole("button", { name: "Menu: Game" });
 
   fireEvent.keyDown(window, { key: "2" });
   expect(processButton).toHaveBeenCalledWith("menu", "Second option");
@@ -169,7 +169,7 @@ test("number shortcuts do not interfere with text entry or unavailable options",
   getVisibleOptions.mockReturnValue([{ label: "First option" }]);
   render(<App />);
   await enterGame();
-  await screen.findByRole("button", { name: "Menu: Adventure" });
+  await screen.findByRole("button", { name: "Menu: Game" });
 
   fireEvent.keyDown(screen.getByPlaceholderText("Type your action..."), { key: "1" });
   fireEvent.keyDown(window, { key: "2" });
@@ -182,7 +182,7 @@ test("resizing to desktop dismisses the mobile overlay and releases the backgrou
   window.matchMedia.mockReturnValue(query);
   render(<App />);
   await enterGame();
-  fireEvent.click(await screen.findByRole("button", { name: "Menu: Adventure" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Menu: Game" }));
   const resize = query.addEventListener.mock.calls[0][1];
   act(() => resize({ matches: false }));
   expect(screen.queryByRole("dialog", { name: "Game menu" })).toBeNull();
@@ -205,13 +205,13 @@ test("confirmed deletion refreshes the roster without entering gameplay", async 
   expect(loadPlayer).not.toHaveBeenCalled();
 });
 
-test("Arena follows Dungeons and opens from the sidebar with group dividers", async () => {
+test("Arena follows Adventures in the sidebar", async () => {
   render(<App />);
   await enterGame();
   const navigation = await screen.findByRole("navigation", { name: "Game navigation" });
   const links = document.getElementById("sidebar-links");
   expect(within(navigation).getAllByRole("button").slice(1).map((button) => button.textContent))
-    .toEqual(["Adventure", "Dungeons", "Arena", "Character2", "Locked", "Leaderboards"]);
+    .toEqual(["Game", "Adventures", "Arena", "Character2", "Locked", "Leaderboards"]);
   expect(links.querySelectorAll(".sidebar-divider")).toHaveLength(2);
   expect(Array.from(links.querySelectorAll(".sidebar-divider")).map((divider) => divider.nextElementSibling.textContent))
     .toEqual(["Character2", "Leaderboards"]);
@@ -236,14 +236,14 @@ test.each([false, true])("temporary screens occupy the final group with admin ac
   expect(buttons[buttons.length - 1].textContent).toBe("Gear Trader");
   expect(within(navigation).getByRole("button", { name: "Gear Trader" }).classList.contains("highlight")).toBe(true);
 
-  fireEvent.click(within(navigation).getByRole("button", { name: "Adventure" }));
+  fireEvent.click(within(navigation).getByRole("button", { name: "Game" }));
   expect(within(navigation).getByRole("button", { name: "Gear Trader" }).classList.contains("attention")).toBe(true);
 });
 
 test("navigation toggles, preserves restrictions and badges, and closes after selection", async () => {
   render(<App />);
   await enterGame();
-  const toggle = await screen.findByRole("button", { name: "Menu: Adventure" });
+  const toggle = await screen.findByRole("button", { name: "Menu: Game" });
   const navigation = await screen.findByRole("navigation", { name: "Game navigation" });
   const links = document.getElementById(toggle.getAttribute("aria-controls"));
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
@@ -264,7 +264,7 @@ test("navigation toggles, preserves restrictions and badges, and closes after se
   expect(within(navigation).getByRole("button", { name: "Character 2" }).getAttribute("aria-current")).toBe("page");
 
   fireEvent.click(toggle);
-  fireEvent.click(within(navigation).getByRole("button", { name: "Adventure" }));
+  fireEvent.click(within(navigation).getByRole("button", { name: "Game" }));
   expect(screen.getByRole("heading", { name: "Adventure screen" })).toBeTruthy();
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
 });
@@ -286,7 +286,7 @@ test("Character navigation displays a notification dot for unread inventory", as
 test("Escape closes navigation and restores focus to the visible toggle", async () => {
   render(<App />);
   await enterGame();
-  const toggle = await screen.findByRole("button", { name: "Menu: Adventure" });
+  const toggle = await screen.findByRole("button", { name: "Menu: Game" });
   const rects = jest.spyOn(toggle, "getClientRects").mockReturnValue([{}]);
   try {
     fireEvent.click(toggle);
@@ -432,7 +432,7 @@ test("profile closes on Escape, close button, portrait toggle, outside click and
 
   fireEvent.click(toggle);
   fireEvent.blur(screen.getByRole("button", { name: "Close character profile" }), {
-    relatedTarget: screen.getByRole("button", { name: "Adventure" }),
+    relatedTarget: screen.getByRole("button", { name: "Game" }),
   });
   expect(screen.queryByRole("dialog")).toBeNull();
 });

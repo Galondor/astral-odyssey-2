@@ -50,6 +50,13 @@ beforeEach(() => {
 test("available dungeons are playable and navigate into the run", () => {
   const goToScene = jest.fn();
   render(<DungeonsScreen player={{ level: 20 }} goToScene={goToScene} />);
+  expect(screen.getByRole("heading", { name: "Adventures" })).toBeTruthy();
+  const adventureTabs = screen.getAllByRole("button").filter((button) =>
+    ["Solo Dungeons", "Labyrinth", "Group Dungeons"].includes(button.textContent)
+  );
+  expect(adventureTabs.map((button) => button.textContent)).toEqual(["Solo Dungeons", "Labyrinth", "Group Dungeons"]);
+  expect(screen.getByRole("button", { name: "Labyrinth" }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Raids (Coming Soon)" }).disabled).toBe(true);
   expect(screen.queryByText(/under construction/i)).toBeNull();
   const button = screen.getByRole("button", { name: "Enter Dungeon" });
   expect(button.disabled).toBe(false);

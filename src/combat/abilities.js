@@ -20,9 +20,9 @@
 export const ABILITIES = [
   {
     name: "Vampiric",
-    description: "Heal for 1% of damage dealt.",
+    description: "Heal for 5% of damage dealt.",
     slots: ["weapon", "gauntlets", "ring"],
-    effects: { lifesteal: 0.01 },
+    effects: { lifesteal: 0.05 },
   },
   {
     name: "Swift",
@@ -50,9 +50,9 @@ export const ABILITIES = [
   },
   {
     name: "Arcane Surge",
-    description: "Restore half your max power when landing a critical hit.",
+    description: "Restore 25% of your max power when landing a critical hit.",
     slots: ["weapon", "offhand", "ring", "necklace"],
-    effects: { surge: 0.5 },
+    effects: { surge: 0.25 },
   },
   {
     name: "Protective",
@@ -82,18 +82,66 @@ export const ABILITIES = [
 
 // Fixed abilities of Unique gear (dropped by dungeon bosses). Same fields as ABILITIES; never rolled at random.
 export const UNIQUE_ABILITIES = [
-  { name: "Undying Hunger", description: "Heal for 7% of damage dealt.", effects: { lifesteal: 0.07 } },
-  { name: "Marrow Ward", description: "Reduce damage taken by 20% and reflect 20% of damage taken back to the attacker.", effects: { damageReduction: 0.2, reflect: 0.2 } },
-  { name: "Plunder", description: "Increase damage dealt by 20% and astra gain by 30%.", effects: { damageBonus: 0.2, astraBonus: 0.3 } },
-  { name: "Fortune's Spark", description: "Restore your full power when landing a critical hit. Increase astra gain by 20%. Hits have a 20% chance to set the enemy on fire.", effects: { surge: 1, astraBonus: 0.2, ignite: 0.2 } },
-  { name: "Molten Grip", description: "Hits have a 30% chance to set the enemy on fire. Increase damage dealt by 10% and ignore 20% of the enemy's defense.", effects: { ignite: 0.3, damageBonus: 0.1, pierce: 0.2 } },
-  { name: "Tempered Steel", description: "Reduce damage taken by 20% and reflect 10% of damage taken back to the attacker.", effects: { damageReduction: 0.25, reflect: 0.15 } },
-  { name: "Frozen Resolve", description: "Reduce damage taken by 10%. Once per combat, recover 75% health when falling below 10% health.", effects: { damageReduction: 0.1, secondWind: 0.75 } },
-  { name: "Glacial Edge", description: "Ignore 40% of the enemy's defense and increase damage dealt by 5%.", effects: { pierce: 0.4, damageBonus: 0.05 } },
-  { name: "Rootstride", description: "Increase speed by 100% when determining turn order and speed comparisons. Reflect 10% of damage taken.", effects: { speedMult: 1, reflect: 0.1 } },
-  { name: "Bloom of Decay", description: "Hits have a 25% chance to weaken and a 50% chance to poison the enemy.", effects: { weakened: 0.25, poison: 0.5 } },
-  { name: "Orbital Focus", description: "Restore your full power when landing a critical hit and increase damage dealt by 20%.", effects: { surge: 1, damageBonus: 0.2 } },
-  { name: "Star-Charted", description: "Increase speed by 30%, ignore 20% of the enemy's defense and increase astra gain by 20%.", effects: { speedMult: 0.3, pierce: 0.2, astraBonus: 0.2 } },
+  {
+    name: "Undying Hunger",
+    description: "Heal for 10% of damage dealt.",
+    effects: { lifesteal: 0.1 }
+  },
+  {
+    name: "Marrow Ward",
+    description: "Reduce damage taken by 20% and reflect 20% of damage taken back to the attacker.",
+    effects: { damageReduction: 0.2, reflect: 0.2 }
+  },
+  {
+    name: "Plunder",
+    description: "Increase damage dealt by 20% and astra gain by 30%.",
+    effects: { damageBonus: 0.2, astraBonus: 0.3 }
+  },
+  {
+    name: "Fortune's Spark",
+    description: "Restore 75% of your max power when landing a critical hit. Increase astra gain by 20%. Hits have a 20% chance to set the enemy on fire.",
+    effects: { surge: 0.75, astraBonus: 0.2, ignite: 0.2 }
+  },
+  {
+    name: "Molten Grip",
+    description: "Hits have a 30% chance to set the enemy on fire. Increase damage dealt by 10% and ignore 20% of the enemy's defense.",
+    effects: { ignite: 0.3, damageBonus: 0.1, pierce: 0.2 }
+  },
+  {
+    name: "Tempered Steel",
+    description: "Reduce damage taken by 20% and reflect 10% of damage taken back to the attacker.",
+    effects: { damageReduction: 0.25, reflect: 0.15 }
+  },
+  {
+    name: "Frozen Resolve",
+    description: "Reduce damage taken by 10%. Once per combat, recover 75% health when falling below 10% health.",
+    effects: { damageReduction: 0.1, secondWind: 0.75 }
+  },
+  {
+    name: "Glacial Edge",
+    description: "Ignore 40% of the enemy's defense and increase damage dealt by 5%.",
+    effects: { pierce: 0.4, damageBonus: 0.05 }
+  },
+  {
+    name: "Rootstride",
+    description: "Increase speed by 100% when determining turn order and speed comparisons. Reflect 10% of damage taken.",
+    effects: { speedMult: 1, reflect: 0.1 }
+  },
+  {
+    name: "Bloom of Decay",
+    description: "Hits have a 25% chance to weaken and a 50% chance to poison the enemy.",
+    effects: { weakened: 0.25, poison: 0.5 }
+  },
+  {
+    name: "Orbital Focus",
+    description: "Restore your full power when landing a critical hit and increase damage dealt by 20%.",
+    effects: { surge: 1, damageBonus: 0.2 }
+  },
+  {
+    name: "Star-Charted",
+    description: "Increase speed by 30%, ignore 20% of the enemy's defense and increase astra gain by 20%.",
+    effects: { speedMult: 0.3, pierce: 0.2, astraBonus: 0.2 }
+  },
 ];
 
 export const findAbility = (ability) =>
