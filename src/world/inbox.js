@@ -2,11 +2,12 @@ import { get, onValue, push, ref, remove, set, update } from "firebase/database"
 import { db } from "../firebase";
 import { commitPlayerChange, getPlayer, setPlayer } from "../character/player";
 import { gainExp } from "../character/stats";
-import { addGemstone, addItem, createUniqueItem, generateRandomGemstone, generateRandomItem, GEAR_SLOT_TYPES, RARITY_NAMES } from "../items/items";
+import { addGemstone, addItem, createUniqueItem, generateRandomGemstone, generateRandomItem, GEAR_SLOT_TYPES, RARITY_NAMES, restrictItemSubStats } from "../items/items";
 import { UNIQUES } from "./dungeonData";
 import { CONSUMABLES, KEY_ITEMS, addConsumable, addKeyItem } from "../items/consumables";
 import { MATERIALS, addToMaterials } from "../items/materials";
 import { validateHolofoil } from "../items/holofoil";
+import { TITLES } from "../character/titles";
 
 /*
  Inbox. Messages come from the game/admins:
@@ -16,7 +17,8 @@ import { validateHolofoil } from "../items/holofoil";
  attachments: { astra, exp, materials: { key: n }, consumables: { key: n }, keyItems: { key: true }, gear: [{ slot, minRarity, count }], gemstones: [{ minRarity, count }], gemstoneItems: [gemstone], items: [item] }
  Gear is generated when claimed to match the claiming player's level; gemstones are generated at the selected minimum rarity.
  Gear and unique attachments may include `holofoil: true` for random colors or two #RRGGBB colors to force a holofoil.
- `gemstoneItems` and `items` are exact marketplace purchases, written by players under rules in database.rules.json.
+ `items` also supports admin-created custom gear, saved at send time and claimed without rerolling.
+ Player-written `gemstoneItems` and `items` are restricted to marketplace purchases by database rules.
 */
 
 let state = { uid: null, admin: false, messages: [] };
@@ -45,6 +47,7 @@ export const normalizeAttachments = (a = {}) => ({
       minRarity: Math.max(0, Math.min(RARITY_NAMES.length - 1, Math.floor(Number(g.minRarity) || 0))),
       count: Math.floor(Number(g.count)),
     })),
+  titles: [...new Set(asList(a.titles).filter((id) => TITLES[id]))],
   gemstoneItems: asList(a.gemstoneItems).filter((g) =>
     g && typeof g.id === "string" && typeof g.name === "string" &&
     ["ruby", "emerald", "sapphire"].includes(g.type) &&
@@ -52,12 +55,14 @@ export const normalizeAttachments = (a = {}) => ({
     RARITY_NAMES.includes(g.rarity),
   ),
   // Exact gear pieces (e.g. marketplace purchases), delivered as-is.
-  items: asList(a.items).filter((i) => i && typeof i === "object" && i.name && i.slot),
+  items: asList(a.items)
+    .filter((i) => i && typeof i === "object" && i.name && i.slot)
+    .map(restrictItemSubStats),
 });
 
 export const hasAttachments = (a) => {
   const n = normalizeAttachments(a);
-  return n.astra > 0 || n.exp > 0 || n.materials.length + n.consumables.length + n.keyItems.length + n.gear.length + n.uniques.length + n.gemstones.length + n.gemstoneItems.length + n.items.length > 0;
+  return n.astra > 0 || n.exp > 0 || n.materials.length + n.consumables.length + n.keyItems.length + n.gear.length + n.uniques.length + n.gemstones.length + n.gemstoneItems.length + n.items.length + n.titles.length > 0;
 };
 
 export const hasUnclaimed = (msg) => !msg.claimed && hasAttachments(msg.attachments);
@@ -76,6 +81,7 @@ export const describeAttachments = (a) => {
     ...n.gemstones.map((g) => `${g.count}× random ${RARITY_NAMES[g.minRarity]}+ gemstone${g.count === 1 ? "" : "s"}`),
     ...n.gemstoneItems.map((g) => `${g.rarity} ${g.name}`),
     ...n.items.map((i) => `${i.holofoil ? "Holofoil " : ""}${i.rarity ? `${i.rarity} ` : ""}${i.name}`),
+    ...n.titles.map((id) => `${TITLES[id].rarity} title: ${TITLES[id].name} — ${TITLES[id].criteria}`),
   ];
 };
 
@@ -96,7 +102,7 @@ const compute = (inbox, broadcasts, states) => {
 };
 
 // Starts live listeners for the signed-in player; returns a cleanup function. `onChange` runs after every update.
-export const startInbox = (uid, onChange) => {
+export const startInbox = (uid, onChange, accountId = uid) => {
   let inbox = {};
   let broadcasts = {};
   let states = {};
@@ -109,7 +115,7 @@ export const startInbox = (uid, onChange) => {
     onValue(ref(db, "broadcasts"), (s) => { broadcasts = s.val() || {}; refresh(); }, warn),
     onValue(ref(db, `inboxState/${uid}`), (s) => { states = s.val() || {}; refresh(); }, warn),
   ];
-  get(ref(db, `admins/${uid}`))
+  get(ref(db, `admins/${accountId}`))
     .then((s) => {
       state.admin = s.val() === true;
       emit();
@@ -146,6 +152,13 @@ function grant(a) {
   if (n.materials.length) {
     patch.materials = addToMaterials(p.materials, Object.fromEntries(n.materials));
     n.materials.forEach(([k, c]) => lines.push(`${c}× ${MATERIALS[k].name}`));
+  }
+  if (n.titles.length) {
+    const titles = new Set(Array.isArray(p.titles) ? p.titles : []);
+    n.titles.forEach((id) => titles.add(id));
+    patch.titles = [...titles];
+    patch.activeTitle = p.activeTitle && TITLES[p.activeTitle] ? p.activeTitle : n.titles[0];
+    n.titles.forEach((id) => lines.push(TITLES[id].name));
   }
   if (Object.keys(patch).length) setPlayer(patch);
   n.consumables.forEach(([k, c]) => {
@@ -195,6 +208,7 @@ function grant(a) {
 
 // Save the attachments and the claim flag together, so closing the page cannot split them.
 export async function claimMessage(id) {
+  const uid = state.uid;
   const msg = state.messages.find((m) => m.id === id);
   if (!msg || !hasUnclaimed(msg)) return { ok: false, message: "Nothing to claim." };
   if (!getPlayer()) return { ok: false, message: "No character yet." };
@@ -203,8 +217,8 @@ export async function claimMessage(id) {
     await commitPlayerChange(() => {
       lines = grant(msg.attachments);
       return {
-        [`inboxState/${state.uid}/${id}/claimed`]: true,
-        [`inboxState/${state.uid}/${id}/read`]: true,
+        [`inboxState/${uid}/${id}/claimed`]: true,
+        [`inboxState/${uid}/${id}/read`]: true,
       };
     });
   } catch (error) {
@@ -219,7 +233,7 @@ export async function claimMessage(id) {
 export const getDirectory = async () => {
   const s = await get(ref(db, "directory"));
   return Object.entries(s.val() || {})
-    .map(([uid, v]) => ({ uid, name: v.name, level: v.level }))
+    .map(([uid, v]) => ({ uid, name: v.name, level: v.level, activeTitle: v.activeTitle }))
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 };
 
@@ -245,6 +259,8 @@ export async function sendMessage({ to, subject, body, attachments }) {
     ...(n.gear.length ? { gear: n.gear.map((g) => ({ slot: g.slot, minRarity: g.minRarity || 0, count: g.count, ...(g.holofoil !== undefined ? { holofoil: g.holofoil } : {}) })) } : {}),
     ...(n.uniques.length ? { uniques: n.uniques } : {}),
     ...(n.gemstones.length ? { gemstones: n.gemstones } : {}),
+    ...(n.titles.length ? { titles: n.titles } : {}),
+    ...(n.items.length ? { items: n.items } : {}),
   };
   const message = { subject: subject.trim(), body: body.trim(), from: "Game Master", sentAt: Date.now(), ...(Object.keys(clean).length ? { attachments: clean } : {}) };
   const target = to === "all" ? push(ref(db, "broadcasts")) : push(ref(db, `inbox/${to}`));

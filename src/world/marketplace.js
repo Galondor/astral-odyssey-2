@@ -1,6 +1,6 @@
 import { get, onValue, push, ref } from "firebase/database";
 import { auth, db } from "../firebase";
-import { commitPlayerChange, getPlayer, setPlayer } from "../character/player";
+import { commitPlayerChange, getCharacterIdentity, getPlayer, setPlayer } from "../character/player";
 import { getEnemy } from "../combat/combat";
 import { RARITY_NAMES, SLOTS, STAT_LABELS, canEquip } from "../items/items";
 import { findAbility } from "../combat/abilities";
@@ -11,7 +11,7 @@ import { isFavorite } from "../items/favorites";
 
 /*
  Player marketplace. Listings live in the database so every player sees them:
-   marketplace/{listingId} { sellerUid, sellerName, price, listedAt, item }
+   marketplace/{listingId} { sellerUid, sellerName, sellerTitle, price, listedAt, item }
  Listing removes the item from the seller's inventory. A purchase is one atomic multi-path write that
  deletes the listing and mails both sides from "Marketplace":
    inbox/{buyerUid}/market-{listingId}       the item as an attachment
@@ -30,7 +30,7 @@ export const getPayout = (price) => price - getTax(price);
 
 export const isMarketUnlocked = (player = getPlayer()) => (player?.level || 1) >= MARKETPLACE_MIN_LEVEL;
 
-const uid = () => auth.currentUser?.uid || null;
+const uid = () => getCharacterIdentity() || auth.currentUser?.uid || null;
 export const getMyUid = uid;
 
 // The database drops empty objects and nulls, so restore the shape items normally have.
@@ -44,7 +44,7 @@ const restoreItem = (item) => isConsumableListing(item) || isMaterialListing(ite
 const cleanItem = (item) => JSON.parse(JSON.stringify(item));
 
 const toListing = (id, v) =>
-  v && v.item ? { id, sellerUid: v.sellerUid, sellerName: v.sellerName || "Unknown", price: Number(v.price) || 0, listedAt: v.listedAt || 0, item: restoreItem(v.item) } : null;
+  v && v.item ? { id, sellerUid: v.sellerUid, sellerName: v.sellerName || "Unknown", sellerTitle: v.sellerTitle || null, price: Number(v.price) || 0, listedAt: v.listedAt || 0, item: restoreItem(v.item) } : null;
 
 // Live listings; returns an unsubscribe function. `onError` runs if the market can't be read.
 export const subscribeListings = (onListings, onError) =>
@@ -138,6 +138,7 @@ export async function listItem(index, priceInput, myListingCount = 0, amount = 1
       return { [`marketplace/${listingRef.key}`]: {
         sellerUid: uid(),
         sellerName: String(player.name),
+        ...(player.activeTitle ? { sellerTitle: player.activeTitle } : {}),
         price,
         listedAt: Date.now(),
         item: listed,
@@ -168,6 +169,7 @@ const returnItem = (item) => {
 
 // Takes down one of your listings and returns the item to your inventory.
 export async function cancelListing(listing) {
+  const identity = uid();
   const player = getPlayer();
   if (!player) return { ok: false, message: "No character loaded." };
   if (getEnemy()) return { ok: false, message: "Finish your fight first." };
@@ -179,6 +181,7 @@ export async function cancelListing(listing) {
     if (!removed?.item || removed.sellerUid !== uid())
       return { ok: false, message: "That listing already sold." };
     await commitPlayerChange(() => {
+      if (uid() !== identity) throw new Error("Your active character changed. Try again.");
       returnItem(removed.item);
       return { [`marketplace/${listing.id}`]: null };
     });
@@ -210,6 +213,7 @@ export async function buyListing(listing) {
       subject: `Purchased: ${item.name}`,
       body: `You bought ${item.name} from ${listing.sellerName} for ${price} astra. Claim it below.`,
       from: SENDER,
+      buyerUid: uid(),
       sentAt: now,
       listingId: listing.id,
       attachments: isConsumableListing(item)
@@ -224,6 +228,7 @@ export async function buyListing(listing) {
       subject: `Sold: ${item.name}`,
       body: `${buyer} bought your ${item.name} for ${price} astra.\nMarketplace tax (10%): -${tax} astra.\nYou receive ${payout} astra. Claim it below.`,
       from: SENDER,
+      buyerUid: uid(),
       sentAt: now,
       listingId: listing.id,
       attachments: { astra: payout },
@@ -348,7 +353,7 @@ export const filterListings = (listings, f, level = getPlayer()?.level || 1) => 
       if (!(f.stat in stats)) return false;
       if (minStat !== null) {
         // Percent stats are stored as fractions but entered as whole percentages.
-        const value = ["criticalDamage", "criticalHitChance", "evasion"].includes(f.stat) ? stats[f.stat] * 100 : stats[f.stat];
+        const value = ["criticalDamage", "criticalHitChance", "evasion", "attackPercent", "magicAttackPercent"].includes(f.stat) ? stats[f.stat] * 100 : stats[f.stat];
         if (value < minStat) return false;
       }
     }

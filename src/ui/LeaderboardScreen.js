@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { auth } from "../firebase";
+import { getCharacterIdentity } from "../character/player";
 import { getLeaderboards, LEADERBOARD_REFRESH_MS, rankLeaderboard } from "../world/leaderboards";
+import PlayerName from "./PlayerName";
 
 const TABS = [
   ["level", "Highest level", "Level"],
@@ -37,6 +39,7 @@ export default function LeaderboardScreen() {
   }, [attempt]);
 
   const rows = snapshot ? rankLeaderboard(snapshot.entries, tab) : [];
+  const identity = getCharacterIdentity() || auth.currentUser?.uid;
   const label = TABS.find(([key]) => key === tab)[2];
   return (
     <section className='progression leaderboards'>
@@ -75,9 +78,9 @@ export default function LeaderboardScreen() {
                 <thead><tr><th scope='col'>Rank</th><th scope='col'>Player</th><th scope='col'>{label}</th></tr></thead>
                 <tbody>
                   {rows.map((entry) => (
-                    <tr key={entry.uid} className={entry.uid === auth.currentUser?.uid ? "leaderboard-self" : undefined}>
+                    <tr key={entry.uid} className={entry.uid === identity ? "leaderboard-self" : undefined}>
                       <td>{entry.rank}</td>
-                      <th scope='row'>{entry.name}{entry.uid === auth.currentUser?.uid ? " (you)" : ""}</th>
+                      <th scope='row'><PlayerName name={entry.name} activeTitle={entry.activeTitle} />{entry.uid === identity ? " (you)" : ""}</th>
                       <td>{entry[tab].toLocaleString()}</td>
                     </tr>
                   ))}

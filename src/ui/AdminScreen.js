@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { CONSUMABLES, KEY_ITEMS } from "../items/consumables";
-import { GEAR_SLOT_TYPES, RARITY_NAMES } from "../items/items";
+import { CONDITION_NAMES, createCustomItem, GEAR_SLOT_TYPES, getCustomSubStatTiers, getSubStatPool, MAIN_STAT_NAMES, RARITY_COLORS, RARITY_NAMES, STAT_LABELS, STAT_TIERS } from "../items/items";
+import { ABILITIES, UNIQUE_ABILITIES } from "../combat/abilities";
 import { MATERIALS } from "../items/materials";
 import { isHolofoilColors } from "../items/holofoil";
 import { UNIQUES } from "../world/dungeonData";
 import { deleteBroadcast, describeAttachments, getBroadcasts, getDirectory, sendMessage } from "../world/inbox";
 import { resolveBugReport, subscribeBugReports } from "../world/bugReports";
+import { TITLES } from "../character/titles";
+import PlayerName from "./PlayerName";
 
 const KINDS = {
   astra: { label: "Astra" },
@@ -14,13 +17,15 @@ const KINDS = {
   consumable: { label: "Consumable", options: Object.entries(CONSUMABLES).map(([k, v]) => [k, v.name]) },
   keyItem: { label: "Key item", options: Object.entries(KEY_ITEMS).map(([k, v]) => [k, v.name]) },
   gear: { label: "Random gear", options: GEAR_SLOT_TYPES.map((s) => [s, s]) },
+  custom: { label: "Custom gear" },
   unique: { label: "Unique item", options: Object.entries(UNIQUES).map(([k, v]) => [k, v.name]) },
   gemstone: { label: "Random gemstone" },
+  title: { label: "Title", options: Object.entries(TITLES).map(([id, title]) => [id, `${title.rarity} — ${title.name} (${title.criteria})`]) },
 };
 
 // Collapses the picked rows into the attachments shape stored on a message.
 const buildAttachments = (rows) => {
-  const out = { astra: 0, exp: 0, materials: {}, consumables: {}, keyItems: {}, gear: [], uniques: [], gemstones: [] };
+  const out = { astra: 0, exp: 0, materials: {}, consumables: {}, keyItems: {}, gear: [], uniques: [], gemstones: [], titles: [], items: [] };
   for (const r of rows) {
     const foil = r.holofoil ? { holofoil: r.holofoil } : {};
     if (r.kind === "astra") out.astra += r.amount;
@@ -30,12 +35,21 @@ const buildAttachments = (rows) => {
     else if (r.kind === "keyItem") out.keyItems[r.key] = true;
     else if (r.kind === "gear") out.gear.push({ slot: r.key, minRarity: r.minRarity, count: r.amount, ...foil });
     else if (r.kind === "unique") out.uniques.push({ id: r.key, count: r.amount, ...foil });
+    else if (r.kind === "title") out.titles.push(r.key);
+    else if (r.kind === "custom") out.items.push(...r.items);
     else out.gemstones.push({ minRarity: r.minRarity, count: r.amount });
   }
   return out;
 };
 
-const rowLabel = (r) => describeAttachments(buildAttachments([r]))[0];
+const rowLabel = (r) => r.kind === "custom"
+  ? `${r.items.length}× ${describeAttachments({ items: [r.items[0]] })[0]} (Lv ${r.items[0].iLevel})`
+  : describeAttachments(buildAttachments([r]))[0];
+
+const initialCustom = {
+  name: "", slot: GEAR_SLOT_TYPES[0], rarity: "Common", condition: "Average",
+  iLevel: "1", price: "1", stat: "strength", tier: "0", ability: "", twoHanded: false,
+};
 
 const AdminScreen = () => {
   const [activeTab, setActiveTab] = useState("broadcasting");
@@ -57,6 +71,9 @@ const AdminScreen = () => {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [bugsNote, setBugsNote] = useState("");
+  const [custom, setCustom] = useState(initialCustom);
+  const [customSubStats, setCustomSubStats] = useState({});
+  const updateCustom = (field, value) => setCustom((c) => ({ ...c, [field]: value }));
 
   const load = () => {
     getDirectory().then(setPlayers).catch(() => setNote("Couldn't load the player list."));
@@ -71,11 +88,11 @@ const AdminScreen = () => {
     [],
   );
 
-  const playerLabel = (p) => `${p.name} - ${p.uid}`;
+  const playerLabel = (p) => `${p.name} (Lv ${p.level})`;
   const [listOpen, setListOpen] = useState(false);
   const term = search.trim().toLowerCase();
   const matches = players.filter(
-    (p) => !term || String(p.name).toLowerCase().includes(term) || String(p.uid).toLowerCase().includes(term)
+    (p) => !term || String(p.name).toLowerCase().includes(term)
   );
   const onPlayerInput = (value) => {
     setSearch(value);
@@ -94,13 +111,35 @@ const AdminScreen = () => {
 
   const addRow = () => {
     let holofoil;
-    if (isGear && forceHolofoil) {
+    if ((isGear || kind === "custom") && forceHolofoil) {
       const colors = [color1.trim(), color2.trim()];
       if (colors.some(Boolean) && !isHolofoilColors(colors)) {
         setNote("Enter both holofoil colors as #RRGGBB hex codes, or leave both blank for random colors.");
         return;
       }
       holofoil = colors.some(Boolean) ? colors : true;
+    }
+    if (kind === "custom") {
+      try {
+        const count = Number(amount);
+        if (!Number.isSafeInteger(count) || count < 1) throw new Error("Quantity must be a positive whole number.");
+        const definition = {
+          ...custom,
+          iLevel: custom.iLevel.trim() ? Number(custom.iLevel) : NaN,
+          price: custom.price.trim() ? Number(custom.price) : NaN,
+          mainStat: { stat: custom.stat, tier: Number(custom.tier) },
+          subStats: Object.fromEntries(Object.entries(customSubStats)
+            .filter(([stat, value]) => getSubStatPool(custom.slot).includes(stat) && value.trim() !== "")
+            .map(([stat, value]) => [stat, Number(value)])),
+          ...(holofoil !== undefined ? { holofoil } : {}),
+        };
+        const items = Array.from({ length: count }, () => createCustomItem(definition));
+        setRows((r) => [...r, { kind, items }]);
+        setNote("");
+      } catch (err) {
+        setNote(err.message);
+      }
+      return;
     }
     const n = Math.max(1, Math.floor(Number(amount) || 0));
     setRows((r) => [...r, { kind, key: selectedKey, amount: n, minRarity: Number(minRarity), ...(holofoil ? { holofoil } : {}) }]);
@@ -201,7 +240,7 @@ const AdminScreen = () => {
                 </div>
                 <p className='bug-report-description'>{report.description}</p>
                 <div className='bug-report-meta'>
-                  {report.playerName} ({report.uid}) · {report.createdAt ? new Date(report.createdAt).toLocaleString() : "Unknown date"}
+                  {report.playerName} · {report.createdAt ? new Date(report.createdAt).toLocaleString() : "Unknown date"}
                 </div>
                 {report.status !== "resolved" && (
                   <button
@@ -234,7 +273,7 @@ const AdminScreen = () => {
                 role='combobox'
                 aria-expanded={listOpen}
                 aria-controls='admin-player-list'
-                placeholder='Search by name or ID'
+                placeholder='Search by character name'
                 autoComplete='off'
                 value={search}
                 onFocus={() => setListOpen(true)}
@@ -254,7 +293,7 @@ const AdminScreen = () => {
                         pickPlayer(p);
                       }}
                     >
-                      {p.name} (Lv {p.level}) - {p.uid}
+                      <PlayerName name={`${p.name} (Lv ${p.level})`} activeTitle={p.activeTitle} />
                     </li>
                   ))}
                 </ul>
@@ -272,6 +311,7 @@ const AdminScreen = () => {
           <div className='admin-attach'>
             <select
               className='input-field'
+              aria-label='Attachment type'
               value={kind}
               onChange={(e) => {
                 setKind(e.target.value);
@@ -289,6 +329,66 @@ const AdminScreen = () => {
                 ))}
               </select>
             )}
+            {kind === "custom" && (
+              <fieldset className='admin-custom-item'>
+                <legend>Custom gear (roll within chosen stat tiers)</legend>
+                <label>Item name
+                  <input className='input-field' value={custom.name} maxLength={100} onChange={(e) => updateCustom("name", e.target.value)} />
+                </label>
+                <label>Item slot
+                  <select className='input-field' value={custom.slot} onChange={(e) => setCustom((c) => ({ ...c, slot: e.target.value, ability: "", twoHanded: false }))}>
+                    {GEAR_SLOT_TYPES.map((slot) => <option key={slot}>{slot}</option>)}
+                  </select>
+                </label>
+                <label>Rarity
+                  <select className='input-field' value={custom.rarity} onChange={(e) => updateCustom("rarity", e.target.value)}>
+                    {Object.keys(RARITY_COLORS).map((rarity) => <option key={rarity}>{rarity}</option>)}
+                  </select>
+                </label>
+                <label>Condition
+                  <select className='input-field' value={custom.condition} onChange={(e) => updateCustom("condition", e.target.value)}>
+                    {CONDITION_NAMES.map((condition) => <option key={condition}>{condition}</option>)}
+                  </select>
+                </label>
+                <label>Item level
+                  <input className='input-field' type='number' min={1} step={1} value={custom.iLevel} onChange={(e) => updateCustom("iLevel", e.target.value)} />
+                </label>
+                <label>Item value (astra)
+                  <input className='input-field' type='number' min={0} step={1} value={custom.price} onChange={(e) => updateCustom("price", e.target.value)} />
+                </label>
+                <label>Main stat
+                  <select className='input-field' value={custom.stat} onChange={(e) => updateCustom("stat", e.target.value)}>
+                    {MAIN_STAT_NAMES.map((stat) => <option key={stat} value={stat}>{STAT_LABELS[stat]}</option>)}
+                  </select>
+                </label>
+                <label>Main stat tier
+                  <select className='input-field' value={custom.tier} onChange={(e) => updateCustom("tier", e.target.value)}>
+                    {STAT_TIERS.map((tier) => <option key={tier} value={tier}>T{tier}</option>)}
+                  </select>
+                </label>
+                <label>Ability
+                  <select className='input-field' value={custom.ability} onChange={(e) => updateCustom("ability", e.target.value)}>
+                    <option value=''>None</option>
+                    {[...ABILITIES.filter((a) => a.slots.includes(custom.slot)), ...UNIQUE_ABILITIES].map((ability) =>
+                      <option key={ability.name} value={ability.name}>{ability.name}</option>)}
+                  </select>
+                </label>
+                {custom.slot === "weapon" && <label>
+                  <input type='checkbox' checked={custom.twoHanded} onChange={(e) => updateCustom("twoHanded", e.target.checked)} />
+                  Two-handed
+                </label>}
+                <p>Choose a tier for each stat; leave substats blank to omit. Each copy rolls within the exact chosen tiers when attached, not when claimed. Main stats use the shared 0-22 scale; substats scale with item level and handedness. Unavailable tiers are disabled; changing level or handedness may require reselecting a tier.</p>
+                {getSubStatPool(custom.slot).map((stat) => <label key={stat}>
+                  {STAT_LABELS[stat]}
+                  <select className='input-field' value={customSubStats[stat] ?? ""}
+                    onChange={(e) => setCustomSubStats((s) => ({ ...s, [stat]: e.target.value }))}>
+                    <option value=''>None</option>
+                    {STAT_TIERS.map((tier) => <option key={tier} value={tier}
+                      disabled={!getCustomSubStatTiers(stat, Number(custom.iLevel), custom.twoHanded).includes(tier)}>T{tier}</option>)}
+                  </select>
+                </label>)}
+              </fieldset>
+            )}
             {(kind === "gear" || kind === "gemstone") && (
               <select className='input-field' value={minRarity} onChange={(e) => setMinRarity(e.target.value)}>
                 {RARITY_NAMES.map((r, i) => (
@@ -296,16 +396,16 @@ const AdminScreen = () => {
                 ))}
               </select>
             )}
-            {kind !== "keyItem" && (
-              <input className='input-field' type='number' min={1} value={amount} onChange={(e) => setAmount(e.target.value)} />
+            {kind !== "keyItem" && kind !== "title" && (
+              <input className='input-field' aria-label='Quantity' type='number' min={1} value={amount} onChange={(e) => setAmount(e.target.value)} />
             )}
-            {isGear && (
+            {(isGear || kind === "custom") && (
               <label>
                 <input type='checkbox' checked={forceHolofoil} onChange={(e) => setForceHolofoil(e.target.checked)} />
                 Force holofoil
               </label>
             )}
-            {isGear && forceHolofoil && (
+            {(isGear || kind === "custom") && forceHolofoil && (
               <>
                 <label>
                   Holofoil color 1

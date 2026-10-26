@@ -28,9 +28,9 @@ export const TIERS = {
   basic: {
     label: "Basic",
     color: "#b0b0b0",
-    hp: 1,
-    attack: 2.2,
-    defense: 4.5,
+    hp: 1.1,
+    attack: 2.4,
+    defense: 5,
     reward: 1,
     dropChance: 0.25,
     minRarity: 0,
@@ -41,9 +41,9 @@ export const TIERS = {
   elite: {
     label: "Elite",
     color: "#0070dd",
-    hp: 2,
-    attack: 2.8,
-    defense: 6,
+    hp: 2.2,
+    attack: 3,
+    defense: 6.5,
     reward: 3,
     dropChance: 0.5,
     minRarity: 2,
@@ -54,9 +54,9 @@ export const TIERS = {
   boss: {
     label: "Boss",
     color: "#ff8000",
-    hp: 4,
-    attack: 3.5,
-    defense: 7,
+    hp: 4.5,
+    attack: 3.8,
+    defense: 7.5,
     reward: 8,
     dropChance: 0.75,
     minRarity: 3,
@@ -588,26 +588,26 @@ export const ENEMIES = [
     tier: "boss",
     regions: ["Meadowlands"],
     level: 6,
-    maxHp: 130,
-    attack: [5, 12],
-    defense: 4,
-    speed: 4,
+    maxHp: 220,
+    attack: [9, 20],
+    defense: 8,
+    speed: 6,
     critical: 0.08,
     astra: 40,
     exp: 70,
     abilities: [
       {
         name: "Engulf",
-        power: 1.4,
-        status: { id: "poison", turns: 4, power: 0.03, chance: 1 },
+        power: 1.6,
+        status: { id: "poison", turns: 4, power: 0.04, chance: 1 },
       },
-      { name: "Acid Rain", power: 0.8, hits: 2 },
+      { name: "Acid Rain", power: 1, hits: 2 },
       {
         name: "Absorb",
         power: 0,
-        heal: 0.12,
+        heal: 0.15,
         below: 0.8,
-        cooldown: 4,
+        cooldown: 3,
         weight: 3,
         text: "The king swallows its own slime to mend itself.",
       },
@@ -616,8 +616,8 @@ export const ENEMIES = [
       {
         below: 0.5,
         text: "The Gelatinous King quivers and swells in fury!",
-        self: { id: "enrage", turns: 99, power: 0.35 },
-        heal: 0.1,
+        self: { id: "enrage", turns: 99, power: 0.45 },
+        heal: 0.12,
       },
     ],
     drops: [
@@ -675,26 +675,26 @@ export const ENEMIES = [
     tier: "boss",
     regions: ["Darkwood", "AshenPeaks"],
     level: 12,
-    maxHp: 170,
-    attack: [9, 19],
-    defense: 5,
-    speed: 9,
+    maxHp: 240,
+    attack: [12, 24],
+    defense: 10,
+    speed: 10,
     critical: 0.1,
     astra: 70,
     exp: 120,
     abilities: [
-      { name: "Soul Rend", power: 1.5, leech: 0.6, cooldown: 2 },
+      { name: "Soul Rend", power: 1.7, leech: 0.75, cooldown: 2 },
       {
         name: "Dread Aura",
         power: 0,
-        status: { id: "weaken", turns: 3, power: 0.3, chance: 1 },
+        status: { id: "weaken", turns: 3, power: 0.35, chance: 1 },
         cooldown: 4,
         text: "A crushing dread settles over you.",
       },
       {
         name: "Withering Curse",
-        power: 1,
-        status: { id: "vulnerable", turns: 3, power: 0.3, chance: 1 },
+        power: 1.15,
+        status: { id: "vulnerable", turns: 3, power: 0.35, chance: 1 },
         cooldown: 4,
       },
     ],
@@ -702,12 +702,12 @@ export const ENEMIES = [
       {
         below: 0.5,
         text: "The Wraith King's crown blazes with cold fire!",
-        self: { id: "regen", turns: 99, power: 0.03 },
+        self: { id: "regen", turns: 99, power: 0.04 },
       },
       {
         below: 0.25,
         text: "The Wraith King howls, gripped by a ghostly rage!",
-        self: { id: "enrage", turns: 99, power: 0.5 },
+        self: { id: "enrage", turns: 99, power: 0.6 },
       },
     ],
     drops: [
@@ -772,11 +772,11 @@ export const ENEMIES = [
   },
 ];
 
-const GEAR_SCORE_PER_LEVEL = 100;
+const GEAR_SCORE_PER_LEVEL = 150;
 // Enemies never get weaker than this fraction of their normal stats.
 const MIN_UNDERGEAR_FACTOR = 0.4;
 
-// Expected gear score is playerLevel * 100. Below that, enemy stats shrink proportionally (floored).
+// Expected gear score is playerLevel * 150. Below that, enemy stats shrink proportionally (floored).
 export const getUndergearFactor = (playerLevel = 1, gearScore = 0) => {
   const expected = Math.max(1, Number(playerLevel) || 1) * GEAR_SCORE_PER_LEVEL;
   const ratio = (Number(gearScore) || 0) / expected;

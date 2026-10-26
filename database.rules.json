@@ -3,25 +3,30 @@
     "leaderboardEntries": {
       ".read": "auth != null",
       "$uid": {
-        ".write": "auth != null && auth.uid === $uid && ((!newData.exists() && !root.child('users').child($uid).child('player').exists()) || (newData.exists() && (!data.exists() || now - data.child('updatedAt').val() >= 1800000)))",
-        ".validate": "newData.hasChildren(['name', 'level', 'gearScore', 'astra', 'updatedAt']) && root.child('users').child($uid).child('player').exists()",
+        ".write": "auth != null && ($uid === auth.uid || root.child('characterOwners').child($uid).child('accountId').val() === auth.uid) && ((!newData.exists() && !newData.parent().parent().child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').exists()) || (newData.exists() && (!data.exists() || now - data.child('updatedAt').val() >= 1800000)))",
+        ".validate": "newData.hasChildren(['name', 'level', 'gearScore', 'astra', 'updatedAt']) && root.child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').exists()",
         "name": {
-          ".write": "auth != null && auth.uid === $uid && data.exists() && newData.val() === newData.parent().parent().parent().child('users').child($uid).child('player/name').val()",
-          ".validate": "newData.isString() && newData.val().length > 0 && newData.val() === newData.parent().parent().parent().child('users').child($uid).child('player/name').val()"
+          ".write": "auth != null && ($uid === auth.uid || root.child('characterOwners').child($uid).child('accountId').val() === auth.uid) && data.exists() && newData.val() === newData.parent().parent().parent().child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').child('name').val()",
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val() === newData.parent().parent().parent().child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').child('name').val()"
         },
         "level": {
-          ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() === (root.child('users').child($uid).child('player/level').exists() ? root.child('users').child($uid).child('player/level').val() : 1)"
+          ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() === (root.child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').child('level').exists() ? root.child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').child('level').val() : 1)"
         },
         "gearScore": {
-          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() === (root.child('users').child($uid).child('player/stats/gearScore').exists() ? root.child('users').child($uid).child('player/stats/gearScore').val() : 0)"
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() === (root.child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').child('stats/gearScore').exists() ? root.child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').child('stats/gearScore').val() : 0)"
         },
         "astra": {
-          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() === ((root.child('users').child($uid).child('player/astra').exists() ? root.child('users').child($uid).child('player/astra').val() : 0) + (root.child('users').child($uid).child('player/bank/balance').exists() ? root.child('users').child($uid).child('player/bank/balance').val() : 0))"
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() === ((root.child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').child('astra').exists() ? root.child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').child('astra').val() : 0) + (root.child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').child('bank/balance').exists() ? root.child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').child('bank/balance').val() : 0))"
         },
         "updatedAt": {
           ".validate": "newData.isNumber() && newData.val() === now"
         },
-        "$other": { ".validate": false }
+        "activeTitle": {
+          ".validate": "newData.isString() && newData.val() === 'monarchOfTheOdyssey' && newData.val() === root.child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').child('activeTitle').val()"
+        },
+        "$other": {
+          ".validate": false
+        }
       }
     },
     "users": {
@@ -31,15 +36,45 @@
         "player": {
           "name": {
             ".validate": "newData.isString() && (newData.val() === data.val() || root.child('characterNames').child(newData.val()).val() === auth.uid)"
+          },
+          ".validate": "!newData.parent().child('characters').exists()"
+        },
+        ".validate": "(!data.child('characters').exists() || newData.child('characters').exists())",
+        "lastCharacterIdentity": {
+          ".validate": "newData.isString() && root.child('characterOwners').child(newData.val()).child('accountId').val() === auth.uid && newData.parent().child('characters').child(root.child('characterOwners').child(newData.val()).child('characterId').val()).exists()"
+        },
+        "characters": {
+          "$characterId": {
+            ".validate": "$characterId.matches(/^[0-9]{40}$/) && newData.hasChildren(['externalId', 'slot', 'createdAt']) && newData.child('slot').isNumber() && (root.child('characterSlots').child(auth.uid).child('' + newData.child('slot').val()).child('characterId').val() === $characterId || newData.child('deletedAt').exists()) && root.child('characterOwners').child(newData.child('externalId').val()).child('accountId').val() === auth.uid && root.child('characterOwners').child(newData.child('externalId').val()).child('characterId').val() === $characterId && (!data.exists() || (newData.child('externalId').val() === data.child('externalId').val() && newData.child('slot').val() === data.child('slot').val())) && (!data.child('deletedAt').exists() || newData.child('deletedAt').val() === data.child('deletedAt').val()) && (!newData.child('deletedAt').exists() || (data.exists() && newData.child('deletedAt').isNumber() && newData.child('deletedAt').val() > 0 && newData.child('deletedAt').val() <= now && !newData.child('player').exists()))",
+            "externalId": {
+              ".validate": "newData.isString()"
+            },
+            "createdAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "player": {
+              "name": {
+                ".validate": "newData.isString() && (newData.val() === data.val() || root.child('characterNames').child(newData.val()).val() === newData.parent().parent().child('externalId').val() || (!root.child('users').child(auth.uid).child('characters').exists() && newData.val() === root.child('users').child(auth.uid).child('player/name').val()))"
+              }
+            }
           }
+        }
+      }
+    },
+    "characterSlots": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$slot": {
+          ".write": "auth != null && auth.uid === $uid && newData.exists() && (!data.exists() || root.child('users').child($uid).child('characters').child(data.child('characterId').val()).child('deletedAt').exists())",
+          ".validate": "newData.hasChildren(['index', 'characterId']) && newData.child('index').isNumber() && newData.child('index').val() >= 0 && newData.child('index').val() % 1 === 0 && newData.child('index').val() < (root.child('characterLimits').child($uid).exists() ? root.child('characterLimits').child($uid).val() : 3) && $slot === '' + newData.child('index').val() && newData.child('characterId').isString() && newData.child('characterId').val().matches(/^[0-9]{40}$/) && (root.child('characterOwners').child(newData.child('characterId').val()).child('accountId').val() === auth.uid || root.child('characterOwners').child(auth.uid).child('characterId').val() === newData.child('characterId').val())"
         }
       }
     },
     "characterNames": {
       "$name": {
         ".read": "auth != null",
-        ".write": "auth != null && ((!data.exists() && newData.val() === auth.uid) || (data.val() === auth.uid && (newData.val() === auth.uid || (!newData.exists() && newData.parent().parent().child('users').child(auth.uid).child('player/name').val() !== $name))))",
-        ".validate": "$name.matches(/^[a-zA-Z]{1,64}$/) && newData.isString() && newData.val() === auth.uid"
+        ".write": "auth != null && ((!data.exists() && (newData.val() === auth.uid || root.child('characterOwners').child(newData.val()).child('accountId').val() === auth.uid)) || ((data.val() === auth.uid || root.child('characterOwners').child(data.val()).child('accountId').val() === auth.uid) && (newData.val() === data.val() || (!newData.exists() && newData.parent().parent().child('users').child((root.child('characterOwners').child((data.exists() ? data.val() : newData.val())).exists() ? root.child('characterOwners').child((data.exists() ? data.val() : newData.val())).child('accountId').val() : (data.exists() ? data.val() : newData.val()))).child(root.child('characterOwners').child((data.exists() ? data.val() : newData.val())).exists() ? 'characters/' + root.child('characterOwners').child((data.exists() ? data.val() : newData.val())).child('characterId').val() + '/player' : 'player').child('name').val() !== $name))))",
+        ".validate": "$name.matches(/^[a-zA-Z]{1,64}$/) && newData.isString() && (newData.val() === auth.uid || root.child('characterOwners').child(newData.val()).child('accountId').val() === auth.uid)"
       }
     },
     "admins": {
@@ -52,11 +87,21 @@
       "$reportId": {
         ".write": "auth != null && !data.exists() && newData.child('uid').val() === auth.uid",
         ".validate": "newData.hasChildren(['uid', 'playerName', 'title', 'description', 'createdAt', 'status'])",
-        "uid": { ".validate": "newData.isString() && newData.val() === auth.uid" },
-        "playerName": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64" },
-        "title": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 100" },
-        "description": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 2000" },
-        "createdAt": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= now + 60000" },
+        "uid": {
+          ".validate": "newData.isString() && newData.val() === auth.uid"
+        },
+        "playerName": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64"
+        },
+        "title": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 100"
+        },
+        "description": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 2000"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= now + 60000"
+        },
         "status": {
           ".write": "auth != null && root.child('admins').child(auth.uid).val() === true",
           ".validate": "newData.val() === 'open' || (auth != null && root.child('admins').child(auth.uid).val() === true && newData.val() === 'resolved')"
@@ -65,22 +110,34 @@
           ".write": "auth != null && root.child('admins').child(auth.uid).val() === true",
           ".validate": "auth != null && root.child('admins').child(auth.uid).val() === true && newData.isNumber() && newData.val() >= 0 && newData.val() <= now + 60000"
         },
-        "$other": { ".validate": false }
+        "$other": {
+          ".validate": false
+        }
       }
     },
     "directory": {
-      ".read": "auth != null && (root.child('admins').child(auth.uid).val() === true || (query.orderByChild === 'name' && query.equalTo != null))",
-      ".indexOn": ["name"],
+      ".read": "auth != null && (root.child('admins').child(auth.uid).val() === true || (query.orderByChild === 'name' && query.equalTo != null) || (query.orderByChild === 'searchName' && query.startAt != null && query.endAt != null && query.limitToFirst != null && query.limitToFirst <= 20))",
+      ".indexOn": [
+        "name",
+        "searchName"
+      ],
       "$uid": {
-        ".write": "auth != null && auth.uid === $uid"
+        ".write": "auth != null && ($uid === auth.uid || root.child('characterOwners').child($uid).child('accountId').val() === auth.uid)"
+      }
+    },
+    "publicProfiles": {
+      "$identity": {
+        ".read": "auth != null && (data.child('isPublic').val() === true || $identity === auth.uid || root.child('characterOwners').child($identity).child('accountId').val() === auth.uid)",
+        ".write": "auth != null && ($identity === auth.uid || root.child('characterOwners').child($identity).child('accountId').val() === auth.uid)",
+        ".validate": "!newData.exists() || newData.child('isPublic').val() === true"
       }
     },
     "inbox": {
       "$uid": {
-        ".read": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).val() === true)",
-        ".write": "auth != null && root.child('admins').child(auth.uid).val() === true",
+        ".read": "auth != null && (($uid === auth.uid || root.child('characterOwners').child($uid).child('accountId').val() === auth.uid) || root.child('admins').child(auth.uid).val() === true)",
+        ".write": "(auth != null && root.child('admins').child(auth.uid).val() === true) || (auth != null && !newData.exists() && root.child('characterOwners').child($uid).child('accountId').val() === auth.uid && newData.parent().parent().child('users').child(auth.uid).child('characters').child(root.child('characterOwners').child($uid).child('characterId').val()).child('deletedAt').exists())",
         "$msgId": {
-          ".write": "auth != null && !data.exists() && newData.child('from').val() === 'Marketplace' && newData.child('listingId').isString() && root.child('marketplace').child(newData.child('listingId').val()).exists() && !newData.parent().parent().parent().child('marketplace').child(newData.child('listingId').val()).exists() && (($uid === auth.uid && $msgId === 'market-' + newData.child('listingId').val() && root.child('marketplace').child(newData.child('listingId').val()).child('sellerUid').val() !== auth.uid && ((root.child('marketplace').child(newData.child('listingId').val()).child('item/kind').val() === 'consumable' && newData.child('attachments/consumables').child(root.child('marketplace').child(newData.child('listingId').val()).child('item/key').val()).val() === 1) || (root.child('marketplace').child(newData.child('listingId').val()).child('item/kind').val() === 'material' && newData.child('attachments/materials').child(root.child('marketplace').child(newData.child('listingId').val()).child('item/key').val()).val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/count').val()) || (root.child('marketplace').child(newData.child('listingId').val()).child('item/kind').val() === 'gemstone' && newData.child('attachments/gemstoneItems/0/id').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/id').val() && newData.child('attachments/gemstoneItems/0/name').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/name').val() && newData.child('attachments/gemstoneItems/0/rarity').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/rarity').val()) || (root.child('marketplace').child(newData.child('listingId').val()).child('item/kind').val() !== 'consumable' && root.child('marketplace').child(newData.child('listingId').val()).child('item/kind').val() !== 'material' && root.child('marketplace').child(newData.child('listingId').val()).child('item/kind').val() !== 'gemstone' && newData.child('attachments/items/0/id').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/id').val() && newData.child('attachments/items/0/name').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/name').val() && newData.child('attachments/items/0/rarity').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/rarity').val() && newData.child('attachments/items/0/iLevel').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/iLevel').val())) && newData.parent().parent().child(root.child('marketplace').child(newData.child('listingId').val()).child('sellerUid').val()).child('market-sale-' + newData.child('listingId').val()).exists()) || ($uid !== auth.uid && $uid === root.child('marketplace').child(newData.child('listingId').val()).child('sellerUid').val() && $msgId === 'market-sale-' + newData.child('listingId').val() && newData.child('attachments/astra').isNumber() && newData.child('attachments/astra').val() * 10 <= root.child('marketplace').child(newData.child('listingId').val()).child('price').val() * 9 && newData.child('attachments/astra').val() * 10 > root.child('marketplace').child(newData.child('listingId').val()).child('price').val() * 9 - 10 && newData.parent().parent().child(auth.uid).child('market-' + newData.child('listingId').val()).exists()))",
+          ".write": "auth != null && ((newData.child('buyerUid').isString() ? newData.child('buyerUid').val() : auth.uid) === auth.uid || root.child('characterOwners').child((newData.child('buyerUid').isString() ? newData.child('buyerUid').val() : auth.uid)).child('accountId').val() === auth.uid) && !data.exists() && newData.child('from').val() === 'Marketplace' && newData.child('listingId').isString() && root.child('marketplace').child(newData.child('listingId').val()).exists() && !newData.parent().parent().parent().child('marketplace').child(newData.child('listingId').val()).exists() && (($uid === (newData.child('buyerUid').isString() ? newData.child('buyerUid').val() : auth.uid) && $msgId === 'market-' + newData.child('listingId').val() && root.child('marketplace').child(newData.child('listingId').val()).child('sellerUid').val() !== (newData.child('buyerUid').isString() ? newData.child('buyerUid').val() : auth.uid) && ((root.child('marketplace').child(newData.child('listingId').val()).child('item/kind').val() === 'consumable' && newData.child('attachments/consumables').child(root.child('marketplace').child(newData.child('listingId').val()).child('item/key').val()).val() === 1) || (root.child('marketplace').child(newData.child('listingId').val()).child('item/kind').val() === 'material' && newData.child('attachments/materials').child(root.child('marketplace').child(newData.child('listingId').val()).child('item/key').val()).val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/count').val()) || (root.child('marketplace').child(newData.child('listingId').val()).child('item/kind').val() === 'gemstone' && newData.child('attachments/gemstoneItems/0/id').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/id').val() && newData.child('attachments/gemstoneItems/0/name').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/name').val() && newData.child('attachments/gemstoneItems/0/rarity').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/rarity').val()) || (root.child('marketplace').child(newData.child('listingId').val()).child('item/kind').val() !== 'consumable' && root.child('marketplace').child(newData.child('listingId').val()).child('item/kind').val() !== 'material' && root.child('marketplace').child(newData.child('listingId').val()).child('item/kind').val() !== 'gemstone' && newData.child('attachments/items/0/id').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/id').val() && newData.child('attachments/items/0/name').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/name').val() && newData.child('attachments/items/0/rarity').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/rarity').val() && newData.child('attachments/items/0/iLevel').val() === root.child('marketplace').child(newData.child('listingId').val()).child('item/iLevel').val())) && newData.parent().parent().child(root.child('marketplace').child(newData.child('listingId').val()).child('sellerUid').val()).child('market-sale-' + newData.child('listingId').val()).exists()) || ($uid !== (newData.child('buyerUid').isString() ? newData.child('buyerUid').val() : auth.uid) && $uid === root.child('marketplace').child(newData.child('listingId').val()).child('sellerUid').val() && $msgId === 'market-sale-' + newData.child('listingId').val() && newData.child('attachments/astra').isNumber() && newData.child('attachments/astra').val() * 10 <= root.child('marketplace').child(newData.child('listingId').val()).child('price').val() * 9 && newData.child('attachments/astra').val() * 10 > root.child('marketplace').child(newData.child('listingId').val()).child('price').val() * 9 - 10 && newData.parent().parent().child((newData.child('buyerUid').isString() ? newData.child('buyerUid').val() : auth.uid)).child('market-' + newData.child('listingId').val()).exists()))",
           "attachments": {
             "$kind": {
               ".validate": "newData.parent().parent().child('from').val() !== 'Marketplace' || ($kind === 'astra' && $msgId.beginsWith('market-sale-')) || (!$msgId.beginsWith('market-sale-') && (($kind === 'items' && root.child('marketplace').child(newData.parent().parent().child('listingId').val()).child('item/kind').val() !== 'consumable' && root.child('marketplace').child(newData.parent().parent().child('listingId').val()).child('item/kind').val() !== 'material' && root.child('marketplace').child(newData.parent().parent().child('listingId').val()).child('item/kind').val() !== 'gemstone') || ($kind === 'consumables' && root.child('marketplace').child(newData.parent().parent().child('listingId').val()).child('item/kind').val() === 'consumable') || ($kind === 'materials' && root.child('marketplace').child(newData.parent().parent().child('listingId').val()).child('item/kind').val() === 'material') || ($kind === 'gemstoneItems' && root.child('marketplace').child(newData.parent().parent().child('listingId').val()).child('item/kind').val() === 'gemstone')))",
@@ -95,9 +152,12 @@
     "marketplace": {
       ".read": "auth != null",
       "$listingId": {
-        ".write": "auth != null && (!root.child('users').child(auth.uid).child('saveRevision').exists() || newData.parent().parent().child('users').child(auth.uid).child('saveRevision').val() === root.child('users').child(auth.uid).child('saveRevision').val() + 1) && ((!data.exists() && newData.exists() && newData.child('sellerUid').val() === auth.uid) || (data.exists() && !newData.exists() && (data.child('sellerUid').val() === auth.uid || newData.parent().parent().child('inbox').child(auth.uid).child('market-' + $listingId).exists())))",
+        ".write": "auth != null && (!root.child('users').child(auth.uid).child('saveRevision').exists() || newData.parent().parent().child('users').child(auth.uid).child('saveRevision').val() === root.child('users').child(auth.uid).child('saveRevision').val() + 1) && ((!data.exists() && newData.exists() && newData.child('sellerUid').val() === (root.child('users').child(auth.uid).child('characters').exists() ? newData.parent().parent().child('users').child(auth.uid).child('lastCharacterIdentity').val() : auth.uid)) || (data.exists() && !newData.exists() && (data.child('sellerUid').val() === (root.child('users').child(auth.uid).child('characters').exists() ? newData.parent().parent().child('users').child(auth.uid).child('lastCharacterIdentity').val() : auth.uid) || newData.parent().parent().child('inbox').child((root.child('users').child(auth.uid).child('characters').exists() ? newData.parent().parent().child('users').child(auth.uid).child('lastCharacterIdentity').val() : auth.uid)).child('market-' + $listingId).exists())))",
         ".validate": "newData.hasChildren(['sellerUid', 'sellerName', 'price', 'listedAt', 'item']) && newData.child('sellerName').isString() && newData.child('price').isNumber() && newData.child('price').val() >= 1 && newData.child('price').val() <= 1000000000 && newData.child('price').val() % 1 === 0 && newData.child('listedAt').isNumber() && newData.child('item/name').isString() && ((newData.child('item/kind').val() === 'consumable' && newData.child('item/key').isString() && newData.child('item/key').val().matches(/^(minorPotion|healthPotion|greaterPotion|minorPowerPotion|greaterPowerPotion|elixirOfNameChanging|architectsRune|itemCertificate)$/)) || (newData.child('item/kind').val() === 'material' && newData.child('item/key').isString() && newData.child('item/tier').isString() && newData.child('item/count').isNumber() && newData.child('item/count').val() >= 1 && newData.child('item/count').val() % 1 === 0) || (newData.child('item/kind').val() === 'gemstone' && newData.child('item/id').isString() && newData.child('item/type').val().matches(/^(ruby|emerald|sapphire)$/) && newData.child('item/stat').isString() && newData.child('item/value').isNumber() && newData.child('item/rarity').val().matches(/^(Common|Uncommon|Rare|Epic|Legendary)$/)) || (newData.child('item/kind').val() !== 'consumable' && newData.child('item/kind').val() !== 'material' && newData.child('item/kind').val() !== 'gemstone' && newData.child('item/slot').isString()))"
-      }
+      },
+      ".indexOn": [
+        "sellerUid"
+      ]
     },
     "broadcasts": {
       ".read": "auth != null",
@@ -105,21 +165,44 @@
     },
     "inboxState": {
       "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
+        ".read": "auth != null && ($uid === auth.uid || root.child('characterOwners').child($uid).child('accountId').val() === auth.uid)",
         "$msgId": {
           "read": {
-            ".write": "auth != null && auth.uid === $uid",
+            ".write": "auth != null && ($uid === auth.uid || root.child('characterOwners').child($uid).child('accountId').val() === auth.uid)",
             ".validate": "newData.isBoolean()"
           },
           "deleted": {
-            ".write": "auth != null && auth.uid === $uid",
+            ".write": "auth != null && ($uid === auth.uid || root.child('characterOwners').child($uid).child('accountId').val() === auth.uid)",
             ".validate": "newData.isBoolean()"
           },
           "claimed": {
-            ".write": "auth != null && auth.uid === $uid && data.val() !== true && newData.val() === true && (!root.child('users').child($uid).child('saveRevision').exists() || newData.parent().parent().parent().parent().child('users').child($uid).child('saveRevision').val() === root.child('users').child($uid).child('saveRevision').val() + 1)",
+            ".write": "auth != null && ($uid === auth.uid || root.child('characterOwners').child($uid).child('accountId').val() === auth.uid) && data.val() !== true && newData.val() === true && (!root.child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child('saveRevision').exists() || newData.parent().parent().parent().parent().child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child('saveRevision').val() === root.child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child('saveRevision').val() + 1)",
             ".validate": "newData.val() === true"
           }
+        },
+        ".write": "auth != null && !newData.exists() && root.child('characterOwners').child($uid).child('accountId').val() === auth.uid && newData.parent().parent().child('users').child(auth.uid).child('characters').child(root.child('characterOwners').child($uid).child('characterId').val()).child('deletedAt').exists()"
+      }
+    },
+    "characterOwners": {
+      "$identity": {
+        ".read": "auth != null && (!data.exists() || data.child('accountId').val() === auth.uid)",
+        ".write": "auth != null && !data.exists() && newData.child('accountId').val() === auth.uid",
+        ".validate": "newData.hasChildren(['accountId', 'characterId']) && newData.child('characterId').isString() && newData.child('characterId').val().matches(/^[0-9]{40}$/) && ($identity === auth.uid || $identity === newData.child('characterId').val())",
+        "accountId": {
+          ".validate": "newData.isString()"
+        },
+        "characterId": {
+          ".validate": "newData.isString()"
+        },
+        "$other": {
+          ".validate": false
         }
+      }
+    },
+    "characterLimits": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".validate": "newData.isNumber() && newData.val() >= 3 && newData.val() % 1 === 0"
       }
     }
   }

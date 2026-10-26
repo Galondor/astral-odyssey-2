@@ -13,9 +13,16 @@ import { getItemGearScore } from "../items/gearScore";
  powers the stat tooltips (see getStatBreakdown / STAT_INFO).
 */
 const CORE_STATS = ["strength", "dexterity", "intelligence"];
+export const MAX_PLAYER_CHANCE = 0.6;
 
 const round = (n, d = 3) => Math.round(n * 10 ** d) / 10 ** d;
 const line = (label, value) => ({ label, value });
+const capChanceLines = (lines) => {
+  const total = lines.reduce((sum, entry) => sum + entry.value, 0);
+  return total > MAX_PLAYER_CHANCE
+    ? [...lines, line("60% maximum", MAX_PLAYER_CHANCE - total)]
+    : lines;
+};
 
 // Per-item contributions by stat key, e.g. { strength: [{ label: "Pristine Iron Sword", value: 3 }] }
 const getGearSources = (equipment = {}) => {
@@ -61,8 +68,8 @@ const compute = (player) => {
     const v = keys.reduce((sum, k) => sum + (bonus[k] || 0), 0);
     return v ? [line("Permanent bonuses", v)] : [];
   };
-  const define = (key, lines, format = "number") => {
-    const total = round(lines.reduce((sum, l) => sum + l.value, 0));
+  const define = (key, lines, format = "number", precision = 3) => {
+    const total = round(lines.reduce((sum, l) => sum + l.value, 0), precision);
     totals[key] = total;
     breakdown[key] = { total, lines, format };
     return total;
@@ -89,24 +96,36 @@ const compute = (player) => {
 
   // Items roll min and max attack separately; "attack" (both) is kept for items saved before the split.
   const physical = [line(`Strength ${strength} × 1`, strength), line(`Dexterity ${dexterity} × 1`, dexterity)];
-  const attackMin = define("attackMin", [line("Base", 1), ...physical, ...gearLines("attack"), ...gearLines("attackMin"), ...bonusLines("attack", "attackMin")]);
+  const attackPercent = define("attackPercent", [...gearLines("attackPercent"), ...bonusLines("attackPercent")], "percent");
+  const attackMinLines = [line("Base", 1), ...physical, ...gearLines("attack"), ...gearLines("attackMin"), ...bonusLines("attack", "attackMin")];
   const attackMaxLines = [line("Base", 5), ...physical, ...gearLines("attack"), ...gearLines("attackMax"), ...bonusLines("attack", "attackMax")];
   const magical = [line(`Intelligence ${intelligence} × 2`, intelligence * 2)];
-  const magicMin = define("magicAttackMin", [line("Base", 1), ...magical, ...gearLines("magicAttack"), ...gearLines("magicAttackMin"), ...bonusLines("magicAttack", "magicAttackMin")]);
+  const magicAttackPercent = define("magicAttackPercent", [...gearLines("magicAttackPercent"), ...bonusLines("magicAttackPercent")], "percent");
+  const magicMinLines = [line("Base", 1), ...magical, ...gearLines("magicAttack"), ...gearLines("magicAttackMin"), ...bonusLines("magicAttack", "magicAttackMin")];
   const magicMaxLines = [line("Base", 5), ...magical, ...gearLines("magicAttack"), ...gearLines("magicAttackMax"), ...bonusLines("magicAttack", "magicAttackMax")];
+  const withIncrease = (lines, percent, label) => {
+    const baseTotal = lines.reduce((sum, entry) => sum + entry.value, 0);
+    return percent
+      ? [...lines, line(`${label} (${round(percent * 100, 1)}%)`, baseTotal * percent)]
+      : lines;
+  };
+  const attackMin = define("attackMin", withIncrease(attackMinLines, attackPercent, "Increased attack"), "number", 0);
+  const increasedAttackMaxLines = withIncrease(attackMaxLines, attackPercent, "Increased attack");
+  const magicMin = define("magicAttackMin", withIncrease(magicMinLines, magicAttackPercent, "Increased magic attack"), "number", 0);
+  const increasedMagicMaxLines = withIncrease(magicMaxLines, magicAttackPercent, "Increased magic attack");
 
   // A maximum can never fall below its minimum
   const atLeast = (lines, min) => {
     const total = lines.reduce((sum, l) => sum + l.value, 0);
     return total < min ? [...lines, line("Raised to minimum", min - total)] : lines;
   };
-  define("attackMax", atLeast(attackMaxLines, attackMin));
-  define("magicAttackMax", atLeast(magicMaxLines, magicMin));
+  define("attackMax", atLeast(increasedAttackMaxLines, attackMin), "number", 0);
+  define("magicAttackMax", atLeast(increasedMagicMaxLines, magicMin), "number", 0);
 
   define("defense", [line(`Resilience ${resilience} ÷ 3 (rounded down)`, Math.floor(resilience / 3)), ...gearLines("defense"), ...bonusLines("defense")]);
-  define("evasion", [line("Base", 0.01), line(`Agility ${agility} ÷ 8 × 1% (rounded down)`, Math.floor(agility / 8) * 0.01), ...gearLines("evasion"), ...bonusLines("evasion")], "percent");
+  define("evasion", capChanceLines([line("Base", 0.01), line(`Agility ${agility} ÷ 8 × 1% (rounded down)`, Math.floor(agility / 8) * 0.01), ...gearLines("evasion"), ...bonusLines("evasion")]), "percent");
   define("speed", [line(`Agility ${agility} ÷ 3 (rounded down)`, Math.floor(agility / 3)), ...gearLines("speed"), ...bonusLines("speed")]);
-  define("criticalHitChance", [line("Base", 0.05), line(`Luck ${luck} ÷ 5 × 1% (rounded down)`, Math.floor(luck / 5) * 0.01), ...gearLines("criticalHitChance"), ...bonusLines("criticalHitChance")], "percent");
+  define("criticalHitChance", capChanceLines([line("Base", 0.05), line(`Luck ${luck} ÷ 5 × 1% (rounded down)`, Math.floor(luck / 5) * 0.01), ...gearLines("criticalHitChance"), ...bonusLines("criticalHitChance")]), "percent");
   define("criticalDamageBonus", [line("Base", 1.5), ...gearLines("criticalDamage"), ...bonusLines("criticalDamage", "criticalDamageBonus")], "percent");
 
   define("maxHealth", [line("Base", 90), line(`Vitality ${vitality} × 5`, vitality * 5), ...bonusLines("maxHealth")]);
@@ -198,14 +217,16 @@ export const STAT_INFO = {
   resilience: { title: "Resilience", description: "Increases defense.", formula: "+1 Defense per 3 points of Resilience." },
   agility: { title: "Agility", description: "Increases speed and evasion.", formula: "+1 Speed per 3 points, +1% Evasion per 8 points." },
   luck: { title: "Luck", description: "Increases critical hit chance and item drop rates.", formula: "+1% Critical Hit Chance per 5 points, +1% Item Drop Chance per 3 points." },
-  attackMin: { title: "Minimum attack", description: "The lowest damage of a physical attack.", formula: "1 + Strength + Dexterity + equipment min attack." },
-  attackMax: { title: "Maximum attack", description: "The highest damage of a physical attack.", formula: "5 + Strength + Dexterity + equipment max attack." },
-  magicAttackMin: { title: "Minimum magic attack", description: "The lowest damage of a magical attack.", formula: "1 + (Intelligence × 2) + equipment min magic attack." },
-  magicAttackMax: { title: "Maximum magic attack", description: "The highest damage of a magical attack.", formula: "5 + (Intelligence × 2) + equipment max magic attack." },
+  attackPercent: { title: "Increased attack", description: "Increases physical attack damage.", formula: "Added to the physical attack damage multiplier." },
+  magicAttackPercent: { title: "Increased magic attack", description: "Increases magic attack damage.", formula: "Added to the magic attack damage multiplier." },
+  attackMin: { title: "Minimum attack", description: "The lowest damage of a physical attack.", formula: "(1 + Strength + Dexterity + equipment min attack) × (1 + increased attack %)." },
+  attackMax: { title: "Maximum attack", description: "The highest damage of a physical attack.", formula: "(5 + Strength + Dexterity + equipment max attack) × (1 + increased attack %)." },
+  magicAttackMin: { title: "Minimum magic attack", description: "The lowest damage of a magical attack.", formula: "(1 + Intelligence × 2 + equipment min magic attack) × (1 + increased magic attack %)." },
+  magicAttackMax: { title: "Maximum magic attack", description: "The highest damage of a magical attack.", formula: "(5 + Intelligence × 2 + equipment max magic attack) × (1 + increased magic attack %)." },
   defense: { title: "Defense", description: "Reduces the damage taken from each hit.", formula: "1 per 3 Resilience + equipment defense." },
-  evasion: { title: "Evasion", description: "Chance to avoid an incoming attack.", formula: "Base + 1% per 8 Agility + equipment." },
+  evasion: { title: "Evasion", description: "Chance to avoid an incoming attack.", formula: "Base + 1% per 8 Agility + equipment, capped at 60%." },
   speed: { title: "Speed", description: "How quickly you act.", formula: "Agility ÷ 3 + equipment." },
-  criticalHitChance: { title: "Critical chance", description: "Chance for an attack to be a critical hit.", formula: "Base + 1% per 5 Luck + equipment." },
+  criticalHitChance: { title: "Critical chance", description: "Chance for an attack to be a critical hit.", formula: "Base + 1% per 5 Luck + equipment, capped at 60%." },
   criticalDamageBonus: { title: "Critical damage", description: "Damage multiplier applied on a critical hit.", formula: "Base + equipment critical damage." },
   maxHealth: { title: "Maximum health", description: "How much damage you can take before collapsing.", formula: "Base + Vitality × 5." },
   maxStamina: { title: "Maximum stamina", description: "Your energy reserve for actions.", formula: "Base + 1 per level." },

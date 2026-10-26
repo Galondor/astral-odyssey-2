@@ -20,9 +20,8 @@ import {
   getSellPrice,
   getGemstoneValue,
   getGemstoneRemovalCost,
-  itemComparisonTooltip,
-  itemTooltip,
   gemstoneTooltip,
+  itemTooltip,
   removeGemstone,
   socketGemstone,
   sellEquippedItem,
@@ -34,6 +33,7 @@ import { getItemGearScore } from "../items/gearScore";
 import { isFavorite, toggleFavorite } from "../items/favorites";
 import { applyRune, canApplyRune, RUNE_MAIN_STATS } from "../items/runes";
 import { canRenameItem, renameItem } from "../items/certificates";
+import { applyPrismaticAlloy, canApplyPrismaticAlloy } from "../items/prismaticAlloy";
 import { getItemStats, MARKET_RARITIES, MARKET_SLOTS, MARKET_STATS } from "../world/marketplace";
 import {
   KEY_ITEMS,
@@ -72,9 +72,12 @@ import {
   skillTooltip,
   unequipSkill,
 } from "../character/skills";
-import { STAT_INFO, getBaseStatPoints, getStatBreakdown } from "../character/stats";
+import { getBaseStatPoints, getStatBreakdown } from "../character/stats";
+import CharacterSummary, { Bar, statTooltip } from "./CharacterSummary";
+import { TITLES } from "../character/titles";
 import { getRespecCost, getUnspentPoints, respecSkills, respecStatPoints, spendStatPoint } from "../character/progression";
 import RichText from "./RichText";
+import ItemPopup from "./ItemPopup";
 import ChangelogScreen from "./ChangelogScreen";
 import LeaderboardScreen from "./LeaderboardScreen";
 import ArenaScreen from "./ArenaScreen";
@@ -103,7 +106,7 @@ import { MARKETPLACE_MIN_LEVEL } from "../world/marketplace";
 import AdminScreen from "./AdminScreen";
 import BugReportScreen from "./BugReportScreen";
 import { getUnreadCount } from "../world/inbox";
-import { DUNGEON_MIN_LEVEL, describeOffer, formatTime, getBoard, getBoardRefreshMs, getRun, getStages, getTimeLeftMs, startDungeon } from "../world/dungeons";
+import { DUNGEON_MIN_LEVEL, DUNGEON_REROLL_COST, describeOffer, formatTime, getBoard, getBoardRefreshMs, getRun, getStages, getTimeLeftMs, rerollDungeons, startDungeon } from "../world/dungeons";
 /*
  Game screens. A scene picks one with `screen: "<key>"` (and optional `screenData`); the sidebar can
  also open the ones with `link: true` at any time. To add a screen, add an entry here.
@@ -111,7 +114,8 @@ import { DUNGEON_MIN_LEVEL, describeOffer, formatTime, getBoard, getBoardRefresh
    sidebarGroup - desktop navigation group; omitted for Admin and contextual screens at the end
    link      - always available from the sidebar (otherwise only enabled while a scene uses it)
    hideUnlessActive - hidden from the sidebar unless a scene is using it (highlighted when shown)
-   badge     - (player) => number, shown as a notification on the tab when above 0
+   badge     - (player) => number, shown as a count on the tab when above 0
+   notification - (player) => boolean, shown as a dot on the tab when true
    adminOnly - only shown to players listed under admins/{uid} in the database
    component - React component receiving { messages, data, player }
 */
@@ -146,26 +150,6 @@ const Log = ({ messages, limit, mobileLimit }) => {
     </div>
   );
 };
-
-const Bar = ({ label, value, max, color }) => (
-  <div className='bar'>
-    <div className='bar-label'>
-      <span>{label}</span>
-      <span>
-        {value}/{max}
-      </span>
-    </div>
-    <div className='bar-track'>
-      <div
-        className='bar-fill'
-        style={{
-          width: `${Math.max(0, Math.min(100, (value / max) * 100))}%`,
-          background: color,
-        }}
-      />
-    </div>
-  </div>
-);
 
 const AdventureScreen = ({ messages }) => <Log messages={messages} />;
 
@@ -223,7 +207,7 @@ const DungeonRunScreen = ({ messages, player }) => {
   );
 };
 
-const DungeonsScreen = ({ player, goToScene, inCombat }) => {
+const DungeonsScreen = ({ player, goToScene, inCombat, onChange }) => {
   const tab = "solo";
   const [error, setError] = useState("");
   const now = useNow();
@@ -237,6 +221,15 @@ const DungeonsScreen = ({ player, goToScene, inCombat }) => {
     }
     setError("");
     goToScene("dungeon");
+  };
+  const reroll = () => {
+    const result = rerollDungeons();
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    setError("");
+    onChange();
   };
   return (
     <div className='panel dungeons'>
@@ -253,6 +246,14 @@ const DungeonsScreen = ({ player, goToScene, inCombat }) => {
           <p className='dungeon-rules'>
             Three new dungeons appear every 30 minutes (next in {formatTime(getBoardRefreshMs())}). <br/>Once you enter, you cannot leave or visit town. You have 5 minutes to clear it.<br/>Running out of time fails the run and removes you from the dungeon.
           </p>
+          <button
+            type='button'
+            className='buttons dungeon-reroll'
+            disabled={!!run || inCombat || (player?.level || 1) < DUNGEON_MIN_LEVEL}
+            onClick={reroll}
+          >
+            Generate New Dungeons ({DUNGEON_REROLL_COST.toLocaleString()} astra)
+          </button>
           {run && <p className='dungeon-warning'>You are inside {run.name}. Time left: {formatTime(getTimeLeftMs(run))}. Use the Dungeon tab to continue.</p>}
           <div className='dungeon-offers' data-now={now}>
             {board?.offers.map((offer) => {
@@ -472,6 +473,10 @@ const CraftingScreen = ({ data, onChange }) => {
 const GearTraderScreen = ({ data, onChange }) => {
   const [tab, setTab] = useState("sellGear");
   const [note, setNote] = useState("");
+  const [selectedGear, setSelectedGear] = useState(null);
+  const [selectedGearToSell, setSelectedGearToSell] = useState([]);
+  const [selectedGemsToSell, setSelectedGemsToSell] = useState([]);
+  const [compareSelected, setCompareSelected] = useState(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const player = getPlayer() || data?.player || {};
@@ -481,8 +486,11 @@ const GearTraderScreen = ({ data, onChange }) => {
   const act = (action, index) => {
     const result = action(index);
     if (result.ok) {
+      setSelectedGearToSell([]);
+      setSelectedGemsToSell([]);
       setNote(`${result.item.name}: ${result.price ?? result.value} astra.`);
       refresh();
+      return true;
     } else {
       setNote(
         result.reason === "astra"
@@ -491,6 +499,7 @@ const GearTraderScreen = ({ data, onChange }) => {
             ? "Unfavorite that item in your inventory before selling it."
           : "That gear can no longer be traded.",
       );
+      return false;
     }
   };
 
@@ -519,25 +528,104 @@ const GearTraderScreen = ({ data, onChange }) => {
   );
   const buyback = player.gearTraderBuyback || [];
   const stock = getGearTraderStock(player);
+  const sellableGear = [
+    ...inventory.flatMap((item, index) =>
+      isFavorite(player, "gear", item)
+        ? []
+        : [{ key: `inventory:${index}:${getInventoryItemKey(item)}`, item }],
+    ),
+    ...equipped.flatMap(([slot, item]) =>
+      isFavorite(player, "gear", item)
+        ? []
+        : [{ key: `equipment:${slot}:${getInventoryItemKey(item)}`, item }],
+    ),
+  ];
+  const sellableGems = gemstones.flatMap((gemstone, index) =>
+    isFavorite(player, "gemstones", gemstone)
+      ? []
+      : [{ key: `${index}:${gemstone.id || JSON.stringify(gemstone)}`, gemstone }],
+  );
+  const sellableGearByKey = new Map(sellableGear.map((entry) => [entry.key, entry]));
+  const sellableGemsByKey = new Map(sellableGems.map((entry) => [entry.key, entry]));
+  const selectedGearKeys = selectedGearToSell.filter((key) => sellableGearByKey.has(key));
+  const selectedGemKeys = selectedGemsToSell.filter((key) => sellableGemsByKey.has(key));
+  const selectedGearValue = selectedGearKeys.reduce((total, key) => {
+    return total + (getSellPrice(sellableGearByKey.get(key).item) || 0);
+  }, 0);
+  const selectedGemsValue = selectedGemKeys.reduce((total, key) => {
+    return total + (getGemstoneValue(sellableGemsByKey.get(key).gemstone) || 0);
+  }, 0);
+  const sellSelectedGear = () => {
+    let count = 0;
+    let total = 0;
+    selectedGearKeys
+      .filter((key) => key.startsWith("inventory:"))
+      .map((key) => Number(key.slice("inventory:".length).split(":")[0]))
+      .sort((a, b) => b - a)
+      .forEach((index) => {
+        const result = sellInventoryItem(index);
+        if (result.ok) {
+          count++;
+          total += result.value;
+        }
+      });
+    selectedGearKeys
+      .filter((key) => key.startsWith("equipment:"))
+      .map((key) => key.slice("equipment:".length).split(":")[0])
+      .forEach((slot) => {
+        const result = sellEquippedItem(slot);
+        if (result.ok) {
+          count++;
+          total += result.value;
+        }
+      });
+    setSelectedGearToSell([]);
+    setNote(`${count} gear ${count === 1 ? "item" : "items"} sold for ${total} astra.`);
+    if (count) refresh();
+  };
+  const sellSelectedGems = () => {
+    let count = 0;
+    let total = 0;
+    [...selectedGemKeys]
+      .map((key) => Number(key.split(":")[0]))
+      .sort((a, b) => b - a)
+      .forEach((index) => {
+        const result = sellGemstone(index);
+        if (result.ok) {
+          count++;
+          total += result.value;
+        }
+      });
+    setSelectedGemsToSell([]);
+    setNote(`${count} ${count === 1 ? "gem" : "gems"} sold for ${total} astra.`);
+    if (count) refresh();
+  };
   const gearButton = (
     item,
     label,
     key,
-    onClick,
+    onTrade,
+    tradeLabel,
     unavailable = false,
     isEquipped = false,
+    canFavorite = false,
   ) => (
-    <Tooltip
-      key={key}
-      content={itemComparisonTooltip(item, label)}
-      openOnClick={unavailable}
-    >
+    <Tooltip key={key} content={itemTooltip(item)}>
       <button
         type='button'
-        className={`inventory-item ${isEquipped ? "equipped-gear" : ""} ${isFavorite(player, "gear", item) ? "favorite-item" : ""}`}
+        className={`inventory-item ${isEquipped ? "equipped-gear" : ""} ${canFavorite && isFavorite(player, "gear", item) ? "favorite-item" : ""}`}
         style={getHolofoilStyle(item)}
         aria-disabled={unavailable || undefined}
-        onClick={onClick}
+        onClick={() => {
+          setCompareSelected(false);
+          setSelectedGear({
+            item,
+            tradeLabel,
+            unavailable,
+            canFavorite,
+            onTrade,
+          });
+        }}
       >
         <strong style={{ color: RARITY_COLORS[item.rarity] }}>
           {item.name}
@@ -568,7 +656,12 @@ const GearTraderScreen = ({ data, onChange }) => {
             role='tab'
             aria-selected={tab === key}
             className={`inventory-tab ${tab === key ? "active" : ""}`}
-            onClick={() => setTab(key)}
+            onClick={() => {
+              setSelectedGear(null);
+              setSelectedGearToSell([]);
+              setSelectedGemsToSell([]);
+              setTab(key);
+            }}
           >
             {label}
           </button>
@@ -576,63 +669,169 @@ const GearTraderScreen = ({ data, onChange }) => {
       </div>
       {tab === "sellGear" && (
         <div className='gear-trader-list'>
+          <div className='gear-trader-bulk-actions'>
+            <button
+              type='button'
+              className='buttons'
+              onClick={() => setSelectedGearToSell(sellableGear.map(({ key }) => key))}
+              disabled={!sellableGear.length}
+            >
+              Select all sellable gear
+            </button>
+            <button
+              type='button'
+              className='buttons'
+              onClick={sellSelectedGear}
+              disabled={!selectedGearKeys.length}
+            >
+              Sell selected ({selectedGearKeys.length} • {selectedGearValue} astra)
+            </button>
+            <button
+              type='button'
+              className='buttons'
+              onClick={() => setSelectedGearToSell([])}
+              disabled={!selectedGearKeys.length}
+            >
+              Clear selection
+            </button>
+          </div>
           {!inventory.length && !equipped.length && (
             <div className='equip-empty'>You have no gear to sell.</div>
           )}
           <div className='inventory-list'>
-            {inventory.map((item, index) =>
-              gearButton(
-                item,
-                isFavorite(player, "gear", item) ? "Favorite • cannot sell " : `Sell for ${getSellPrice(item) ?? 0} astra • `,
-                item.id || `pack-${index}`,
-                () => act(sellInventoryItem, index),
-                isFavorite(player, "gear", item),
-              ),
-            )}
-            {equipped.map(([slot, item]) =>
-              gearButton(
-                item,
-                isFavorite(player, "gear", item) ? "Favorite • equipped, cannot sell " : `Sell for ${getSellPrice(item) ?? 0} astra • Equipped `,
-                item.id || slot,
-                () => {
-                  const result = sellEquippedItem(slot);
-                  if (result.ok) {
-                    setNote(`${result.item.name}: ${result.value} astra.`);
-                    refresh();
-                  } else {
-                    setNote(result.reason === "favorite"
-                      ? "Unfavorite that item in your inventory before selling it."
-                      : "That gear can no longer be traded.");
-                  }
-                },
-                isFavorite(player, "gear", item),
-                true,
-              ),
-            )}
+            {inventory.map((item, index) => {
+              const key = `inventory:${index}:${getInventoryItemKey(item)}`;
+              const favorite = isFavorite(player, "gear", item);
+              return (
+                <div className='gear-trader-selectable' key={item.id || `pack-${index}`}>
+                  <input
+                    type='checkbox'
+                    aria-label={`Select ${item.name} to sell`}
+                    checked={selectedGearKeys.includes(key)}
+                    disabled={favorite}
+                    onChange={() => setSelectedGearToSell((current) =>
+                      current.includes(key) ? current.filter((entry) => entry !== key) : [...current, key],
+                    )}
+                  />
+                  {gearButton(
+                    item,
+                    favorite ? "Favorite • cannot sell " : `Sell for ${getSellPrice(item) ?? 0} astra • `,
+                    item.id || `pack-${index}`,
+                    () => act(sellInventoryItem, index),
+                    "Sell",
+                    favorite,
+                    false,
+                    true,
+                  )}
+                </div>
+              );
+            })}
+            {equipped.map(([slot, item]) => {
+              const key = `equipment:${slot}:${getInventoryItemKey(item)}`;
+              const favorite = isFavorite(player, "gear", item);
+              return (
+                <div className='gear-trader-selectable' key={item.id || slot}>
+                  <input
+                    type='checkbox'
+                    aria-label={`Select equipped ${item.name} to sell`}
+                    checked={selectedGearKeys.includes(key)}
+                    disabled={favorite}
+                    onChange={() => setSelectedGearToSell((current) =>
+                      current.includes(key) ? current.filter((entry) => entry !== key) : [...current, key],
+                    )}
+                  />
+                  {gearButton(
+                    item,
+                    favorite ? "Favorite • equipped, cannot sell " : `Sell for ${getSellPrice(item) ?? 0} astra • Equipped `,
+                    item.id || slot,
+                    () => {
+                      const result = sellEquippedItem(slot);
+                      if (result.ok) {
+                        setSelectedGearToSell([]);
+                        setSelectedGemsToSell([]);
+                        setNote(`${result.item.name}: ${result.value} astra.`);
+                        refresh();
+                        return true;
+                      } else {
+                        setNote(result.reason === "favorite"
+                          ? "Unfavorite that item in your inventory before selling it."
+                          : "That gear can no longer be traded.");
+                        return false;
+                      }
+                    },
+                    "Sell",
+                    favorite,
+                    true,
+                    true,
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
       {tab === "sellGems" && (
         <div className='gear-trader-list'>
+          <div className='gear-trader-bulk-actions'>
+            <button
+              type='button'
+              className='buttons'
+              onClick={() => setSelectedGemsToSell(sellableGems.map(({ key }) => key))}
+              disabled={!sellableGems.length}
+            >
+              Select all sellable gems
+            </button>
+            <button
+              type='button'
+              className='buttons'
+              onClick={sellSelectedGems}
+              disabled={!selectedGemKeys.length}
+            >
+              Sell selected ({selectedGemKeys.length} • {selectedGemsValue} astra)
+            </button>
+            <button
+              type='button'
+              className='buttons'
+              onClick={() => setSelectedGemsToSell([])}
+              disabled={!selectedGemKeys.length}
+            >
+              Clear selection
+            </button>
+          </div>
           {!gemstones.length && (
             <div className='equip-empty'>You have no gems to sell.</div>
           )}
           <div className='inventory-list'>
-            {gemstones.map((gemstone, index) => (
-              <Tooltip key={gemstone.id || index} content={gemstoneTooltip(gemstone)}>
-                <button
-                  type='button'
-                  className={`inventory-item ${isFavorite(player, "gemstones", gemstone) ? "favorite-item" : ""}`}
-                  aria-disabled={isFavorite(player, "gemstones", gemstone) || undefined}
-                  onClick={() => act(sellGemstone, index)}
-                >
-                  <strong style={{ color: RARITY_COLORS[gemstone.rarity] }}>
-                    {gemstone.name}
-                  </strong>
-                  <span>{isFavorite(player, "gemstones", gemstone) ? "Favorite • cannot sell " : `Sell for ${getGemstoneValue(gemstone) ?? 0} astra`}</span>
-                </button>
-              </Tooltip>
-            ))}
+            {gemstones.map((gemstone, index) => {
+              const favorite = isFavorite(player, "gemstones", gemstone);
+              const key = `${index}:${gemstone.id || JSON.stringify(gemstone)}`;
+              return (
+                <div className='gear-trader-selectable' key={gemstone.id || index}>
+                  <input
+                    type='checkbox'
+                    aria-label={`Select ${gemstone.name} to sell`}
+                    checked={selectedGemKeys.includes(key)}
+                    disabled={favorite}
+                    onChange={() => setSelectedGemsToSell((current) =>
+                      current.includes(key) ? current.filter((entry) => entry !== key) : [...current, key],
+                    )}
+                  />
+                  <Tooltip content={gemstoneTooltip(gemstone)}>
+                    <button
+                      type='button'
+                      className={`inventory-item ${favorite ? "favorite-item" : ""}`}
+                      aria-disabled={favorite || undefined}
+                      onClick={() => act(sellGemstone, index)}
+                    >
+                      <strong style={{ color: RARITY_COLORS[gemstone.rarity] }}>
+                        {gemstone.name}
+                      </strong>
+                      <span>{favorite ? "Favorite • cannot sell " : `Sell for ${getGemstoneValue(gemstone) ?? 0} astra`}</span>
+                    </button>
+                  </Tooltip>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -650,6 +849,7 @@ const GearTraderScreen = ({ data, onChange }) => {
                 `Buy back for ${price} astra`,
                 item.id || `buyback-${index}`,
                 () => act(buyBackGear, index),
+                "Buy back",
                 (player.astra || 0) < price,
               ),
             )}
@@ -672,6 +872,7 @@ const GearTraderScreen = ({ data, onChange }) => {
                 `Buy for ${item.price} astra`,
                 item.id || `stock-${index}`,
                 () => act(buyGearTraderItem, index),
+                "Buy",
                 (player.astra || 0) < item.price,
               ),
             )}
@@ -680,13 +881,44 @@ const GearTraderScreen = ({ data, onChange }) => {
       )}
       <div className='recipe-note'>
         {note ||
-          "Hover over gear to inspect its stats, then click it to trade."}
+          "Click gear to inspect its stats and choose an action."}
       </div>
+      {selectedGear && (
+        <ItemPopup
+          item={selectedGear.item}
+          onClose={() => setSelectedGear(null)}
+          comparison={{ open: compareSelected, onToggle: () => setCompareSelected((open) => !open) }}
+          actions={[
+            ...(selectedGear.canFavorite ? [{
+              label: isFavorite(player, "gear", selectedGear.item) ? "Unfavorite" : "Favorite",
+              onClick: () => {
+                const result = toggleFavorite("gear", selectedGear.item);
+                if (result.ok) {
+                  setSelectedGear((current) => ({ ...current }));
+                  refresh();
+                }
+                else setNote(result.message);
+              },
+            }] : []),
+            {
+              label: selectedGear.tradeLabel,
+              disabled: selectedGear.canFavorite
+                ? isFavorite(player, "gear", selectedGear.item)
+                : selectedGear.unavailable,
+              onClick: () => {
+                if (selectedGear.onTrade()) setSelectedGear(null);
+              },
+            },
+          ]}
+        />
+      )}
     </div>
   );
 };
 
 const Equipment = ({ player, onChange, locked }) => {
+  const [selectedGear, setSelectedGear] = useState(null);
+  const [compareSelected, setCompareSelected] = useState(false);
   const equipment = player.equipment || {};
   return (
     <div className='equip-section'>
@@ -698,22 +930,18 @@ const Equipment = ({ player, onChange, locked }) => {
             const item = slotItem?.twoHandedOf
               ? equipment[slotItem.twoHandedOf]
               : slotItem;
-            const content = item
-              ? itemTooltip(
-                  item,
-                  locked ? "Can't change gear in combat" : "Click to unequip ",
-                )
-              : { title: slot.label, description: "Empty" };
             return (
-              <Tooltip key={slot.key} content={content}>
+              <Tooltip key={slot.key} content={item ? itemTooltip(item) : null}>
                 <button
                   type='button'
                   className={`equip-slot ${item ? "filled" : ""}`}
                   style={getHolofoilStyle(item)}
-                  disabled={!item || locked}
+                  disabled={!item}
                   onClick={() => {
-                    unequipItem(slot.key);
-                    onChange();
+                    if (item) {
+                      setCompareSelected(false);
+                      setSelectedGear({ item, slotKey: slot.key });
+                    }
                   }}
                 >
                   <span className='equip-slot-label'>{slot.label}</span>
@@ -731,6 +959,31 @@ const Equipment = ({ player, onChange, locked }) => {
           })}
         </div>
       </div>
+      {selectedGear && (
+        <ItemPopup
+          item={selectedGear.item}
+          onClose={() => setSelectedGear(null)}
+          comparison={{ open: compareSelected, onToggle: () => setCompareSelected((open) => !open) }}
+          actions={[
+            {
+              label: isFavorite(player, "gear", selectedGear.item) ? "Unfavorite" : "Favorite",
+              onClick: () => {
+                toggleFavorite("gear", selectedGear.item);
+                onChange();
+              },
+            },
+            {
+              label: "Unequip",
+              disabled: locked,
+              onClick: () => {
+                unequipItem(selectedGear.slotKey);
+                setSelectedGear(null);
+                onChange();
+              },
+            },
+          ]}
+        />
+      )}
     </div>
   );
 };
@@ -741,6 +994,7 @@ const INVENTORY_TABS = [
   { key: "gemstones", label: "Gemstones" },
   { key: "materials", label: "Materials" },
   { key: "keyItems", label: "Key Items" },
+  { key: "titles", label: "Titles" },
 ];
 
 const GEAR_SORTS = [
@@ -757,6 +1011,8 @@ const Inventory = ({ player, onChange, locked }) => {
   const [tab, setTab] = useState("gear");
   const [favoriteFilter, setFavoriteFilter] = useState("");
   const [favoriteMessage, setFavoriteMessage] = useState("");
+  const [selectedGear, setSelectedGear] = useState(null);
+  const [compareSelected, setCompareSelected] = useState(false);
   const matchesFavorite = (category, item) => !favoriteFilter ||
     isFavorite(player, category, item) === (favoriteFilter === "favorites");
   const favoriteOrder = (category, a, b) =>
@@ -764,15 +1020,6 @@ const Inventory = ({ player, onChange, locked }) => {
   const favoriteItems = (category, items) => items
     .filter((item) => matchesFavorite(category, item))
     .sort((a, b) => favoriteOrder(category, a, b));
-  const favoriteProps = (category, item) => ({
-    onContextMenu: (event) => {
-      event.preventDefault();
-      const result = toggleFavorite(category, item);
-      setFavoriteMessage(result.ok ? "" : result.message);
-      onChange();
-    },
-    title: isFavorite(player, category, item) ? "Right-click to unfavorite" : "Right-click to favorite",
-  });
   const favoriteClass = (category, item) => isFavorite(player, category, item) ? "favorite-item" : "";
   const [selectedGemstone, setSelectedGemstone] = useState(null);
   const [gemstoneMessage, setGemstoneMessage] = useState("");
@@ -783,6 +1030,8 @@ const Inventory = ({ player, onChange, locked }) => {
   const [selectedRune, setSelectedRune] = useState(null);
   const [runeItemId, setRuneItemId] = useState("");
   const [runeStat, setRuneStat] = useState("");
+  const [selectedAlloy, setSelectedAlloy] = useState(false);
+  const [alloyItemId, setAlloyItemId] = useState("");
   const [renamingItem, setRenamingItem] = useState(false);
   const [renameItemId, setRenameItemId] = useState("");
   const [newItemName, setNewItemName] = useState("");
@@ -871,15 +1120,18 @@ const Inventory = ({ player, onChange, locked }) => {
     gemstones: gemstones.length,
     materials: materials.reduce((n, m) => n + m.count, 0),
     keyItems: keyItems.length,
+    titles: (player.titles || []).filter((id) => TITLES[id]).length,
   };
+  const titles = [...new Set((player.titles || []).filter((id) => TITLES[id]))];
   const use = (key) => {
     markInventoryItemViewed("consumables", key);
     const result = drinkConsumable(key);
     setConsumableMessage(result.message);
-    if (result.requiresNameChange || result.requiresItemRename || result.requiresRune) {
+    if (result.requiresNameChange || result.requiresItemRename || result.requiresRune || result.requiresHolofoilReroll) {
       setRenaming(false);
       setRenamingItem(false);
       setSelectedRune(null);
+      setSelectedAlloy(false);
     }
     if (result.requiresNameChange) {
       setNewName("");
@@ -895,12 +1147,20 @@ const Inventory = ({ player, onChange, locked }) => {
       setRuneItemId("");
       setRuneStat("");
     }
+    if (result.requiresHolofoilReroll) {
+      setSelectedAlloy(true);
+      setAlloyItemId("");
+    }
     onChange();
   };
   const runeTargets = [
     ...gear,
     ...Object.values(player.equipment || {}),
   ].filter(canApplyRune);
+  const alloyTargets = [
+    ...gear,
+    ...Object.values(player.equipment || {}),
+  ].filter(canApplyPrismaticAlloy);
   const renameTargets = [...gear, ...Object.values(player.equipment || {})].filter(canRenameItem);
   const renameGear = (e) => {
     e.preventDefault();
@@ -911,6 +1171,15 @@ const Inventory = ({ player, onChange, locked }) => {
     onChange();
   };
   const runeTarget = runeTargets.find((item) => item.id === runeItemId);
+  const alloyTarget = alloyTargets.find((item) => item.id === alloyItemId);
+  const applyAlloy = (e) => {
+    e.preventDefault();
+    if (locked) return;
+    const result = applyPrismaticAlloy(alloyItemId);
+    setConsumableMessage(result.message);
+    if (result.ok) setSelectedAlloy(false);
+    onChange();
+  };
   const craftWithRune = (e) => {
     e.preventDefault();
     if (locked) return;
@@ -989,7 +1258,10 @@ const Inventory = ({ player, onChange, locked }) => {
               role='tab'
               aria-selected={tab === t.key}
               className={`inventory-tab ${tab === t.key ? "active" : ""}`}
-              onClick={() => setTab(t.key)}
+              onClick={() => {
+                setSelectedGear(null);
+                setTab(t.key);
+              }}
             >
               {t.label}
               {player.unseenInventoryItems?.[t.key]?.length > 0 && (
@@ -1000,14 +1272,14 @@ const Inventory = ({ player, onChange, locked }) => {
             </button>
           ))}
         </div>
-        <p className='recipe-kind'>Right-click an item to favorite or unfavorite it. Favorites cannot be sold.</p>
-        <select className='input-field inventory-favorite-filter' aria-label='Filter favorites' value={favoriteFilter} onChange={(event) => setFavoriteFilter(event.target.value)}>
+        {tab !== "titles" && <p className='recipe-kind'>Select gear to inspect its details and choose an action.</p>}
+        {tab !== "titles" && <select className='input-field inventory-favorite-filter' aria-label='Filter favorites' value={favoriteFilter} onChange={(event) => setFavoriteFilter(event.target.value)}>
           <option value=''>All items</option>
           <option value='favorites'>Favorites only</option>
           <option value='nonFavorites'>Non-favorites only</option>
-        </select>
+        </select>}
         {favoriteMessage && <div role='status'>{favoriteMessage}</div>}
-        {favoriteFilter && !({
+        {tab !== "titles" && favoriteFilter && !({
           gear,
           consumables,
           gemstones,
@@ -1015,6 +1287,30 @@ const Inventory = ({ player, onChange, locked }) => {
           keyItems,
         }[tab]).some((item) => matchesFavorite(tab, item)) && (
           <div className='equip-empty'>No items match this favorites filter.</div>
+        )}
+        {tab === "titles" && (
+          <div className='inventory-list'>
+            {!titles.length && <div className='equip-empty'>You have no titles yet. Titles can be claimed from mail.</div>}
+            {titles.map((id) => {
+              const title = TITLES[id];
+              const equipped = player.activeTitle === id;
+              return (
+                <button
+                  key={id}
+                  type='button'
+                  className={`inventory-item ${equipped ? "equipped-title" : ""}`}
+                  aria-pressed={equipped}
+                  onClick={() => {
+                    setPlayer({ activeTitle: equipped ? null : id });
+                    onChange();
+                  }}
+                >
+                  <strong style={{ color: title.color }}>{title.name}</strong>
+                  <span>{title.rarity} title{equipped ? " · Equipped (click to unequip)" : " · Click to equip"}</span>
+                </button>
+              );
+            })}
+          </div>
         )}
         {tab === "gear" && (
           <>
@@ -1084,28 +1380,16 @@ const Inventory = ({ player, onChange, locked }) => {
                 <div className='equip-empty'>No gear matches these filters.</div>
               )}
               {sortedGear.map(({ item, index }) => (
-                <Tooltip
-                  key={item.id || index}
-                  onView={() => viewItem("gear", getInventoryItemKey(item))}
-                  content={() =>
-                    itemComparisonTooltip(
-                      item,
-                      locked
-                        ? "Can't change gear in combat"
-                        : "Click to equip ",
-                    )
-                  }
-                >
+                <Tooltip key={item.id || index} content={itemTooltip(item)}>
                   <button
                     type='button'
-                    disabled={locked}
                     className={`inventory-item ${canEquip(item, player.level) ? "" : "too-high"} ${favoriteClass("gear", item)}`}
                     style={getHolofoilStyle(item)}
-                    {...favoriteProps("gear", item)}
                     onClick={() => {
                       markInventoryItemViewed("gear", getInventoryItemKey(item));
-                      equipItem(index);
                       onChange();
+                      setCompareSelected(false);
+                      setSelectedGear({ item, index });
                     }}
                   >
                     {isNew("gear", getInventoryItemKey(item)) && (
@@ -1143,6 +1427,21 @@ const Inventory = ({ player, onChange, locked }) => {
                 {!runeTargets.length && <p>You have no eligible items. Crafted items cannot receive runes.</p>}
                 <button type='submit' className='buttons' disabled={locked || !runeTarget || !runeStat}>Apply rune</button>
                 <button type='button' className='buttons' onClick={() => setSelectedRune(null)}>Cancel</button>
+              </form>
+            )}
+            {selectedAlloy && (
+              <form className='input-form item-input-form' onSubmit={applyAlloy}>
+                <label>
+                  Item to apply the alloy to
+                  <select className='input-field' value={alloyItemId} disabled={locked} onChange={(e) => setAlloyItemId(e.target.value)}>
+                    <option value=''>Choose an item</option>
+                    {alloyTargets.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                </label>
+                <p>Applies a random Holofoil or rerolls the colors and effect on an existing Holofoil.</p>
+                {!alloyTargets.length && <p>You have no equipment items to apply the alloy to.</p>}
+                <button type='submit' className='buttons' disabled={locked || !alloyTarget}>Apply alloy</button>
+                <button type='button' className='buttons' onClick={() => setSelectedAlloy(false)}>Cancel</button>
               </form>
             )}
             {renamingItem && (
@@ -1191,7 +1490,6 @@ const Inventory = ({ player, onChange, locked }) => {
                     type='button'
                     disabled={locked || savingName}
                     className={`inventory-item ${favoriteClass("consumables", c)}`}
-                    {...favoriteProps("consumables", c)}
                     onClick={() => use(c.key)}
                   >
                     {isNew("consumables", c.key) && (
@@ -1231,7 +1529,6 @@ const Inventory = ({ player, onChange, locked }) => {
                       <button
                         type='button'
                         className={`inventory-item ${selectedGemstone === gemstone.id ? "gemstone-selected" : ""} ${favoriteClass("gemstones", gemstone)}`}
-                        {...favoriteProps("gemstones", gemstone)}
                         disabled={locked}
                         onClick={() => {
                           markInventoryItemViewed("gemstones", gemstone.id);
@@ -1299,7 +1596,7 @@ const Inventory = ({ player, onChange, locked }) => {
                   onView={() => viewItem("materials", m.key)}
                   content={materialTooltip(m.key, m.count)}
                 >
-                  <div className={`inventory-item ${favoriteClass("materials", m)}`} {...favoriteProps("materials", m)}>
+                  <div className={`inventory-item ${favoriteClass("materials", m)}`}>
                     {isNew("materials", m.key) && (
                       <span className='inventory-new-dot' aria-label='New item' />
                     )}
@@ -1324,7 +1621,7 @@ const Inventory = ({ player, onChange, locked }) => {
                   onView={() => viewItem("keyItems", k.key)}
                   content={keyItemTooltip(k.key)}
                 >
-                  <div className={`inventory-item ${favoriteClass("keyItems", k)}`} {...favoriteProps("keyItems", k)}>
+                  <div className={`inventory-item ${favoriteClass("keyItems", k)}`}>
                     {isNew("keyItems", k.key) && (
                       <span className='inventory-new-dot' aria-label='New item' />
                     )}
@@ -1336,47 +1633,34 @@ const Inventory = ({ player, onChange, locked }) => {
           </>
         )}
       </div>
+      {selectedGear && tab === "gear" && (
+        <ItemPopup
+          item={selectedGear.item}
+          onClose={() => setSelectedGear(null)}
+          comparison={{ open: compareSelected, onToggle: () => setCompareSelected((open) => !open) }}
+          actions={[
+            {
+              label: isFavorite(player, "gear", selectedGear.item) ? "Unfavorite" : "Favorite",
+              onClick: () => {
+                const result = toggleFavorite("gear", selectedGear.item);
+                setFavoriteMessage(result.ok ? "" : result.message);
+                onChange();
+              },
+            },
+            {
+              label: "Equip",
+              disabled: locked || !canEquip(selectedGear.item, player.level),
+              onClick: () => {
+                const result = equipItem(selectedGear.index);
+                if (result.ok) setSelectedGear(null);
+                onChange();
+              },
+            },
+          ]}
+        />
+      )}
     </div>
   );
-};
-
-const formatStatValue = (v, format, signed) => {
-  const n =
-    format === "percent"
-      ? `${Math.round(Math.abs(v) * 1000) / 10}%`
-      : Math.round(Math.abs(v) * 1000) / 1000;
-  return signed ? `${v < 0 ? "-" : "+"}${n}` : `${v < 0 ? "-" : ""}${n}`;
-};
-
-// Tooltip for a stat row: what it does, the formula, and the live calculation lines. A row can cover several keys (e.g. min/max).
-const statTooltip = (breakdown, keys) => {
-  const sections = keys
-    .map((key) => {
-      const info = STAT_INFO[key];
-      const b = breakdown[key];
-      if (!info || !b) return null;
-      return {
-        title: keys.length > 1 ? info.title : undefined,
-        description: keys.length > 1 ? undefined : info.description,
-        stats: [
-          ...b.lines.map((l, i) => ({
-            label: l.label,
-            value: formatStatValue(l.value, b.format, i > 0),
-          })),
-          {
-            label: "Total",
-            value: formatStatValue(b.total, b.format),
-            color: "#ffd479",
-          },
-        ],
-        footer: info.formula,
-      };
-    })
-    .filter(Boolean);
-  if (!sections.length) return null;
-  if (sections.length === 1)
-    return { title: STAT_INFO[keys[0]].title, ...sections[0] };
-  return { description: STAT_INFO[keys[0]].description, sections };
 };
 
 const CharacterScreen = ({ player: initial, inCombat, onChange }) => {
@@ -1386,69 +1670,10 @@ const CharacterScreen = ({ player: initial, inCombat, onChange }) => {
     onChange?.();
   };
   if (!player) return <div className='panel'>No character yet.</div>;
-  const s = player.stats || {};
-  const rows = [
-    ["Attack", `${s.attackMin}-${s.attackMax}`, ["attackMin", "attackMax"]],
-    ["Defense", s.defense, ["defense"]],
-    [
-      "Magic attack",
-      `${s.magicAttackMin}-${s.magicAttackMax}`,
-      ["magicAttackMin", "magicAttackMax"],
-    ],
-    ["Strength", s.strength, ["strength"]],
-    ["Dexterity", s.dexterity, ["dexterity"]],
-    ["Intelligence", s.intelligence, ["intelligence"]],
-    ["Vitality", s.vitality, ["vitality"]],
-    ["Agility", s.agility, ["agility"]],
-    ["Resilience", s.resilience, ["resilience"]],
-    [
-      "Critical damage",
-      `${Math.round((s.criticalDamageBonus || 0) * 100)}%`,
-      ["criticalDamageBonus"],
-    ],
-    ["Evasion", `${Math.round((s.evasion || 0) * 100)}%`, ["evasion"]],
-    ["Luck", s.luck, ["luck"]],
-    [
-      "Critical chance",
-      `${Math.round((s.criticalHitChance || 0) * 100)}%`,
-      ["criticalHitChance"],
-    ],
-    ["Speed", s.speed, ["speed"]],
-    ["Gear score", s.gearScore || 0, ["gearScore"]],
-  ];
-  const breakdown = getStatBreakdown(player);
   return (
     <div className='panel character-layout'>
       <div className='character-main'>
-        <h2>
-          {player.name} the {player.class}, Level {player.level}
-        </h2>
-        <h3>
-          Experience {s.exp}/{s.expToLevel}
-        </h3>
-        <Bar
-          label='Health'
-          value={s.health}
-          max={s.maxHealth}
-          color='#1e8449'
-        />
-        <Bar
-          label='Stamina'
-          value={s.stamina}
-          max={s.maxStamina}
-          color='#b7791f'
-        />
-        <Bar label='Power' value={s.power} max={s.maxPower} color='#1f5fbf' />
-        <div className='stat-grid'>
-          {rows.map(([k, v, keys]) => (
-            <Tooltip key={k} content={statTooltip(breakdown, keys)}>
-              <div className='stat-row'>
-                <span>{k}</span>
-                <span>{v}</span>
-              </div>
-            </Tooltip>
-          ))}
-        </div>
+        <CharacterSummary player={player} />
         <Equipment player={player} onChange={refresh} locked={inCombat} />
       </div>
       <Inventory player={player} onChange={refresh} locked={inCombat} />
@@ -1491,6 +1716,8 @@ const RespecButton = ({ player, inCombat, refundable, label, onClick }) => {
   );
 };
 
+const STAT_POINT_AMOUNTS = [1, 5, 10];
+
 const StatsTab = ({ player, inCombat, onSpend, onRespec }) => {
   const statPoints = player.statPoints || 0;
   const breakdown = getStatBreakdown(player);
@@ -1512,14 +1739,20 @@ const StatsTab = ({ player, inCombat, onSpend, onRespec }) => {
               <span>{label}</span>
               <span>
                 {player.stats?.[key]}{" "}
-                <button
-                  type='button'
-                  className='spend-button'
-                  disabled={inCombat || statPoints < 1}
-                  onClick={() => onSpend(key)}
-                >
-                  +
-                </button>
+                <span className='spend-buttons'>
+                  {STAT_POINT_AMOUNTS.map((amount) => (
+                    <button
+                      key={amount}
+                      type='button'
+                      className='spend-button'
+                      aria-label={`Add ${amount} ${label}`}
+                      disabled={inCombat || statPoints < amount}
+                      onClick={() => onSpend(key, amount)}
+                    >
+                      +{amount}
+                    </button>
+                  ))}
+                </span>
               </span>
             </div>
           </Tooltip>
@@ -1645,8 +1878,8 @@ const ProgressionScreen = ({ player: initial, inCombat, onChange }) => {
     setPlayerState(getPlayer());
     onChange?.();
   };
-  const spend = (key) => {
-    if (spendStatPoint(key).ok) refresh();
+  const spend = (key, amount) => {
+    if (spendStatPoint(key, amount).ok) refresh();
   };
   const pending = {
     points: player.statPoints || 0,
@@ -1857,7 +2090,16 @@ export const SCREENS = {
   adventure: { label: "Adventure", sidebarGroup: "adventure", link: true, component: AdventureScreen },
   dungeons: { label: "Dungeons", sidebarGroup: "adventure", link: true, minLevel: DUNGEON_MIN_LEVEL, component: DungeonsScreen },
   arena: { label: "Arena", sidebarGroup: "adventure", link: true, component: ArenaScreen },
-  character: { label: "Character", sidebarGroup: "character", link: true, component: CharacterScreen },
+  character: {
+    label: "Character",
+    sidebarGroup: "character",
+    link: true,
+    component: CharacterScreen,
+    notification: (p) =>
+      ["gear", "consumables", "gemstones"].some(
+        (category) => p.unseenInventoryItems?.[category]?.length > 0,
+      ),
+  },
   progression: {
     label: "Progression",
     sidebarGroup: "character",

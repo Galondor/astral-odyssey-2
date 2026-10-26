@@ -30,18 +30,104 @@
 */
 
 export const UNIQUES = {
-  maldrathPhylactery: { id: "maldrathPhylactery", name: "Maldrath's Phylactery", slot: "necklace", stat: "intelligence", ability: "Undying Hunger", subStats: ["vitality", "luck", "magicAttackMax", "criticalDamage", "agility"] },
-  kessikBulwark: { id: "kessikBulwark", name: "Kessik's Ribcage Bulwark", slot: "chestplate", stat: "strength", ability: "Marrow Ward", subStats: ["vitality", "resilience", "agility", "luck"] },
-  hoardkingAxe: { id: "hoardkingAxe", name: "Hoardking's Plunderaxe", slot: "weapon", stat: "strength", twoHanded: true, ability: "Plunder", subStats: ["attackMin", "attackMax", "criticalDamage", "luck", "vitality"] },
-  zugRing: { id: "zugRing", name: "Zug's Lucky Sigil", slot: "ring", stat: "intelligence", ability: "Fortune's Spark", subStats: ["luck", "magicAttackMin", "magicAttackMax", "criticalDamage", "agility"] },
-  slagheartGauntlets: { id: "slagheartGauntlets", name: "Slagheart Gauntlets", slot: "gauntlets", stat: "strength", ability: "Molten Grip", subStats: ["attackMin", "attackMax", "vitality", "criticalDamage", "resilience"] },
-  ulduGreaves: { id: "ulduGreaves", name: "Uldra's Anvilplate Greaves", slot: "legs", stat: "strength", ability: "Tempered Steel", subStats: ["resilience", "vitality", "agility", "luck"] },
-  rimeHelm: { id: "rimeHelm", name: "Rimebound Greathelm", slot: "helmet", stat: "strength", ability: "Frozen Resolve", subStats: ["vitality", "resilience", "luck", "agility"] },
-  ysoldeRapier: { id: "ysoldeRapier", name: "Ysolde's Glacial Rapier", slot: "weapon", stat: "dexterity", ability: "Glacial Edge", subStats: ["attackMin", "attackMax", "criticalDamage", "agility", "luck"] },
-  verdessaBoots: { id: "verdessaBoots", name: "Verdessa's Rootstriders", slot: "boots", stat: "dexterity", ability: "Rootstride", subStats: ["agility", "vitality", "resilience", "luck"] },
-  heartwoodStaff: { id: "heartwoodStaff", name: "Heartwood Staff of Decay", slot: "weapon", stat: "intelligence", twoHanded: true, ability: "Bloom of Decay", subStats: ["magicAttackMin", "magicAttackMax", "criticalDamage", "vitality", "luck"] },
-  valeOrrery: { id: "valeOrrery", name: "Vael's Pocket Orrery", slot: "offhand", stat: "intelligence", ability: "Orbital Focus", subStats: ["resilience", "vitality", "agility", "luck"] },
-  cartographerSigil: { id: "cartographerSigil", name: "Cartographer's Starbound Band", slot: "ring", stat: "dexterity", ability: "Star-Charted", subStats: ["agility", "attackMin", "attackMax", "criticalDamage", "luck"] },
+  maldrathPhylactery: { 
+    id: "maldrathPhylactery",
+    name: "Maldrath's Phylactery",
+    slot: "necklace",
+    stat: "intelligence",
+    ability: "Undying Hunger",
+    subStats: ["maxPower", "speed", "criticalDamage", "magicAttackPercent", "luck", "agility"]
+  },
+  kessikBulwark: { 
+    id: "kessikBulwark",
+    name: "Kessik's Ribcage Bulwark",
+    slot: "chestplate",
+    stat: "strength",
+    ability: "Marrow Ward",
+    subStats: ["defense", "resilience", "vitality", "agility", "luck", "attackPercent"]
+  },
+  hoardkingAxe: { 
+    id: "hoardkingAxe",
+    name: "Hoardking's Plunderaxe",
+    slot: "weapon",
+    stat: "strength",
+    twoHanded: true,
+    ability: "Plunder",
+    subStats: ["maxPower", "attackMin", "attackMax", "criticalDamage", "attackPercent", "magicAttackPercent"]
+  },
+  zugRing: { 
+    id: "zugRing",
+    name: "Zug's Lucky Sigil",
+    slot: "ring",
+    stat: "intelligence",
+    ability: "Fortune's Spark",
+    subStats: ["maxPower", "speed", "criticalDamage", "magicAttackPercent", "luck", "vitality"]
+  },
+  slagheartGauntlets: { 
+    id: "slagheartGauntlets",
+    name: "Slagheart Gauntlets",
+    slot: "gauntlets",
+    stat: "strength",
+    ability: "Molten Grip",
+    subStats: ["defense", "attackMin", "attackMax", "criticalDamage", "attackPercent", "resilience"]
+  },
+  ulduGreaves: { 
+    id: "ulduGreaves",
+    name: "Uldra's Anvilplate Greaves",
+    slot: "legs",
+    stat: "strength",
+    ability: "Tempered Steel",
+    subStats: ["resilience", "vitality", "agility", "luck", "attackPercent", "magicAttackPercent"]
+  },
+  rimeHelm: { 
+    id: "rimeHelm",
+    name: "Rimebound Greathelm",
+    slot: "helmet",
+    stat: "strength",
+    ability: "Frozen Resolve",
+    subStats: ["resilience", "vitality", "agility", "luck", "attackPercent", "magicAttackPercent"]
+  },
+  ysoldeRapier: { 
+    id: "ysoldeRapier",
+    name: "Ysolde's Glacial Rapier",
+    slot: "weapon",
+    stat: "dexterity",
+    ability: "Glacial Edge",
+    subStats: ["attackMin", "attackMax", "magicAttackMin", "magicAttackMax", "attackPercent", "magicAttackPercent"]
+  },
+  verdessaBoots: { 
+    id: "verdessaBoots",
+    name: "Verdessa's Rootstriders",
+    slot: "boots",
+    stat: "dexterity",
+    ability: "Rootstride",
+    subStats: ["resilience", "vitality", "agility", "luck", "attackPercent", "magicAttackPercent"]
+  },
+  heartwoodStaff: { 
+    id: "heartwoodStaff",
+    name: "Heartwood Staff of Decay",
+    slot: "weapon",
+    stat: "intelligence",
+    twoHanded: true,
+    ability: "Bloom of Decay",
+    subStats: ["maxPower", "magicAttackMin", "magicAttackMax", "criticalDamage", "attackPercent", "magicAttackPercent"]
+  },
+  valeOrrery: { 
+    id: "valeOrrery",
+    name: "Vael's Pocket Orrery",
+    slot: "offhand",
+    stat: "intelligence",
+    ability: "Orbital Focus",
+    subStats: ["speed", "resilience", "vitality", "agility", "luck", "magicAttackPercent"]
+  },
+  cartographerSigil: { 
+    id: "cartographerSigil",
+    name: "Cartographer's Starbound Band",
+    slot: "ring",
+    stat: "dexterity",
+    ability: "Star-Charted",
+    subStats: ["maxPower", "defense", "speed", "criticalDamage", "attackPercent", "magicAttackPercent"]
+  }
 };
 
 const stun = (chance) => ({ id: "stun", chance });

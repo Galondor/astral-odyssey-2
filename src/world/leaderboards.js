@@ -8,6 +8,7 @@ let cache = null;
 let loading = null;
 const publishing = new Map();
 const publishedAt = new Map();
+const publishedTitle = new Map();
 
 const readStored = (key) => {
   try {
@@ -31,6 +32,7 @@ const isFresh = (timestamp) =>
 
 export const buildLeaderboardEntry = (player) => ({
   name: player.name,
+  ...(player.activeTitle ? { activeTitle: player.activeTitle } : {}),
   level: player.level || 1,
   gearScore: player.stats?.gearScore || 0,
   astra: (player.astra || 0) + (player.bank?.balance || 0),
@@ -41,17 +43,25 @@ export const publishLeaderboardEntry = (uid, player) => {
   if (!player?.name) return Promise.resolve();
   if (publishing.has(uid)) return publishing.get(uid);
   const last = publishedAt.get(uid) ?? readStored(PROFILE_KEY + uid);
-  if (isFresh(last)) return Promise.resolve();
+  if (isFresh(last) && publishedTitle.get(uid) === player.activeTitle) return Promise.resolve();
   const entry = buildLeaderboardEntry(player);
   const pending = runTransaction(ref(db, `leaderboardEntries/${uid}`), (current) => {
-    if (current && isFresh(current.updatedAt)) return undefined;
+    if (current && isFresh(current.updatedAt) && current.activeTitle === entry.activeTitle) return undefined;
     return { ...entry, updatedAt: serverTimestamp() };
   }, { applyLocally: false })
     .then(({ snapshot }) => {
       const timestamp = snapshot.val()?.updatedAt;
       if (!Number.isFinite(timestamp)) throw new Error("Leaderboard publication returned no timestamp.");
       publishedAt.set(uid, timestamp);
+      publishedTitle.set(uid, snapshot.val()?.activeTitle);
       store(PROFILE_KEY + uid, timestamp);
+      const cached = cache || readStored(CACHE_KEY);
+      if (cached?.entries?.[uid]) {
+        if (player.activeTitle) cached.entries[uid].activeTitle = player.activeTitle;
+        else delete cached.entries[uid].activeTitle;
+        cache = cached;
+        store(CACHE_KEY, cache);
+      }
     })
     .finally(() => publishing.delete(uid));
   publishing.set(uid, pending);

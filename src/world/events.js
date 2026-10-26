@@ -1,4 +1,9 @@
-import { collapse, startCombat } from "../combat/combat";
+import {
+  collapse,
+  getEnemy,
+  startCombat,
+  takeOpeningReplies,
+} from "../combat/combat";
 import { getRandomEnemy, hasEnemy } from "../combat/enemies";
 import { addConsumable, getKeyItemEffect } from "../items/consumables";
 import { MATERIALS, addMaterial, getMaterials, spendMaterials } from "../items/materials";
@@ -81,6 +86,7 @@ function startFight(tier, { player, region }, { enemyId, enemyFirst } = {}) {
   const enemy = getRandomEnemy(tier, region, playerLevel(player), player.stats?.gearScore || 0, enemyId);
   if (!enemy) return { reply: "There are no enemies in this region.", next: "menu" };
   startCombat(enemy, { enemyFirst });
+  if (!getEnemy()) return { reply: takeOpeningReplies(), next: "menu" };
   return { next: "combat" };
 }
 
@@ -94,7 +100,11 @@ const fleeOption = (tier, ctx, label = "Flee", n = 2, opts) =>
     () => {
       const current = getPlayer() || ctx.player;
       if (chance(getFleeChance(current))) return { reply: "You slip away.", next: "menu" };
-      return { ...startFight(tier, ctx, { ...opts, enemyFirst: true }), reply: "You fail to escape!" };
+      const result = startFight(tier, ctx, { ...opts, enemyFirst: true });
+      return {
+        ...result,
+        reply: ["You fail to escape!", ...[].concat(result.reply || [])],
+      };
     },
     {
       tooltip: () => {

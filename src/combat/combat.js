@@ -1,13 +1,13 @@
 import { getPlayer, setPlayer } from "../character/player";
 import { generateRandomGemstone, generateRandomSlotItem } from "../items/items";
-import { applyConsumable, getKeyItemEffect, ITEM_CERTIFICATE_DROP_CHANCE } from "../items/consumables";
+import { applyConsumable, getKeyItemEffect, ITEM_CERTIFICATE_DROP_CHANCE, PRISMATIC_ALLOY_DROP_CHANCE } from "../items/consumables";
 import {
   SKILLS,
   getSkillLevel,
   skillCost,
   skillMultiplier,
 } from "../character/skills";
-import { gainExp } from "../character/stats";
+import { gainExp, MAX_PLAYER_CHANCE } from "../character/stats";
 import { getAbilityTotals } from "./abilities";
 import {
   STATUSES,
@@ -285,7 +285,7 @@ const chooseEnemyAction = (wasDefending) => {
 // One enemy strike against the player. Returns the damage dealt, or 0 if it was evaded/parried.
 function enemyStrike(s, replies, ability) {
   const used = ability ? `uses ${ability.name}` : null;
-  if (Math.random() < (s.evasion || 0)) {
+  if (Math.random() < Math.min(MAX_PLAYER_CHANCE, s.evasion || 0)) {
     replies.push(
       used
         ? `The ${enemy.name} ${used}, but you evade it!`
@@ -522,6 +522,12 @@ function winCombat(p, s, replies, patch) {
       );
     }
   }
+  if (Math.random() < PRISMATIC_ALLOY_DROP_CHANCE) {
+    const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
+    consumables.prismaticAlloy = (consumables.prismaticAlloy || 0) + 1;
+    patch.consumables = consumables;
+    replies.push(`The ${enemy.name} dropped a {{Prismatic Alloy|consumable:prismaticAlloy}}!`);
+  }
   if (Math.random() < 0.08 + luckBonus) {
     const gemstone = generateRandomGemstone();
     patch.gemstones = [...(p.gemstones || []), gemstone];
@@ -643,7 +649,10 @@ export function attackRound(type, skillKey) {
   const rhythm =
     cls === "Tactician" ? Math.min(RHYTHM_MAX, fight.combo * RHYTHM_CRIT) : 0;
   const critChance =
-    (s.criticalHitChance || 0) + (skill?.critBonus?.(ctx) || 0) + rhythm;
+    Math.min(
+      MAX_PLAYER_CHANCE,
+      (s.criticalHitChance || 0) + (skill?.critBonus?.(ctx) || 0) + rhythm,
+    );
   if (Math.random() < critChance) {
     hit *= s.criticalDamageBonus;
     ctx.crit = true;

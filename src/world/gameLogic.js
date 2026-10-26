@@ -115,7 +115,11 @@ export const scenes = {
               crafted: {},
               baseStats: { strength, dexterity, intelligence },
               bonusStats: {},
-              inventory: createStarterInventory(),
+              inventory: createStarterInventory({
+                strength,
+                dexterity,
+                intelligence,
+              }),
               equipment: {},
             },
           ),

@@ -4,7 +4,9 @@ import { getEnemy } from "../combat/combat";
 import { ABILITIES, UNIQUE_ABILITIES, findAbility } from "../combat/abilities";
 import { getItemGearScore } from "./gearScore";
 import { isFavorite } from "./favorites";
-import { getHolofoilStyle, rollHolofoil } from "./holofoil";
+import { getHolofoilStyle, rollHolofoil, validateHolofoil } from "./holofoil";
+import { RARITY_COLORS } from "./rarities";
+export { RARITY_COLORS } from "./rarities";
 
 /*
  Equipment and inventory.
@@ -14,7 +16,7 @@ import { getHolofoilStyle, rollHolofoil } from "./holofoil";
  A two-handed weapon is stored in equipment.mainHand and a placeholder { twoHandedOf: "mainHand", name, rarity } in equipment.offHand.
  Equipped item stats are added directly onto player.stats when equipped and removed when unequipped.
  Fixed items live in ITEMS as templates (same shape, no id/iLevel); use createItem(templateKey) to get an instance.
- Newly generated equipment has a 1% holofoil chance; `holofoil` stores its two permanent #RRGGBB gradient colors.
+ Newly generated equipment has a 1% holofoil chance; `holofoil` stores its permanent #RRGGBB colors and `holofoilEffect` its rolled visual effect.
 */
 export const SLOTS = [
   { key: "mainHand", label: "Main Hand", type: "weapon" },
@@ -27,21 +29,11 @@ export const SLOTS = [
   { key: "necklace", label: "Necklace", type: "necklace" },
   { key: "ring1", label: "Ring 1", type: "ring" },
   { key: "ring2", label: "Ring 2", type: "ring" },
-
 ];
 
 export const ITEMS = {};
 
 export const STARTER_ITEMS = [];
-
-export const RARITY_COLORS = {
-  Common: "#b0b0b0",
-  Uncommon: "#1eff00",
-  Rare: "#0070dd",
-  Epic: "#a335ee",
-  Legendary: "#ff8000",
-  Unique: "#ff2a2a",
-};
 
 // T0 (common gray) up to T7 (red)
 export const TIER_COLORS = [
@@ -73,7 +65,30 @@ export const createItem = (key) => {
   };
 };
 
-export const createStarterInventory = () => [];
+export const createStarterInventory = (baseStats = {}) => {
+  const highest = Math.max(
+    baseStats.strength || 0,
+    baseStats.dexterity || 0,
+    baseStats.intelligence || 0,
+  );
+  const mainStats = ["strength", "dexterity", "intelligence"].filter(
+    (stat) => (baseStats[stat] || 0) === highest,
+  );
+  return ["weapon", "offhand", "helmet", "chestplate", "gauntlets", "legs", "boots"].map(
+    (slot) =>
+      generateItem(
+        slot,
+        0,
+        {
+          rarity: "Common",
+          condition: "Average",
+          stat: pick(mainStats),
+          iLevel: 1,
+          oneHanded: slot === "weapon",
+        },
+      ),
+  );
+};
 
 const GEMSTONES = {
   ruby: { name: "Ruby", stat: "strength" },
@@ -81,13 +96,23 @@ const GEMSTONES = {
   sapphire: { name: "Sapphire", stat: "intelligence" },
 };
 
-const PERCENT_STATS = ["criticalHitChance", "evasion", "criticalDamage"];
+const PERCENT_STATS = [
+  "criticalHitChance",
+  "evasion",
+  "criticalDamage",
+  "attackPercent",
+  "magicAttackPercent",
+];
 export const STAT_LABELS = {
+  defense: "Defense",
+  speed: "Speed",
   resilience: "Resilience",
   agility: "Agility",
   vitality: "Vitality",
   luck: "Luck",
   criticalDamage: "Critical damage",
+  attackPercent: "Increased attack",
+  magicAttackPercent: "Increased magic attack",
   attack: "Attack",
   attackMin: "Min attack",
   attackMax: "Max attack",
@@ -141,6 +166,22 @@ const RARITIES = [
     priceMult: 8,
     abilityChance: 1,
   },
+  {
+    name: "Unique",
+    chance: 0,
+    mainStatBonus: 5,
+    substats: 6,
+    priceMult: 16,
+    abilityChance: 0,
+  },
+  {
+    name: "Mythic",
+    chance: 0,
+    mainStatBonus: 5,
+    substats: 7,
+    priceMult: 32,
+    abilityChance: 1,
+  }
 ];
 
 const CONDITIONS = [
@@ -152,22 +193,42 @@ const CONDITIONS = [
   { name: "Perfect", mainStatModifier: 5, valueMultiplier: 2 },
 ];
 
-// Per-level substat caps (a roll is 1..cap * iLevel). criticalDamage is fractional (0.01 = +1%).
-const SUBSTAT_CAPS = {
-  resilience: 2,
-  agility: 2,
-  vitality: 3,
-  luck: 1,
-  attackMin: 3,
-  attackMax: 3,
-  magicAttackMin: 3,
-  magicAttackMax: 3,
-  maxPower: 0.5,
-  criticalDamage: 0.02,
+// Per-level substat caps (a roll is 1..cap * iLevel). Percent stats are fractional.
+const SUBSTAT_CAPS = { // DO NOT CHANGE
+  defense: 0.48, // Maximum Roll: 50.40
+  speed: 0.77, // Maximum Roll: 80.85
+  resilience: 1.44, // Maxiumum Roll: 151.2
+  agility: 0.48, // Maximum Roll: 50.40
+  vitality: 2, // Maximum Roll: 210
+  luck: 0.34, // Maximum Roll: 35.7
+  attackMin: 1.2, // Maximum Roll: 126
+  attackMax: 2.4, // Maximum Roll: 252
+  magicAttackMin: 1.2, // Maximum Roll: 126
+  magicAttackMax: 2.4, // Maximum Roll: 252
+  maxPower: 0.15, // Maximum Roll: 15.75
+  criticalDamage: 0.006, // Maximum Roll: 0.63
+  attackPercent: 0.001, // Maximum Roll: 0.105
+  magicAttackPercent: 0.001, // Maximum Roll: 0.105
 };
+
+const SUBSTAT_PRECISION = {
+  criticalDamage: 100,
+  attackPercent: 1000,
+  magicAttackPercent: 1000,
+};
+const getSubStatPrecision = (key) => SUBSTAT_PRECISION[key] || 1;
+const isFractionalSubStat = (key) => getSubStatPrecision(key) > 1;
+const getSubStatMin = (key) =>
+  key === "criticalDamage"
+    ? 0.01
+    : isFractionalSubStat(key)
+      ? 1 / getSubStatPrecision(key)
+      : 1;
 
 // Relative price weight of one point of each substat
 const SUBSTAT_PRICE = {
+  defense: 3,
+  speed: 3,
   resilience: 2,
   agility: 2,
   vitality: 1,
@@ -177,23 +238,127 @@ const SUBSTAT_PRICE = {
   magicAttackMin: 3,
   magicAttackMax: 3,
   maxPower: 3,
-  criticalDamage: 30,
+  criticalDamage: 90,
+  attackPercent: 3000,
+  magicAttackPercent: 3000,
 };
 
 const SUBSTAT_POOLS = {
-  offense: [
+  weapon: [
     "maxPower",
     "attackMin",
     "attackMax",
     "magicAttackMin",
     "magicAttackMax",
     "criticalDamage",
+    "attackPercent",
+    "magicAttackPercent",
+  ],
+  offhand: [
+    "defense",
+    "speed",
+    "resilience",
+    "vitality",
+    "agility",
+    "luck",
+    "attackPercent",
+    "magicAttackPercent",
+  ],
+  helmet: [
+    "defense",
+    "speed",
+    "resilience",
+    "vitality",
+    "agility",
+    "luck",
+    "attackPercent",
+    "magicAttackPercent",
+  ],
+  chestplate: [
+    "defense",
+    "speed",
+    "resilience",
+    "vitality",
+    "agility",
+    "luck",
+    "attackPercent",
+    "magicAttackPercent",
+  ],
+  gauntlets: [
+    "defense",
+    "attackMin",
+    "attackMax",
+    "magicAttackMin",
+    "magicAttackMax",
+    "criticalDamage",
+    "attackPercent",
+    "magicAttackPercent",
     "luck",
     "agility",
     "vitality",
     "resilience",
   ],
-  defense: ["maxPower", "resilience", "vitality", "agility", "luck"],
+  legs: [
+    "defense",
+    "speed",
+    "resilience",
+    "vitality",
+    "agility",
+    "luck",
+    "attackPercent",
+    "magicAttackPercent",
+  ],
+  boots: [
+    "defense",
+    "speed",
+    "resilience",
+    "vitality",
+    "agility",
+    "luck",
+    "attackPercent",
+    "magicAttackPercent",
+  ],
+  ring: [
+    "maxPower",
+    "defense",
+    "speed",
+    "criticalDamage",
+    "attackPercent",
+    "magicAttackPercent",
+    "luck",
+    "agility",
+    "vitality",
+    "resilience",
+  ],
+  necklace: [
+    "maxPower",
+    "defense",
+    "speed",
+    "criticalDamage",
+    "attackPercent",
+    "magicAttackPercent",
+    "luck",
+    "agility",
+    "vitality",
+    "resilience",
+  ],
+};
+
+export const getSubStatPool = (slot) => [...(SUBSTAT_POOLS[slot] || [])];
+
+export const restrictItemSubStats = (item) => {
+  const allowed = new Set(SUBSTAT_POOLS[item?.slot] || []);
+  const subStats = Object.fromEntries(
+    Object.entries(item?.subStats || {}).filter(([stat]) => allowed.has(stat)),
+  );
+  const subTiers = Object.fromEntries(
+    Object.entries(item?.subTiers || {}).filter(([stat]) => allowed.has(stat)),
+  );
+  return {
+    ...item,
+    subStats,
+    ...(item?.subTiers ? { subTiers } : {}),
+  };
 };
 
 // Two-handed weapons occupy the main hand and off hand, so they roll this multiple of the normal stats.
@@ -269,7 +434,6 @@ const SLOT_CONFIG = {
         twoHanded: true,
       },
     ],
-    pool: "offense",
     mainMult: 1,
     priceMult: 1.5,
   },
@@ -283,7 +447,6 @@ const SLOT_CONFIG = {
       { name: "Orb", stat: "intelligence", material: "metal" },
       { name: "Runed Shield", stat: "intelligence", material: "metal" },
     ],
-    pool: "defense",
     mainMult: 1,
     priceMult: 1,
   },
@@ -296,7 +459,6 @@ const SLOT_CONFIG = {
       { name: "Hood", stat: "intelligence", material: "cloth" },
       { name: "Circlet", stat: "intelligence", material: "metal" },
     ],
-    pool: "defense",
     mainMult: 1,
     priceMult: 1,
   },
@@ -309,7 +471,6 @@ const SLOT_CONFIG = {
       { name: "Robe", stat: "intelligence", material: "cloth" },
       { name: "Spellplate", stat: "intelligence", material: "metal" },
     ],
-    pool: "defense",
     mainMult: 1,
     priceMult: 1.25,
   },
@@ -320,7 +481,6 @@ const SLOT_CONFIG = {
       { name: "Bracers", stat: "dexterity", material: "leather" },
       { name: "Mage Gloves", stat: "intelligence", material: "cloth" },
     ],
-    pool: "offense",
     mainMult: 1,
     priceMult: 1,
   },
@@ -331,7 +491,6 @@ const SLOT_CONFIG = {
       { name: "Trousers", stat: "dexterity", material: "leather" },
       { name: "Skirt", stat: "intelligence", material: "cloth" },
     ],
-    pool: "defense",
     mainMult: 1,
     priceMult: 1,
   },
@@ -342,7 +501,6 @@ const SLOT_CONFIG = {
       { name: "Sandals", stat: "intelligence", material: "cloth" },
       { name: "Slippers", stat: "intelligence", material: "cloth" },
     ],
-    pool: "defense",
     mainMult: 1,
     priceMult: 1,
   },
@@ -352,7 +510,6 @@ const SLOT_CONFIG = {
       { name: "Band", stat: "dexterity", material: "jewelry" },
       { name: "Sigil Ring", stat: "intelligence", material: "jewelry" },
     ],
-    pool: "offense",
     mainMult: 1,
     priceMult: 1.25,
   },
@@ -362,7 +519,6 @@ const SLOT_CONFIG = {
       { name: "Pendant", stat: "dexterity", material: "metal" },
       { name: "Amulet", stat: "intelligence", material: "metal" },
     ],
-    pool: "offense",
     mainMult: 1,
     priceMult: 1.25,
   },
@@ -395,12 +551,10 @@ const rollRarity = (minRarity = 0, weights) => {
 };
 
 const getSubStatRollRange = (key, iLevel) => {
+  const precision = getSubStatPrecision(key);
   const cap = SUBSTAT_CAPS[key] * iLevel;
-  const min = key === "criticalDamage" ? 0.01 : 1;
-  const max =
-    key === "criticalDamage"
-      ? Math.max(0.01, Math.ceil(cap * 100) / 100)
-      : Math.max(1, Math.ceil(cap));
+  const min = getSubStatMin(key);
+  const max = Math.max(min, Math.ceil(cap * precision) / precision);
   return { min, max };
 };
 
@@ -409,11 +563,13 @@ const SUBSTAT_MAX_TIER = 7;
 // Main-stat tiers use the final value on one shared scale; 22 is the highest current unique roll.
 const MAIN_STAT_MAX_VALUE = 22;
 const getMainStatTier = (value) =>
-  Math.round(Math.min(1, Math.max(0, value / MAIN_STAT_MAX_VALUE)) * SUBSTAT_MAX_TIER);
+  Math.round(
+    Math.min(1, Math.max(0, value / MAIN_STAT_MAX_VALUE)) * SUBSTAT_MAX_TIER,
+  );
 
 const scaleValue = (key, value, scale) =>
-  key === "criticalDamage"
-    ? round(value * scale, 2)
+  isFractionalSubStat(key)
+    ? round(value * scale, Math.log10(getSubStatPrecision(key)))
     : Math.round(value * scale);
 
 const rollTier = (key, value, iLevel, scale = 1) => {
@@ -433,7 +589,7 @@ const rollSubStatValue = (key, iLevel, minTier = 0, scale = 1) => {
   const cap = SUBSTAT_CAPS[key] * iLevel;
   const { min: minRoll, max } = getSubStatRollRange(key, iLevel);
   if (minTier > 0) {
-    const precision = key === "criticalDamage" ? 100 : 1;
+    const precision = getSubStatPrecision(key);
     const firstRoll = Math.ceil(minRoll * precision);
     const lastRoll = Math.ceil(max * precision);
     let firstAllowedRoll = firstRoll;
@@ -446,38 +602,71 @@ const rollSubStatValue = (key, iLevel, minTier = 0, scale = 1) => {
     return round(
       (firstAllowedRoll + randInt(lastRoll - firstAllowedRoll + 1) - 1) /
         precision,
-      2,
+      Math.log10(precision),
     );
   }
-  if (key === "criticalDamage")
-    return round(Math.max(0.01, Math.ceil(Math.random() * cap * 100) / 100), 2);
+  if (isFractionalSubStat(key))
+    return round(
+      Math.max(
+        minRoll,
+        Math.ceil(Math.random() * cap * getSubStatPrecision(key)) /
+          getSubStatPrecision(key),
+      ),
+      Math.log10(getSubStatPrecision(key)),
+    );
   return randInt(cap);
 };
 
 // Item Generation
-const generateItem = (slot, minRarity = 0, quality = {}, player = getPlayer()) => {
+const generateItem = (
+  slot,
+  minRarity = 0,
+  quality = {},
+  player = getPlayer(),
+) => {
   const config = SLOT_CONFIG[slot];
   if (!config) return null;
   const level = player?.level || 1;
   const minTier = quality.minTier || 0;
 
   // 80% chance to match the player's level; otherwise roll 1-5 levels higher
-  const iLevel = Math.random() < 0.8 ? level : level + randInt(5);
-  const rarity = rollRarity(minRarity, quality.weights);
-  const base = pick(config.bases);
+  const iLevel =
+    quality.iLevel ?? (Math.random() < 0.8 ? level : level + randInt(5));
+  const rarity = quality.rarity
+    ? RARITIES.find((candidate) => candidate.name === quality.rarity)
+    : rollRarity(minRarity, quality.weights);
+  const bases = config.bases.filter(
+    (candidate) =>
+      (!quality.stat || candidate.stat === quality.stat) &&
+      (!quality.oneHanded || !candidate.twoHanded),
+  );
+  if (!rarity || bases.length === 0)
+    throw new Error(`Cannot generate ${quality.rarity || "random"} ${slot} gear for ${quality.stat || "the requested quality"}.`);
+  const base = pick(bases);
   const twoHanded = !!base.twoHanded;
   const scale = twoHanded ? TWO_HANDED_MULT : 1;
   const minMainValue = Math.ceil(
     (Math.max(0, minTier - 0.5) / SUBSTAT_MAX_TIER) * MAIN_STAT_MAX_VALUE,
   );
-  const condition = pick(CONDITIONS.filter((candidate) =>
-    Math.round((5 + rarity.mainStatBonus) * scale) + candidate.mainStatModifier >= minMainValue,
-  ));
+  const conditions = quality.condition
+    ? CONDITIONS.filter((candidate) => candidate.name === quality.condition)
+    : CONDITIONS.filter(
+        (candidate) =>
+          Math.round((5 + rarity.mainStatBonus) * scale) +
+            candidate.mainStatModifier >=
+          minMainValue,
+      );
+  const condition = pick(conditions);
+  if (!condition)
+    throw new Error(`Cannot generate ${quality.condition} ${rarity.name} ${slot} gear.`);
 
   // Base roll 1-5 plus rarity bonus (not scaled by iLevel); two-handed weapons scale that, then condition applies
-  const mainRolls = [1, 2, 3, 4, 5].filter((roll) =>
-    minTier === 0 ||
-    Math.round((roll + rarity.mainStatBonus) * scale) + condition.mainStatModifier >= minMainValue,
+  const mainRolls = [1, 2, 3, 4, 5].filter(
+    (roll) =>
+      minTier === 0 ||
+      Math.round((roll + rarity.mainStatBonus) * scale) +
+        condition.mainStatModifier >=
+        minMainValue,
   );
   const mainRoll = pick(mainRolls);
   const mainStatValue = Math.max(
@@ -492,7 +681,7 @@ const generateItem = (slot, minRarity = 0, quality = {}, player = getPlayer()) =
   };
 
   // Unique substats
-  const pool = [...SUBSTAT_POOLS[config.pool]];
+  const pool = [...SUBSTAT_POOLS[slot]];
   const subStats = {};
   const subTiers = {};
   const count = Math.min(rarity.substats, pool.length);
@@ -563,11 +752,13 @@ const UNIQUE_MAIN_BONUS = 6;
 const UNIQUE_PRICE_MULT = 36;
 const UNIQUE_MIN_TIER = 4;
 const rollHighSubStat = (key, iLevel) => {
-  const cap = SUBSTAT_CAPS[key] * iLevel;
-  const isCrit = key === "criticalDamage";
-  const min = isCrit ? 0.01 : 1;
-  const max = isCrit ? Math.max(0.01, Math.ceil(cap * 100) / 100) : Math.max(1, Math.ceil(cap));
-  const clampValue = (v) => (isCrit ? round(Math.min(max, Math.max(min, v)), 2) : Math.min(max, Math.max(min, Math.round(v))));
+  const { min, max } = getSubStatRollRange(key, iLevel);
+  const fractional = isFractionalSubStat(key);
+  const precision = getSubStatPrecision(key);
+  const clampValue = (v) =>
+    fractional
+      ? round(Math.min(max, Math.max(min, v)), Math.log10(precision))
+      : Math.min(max, Math.max(min, Math.round(v)));
   for (let i = 0; i < 20; i++) {
     const value = clampValue(min + (0.5 + Math.random() * 0.5) * (max - min));
     if (rollTier(key, value, iLevel) >= UNIQUE_MIN_TIER) return value;
@@ -591,14 +782,23 @@ export const createUniqueItem = (def, iLevel = 1, holofoil) => {
   };
   const subStats = {};
   const subTiers = {};
+  const allowedSubStats = new Set(SUBSTAT_POOLS[def.slot]);
   for (const key of def.subStats || []) {
+    if (!allowedSubStats.has(key)) continue;
     if (!SUBSTAT_CAPS[key]) continue;
     const value = rollHighSubStat(key, level);
     subTiers[key] = rollTier(key, value, level, scale);
     subStats[key] = scaleValue(key, value, scale);
   }
-  const subValue = Object.entries(subStats).reduce((sum, [k, v]) => sum + v * SUBSTAT_PRICE[k], 0);
-  const price = Math.round((5 + level * 7 + mainStat.value * 2 + subValue) * UNIQUE_PRICE_MULT * config.priceMult);
+  const subValue = Object.entries(subStats).reduce(
+    (sum, [k, v]) => sum + v * SUBSTAT_PRICE[k],
+    0,
+  );
+  const price = Math.round(
+    (5 + level * 7 + mainStat.value * 2 + subValue) *
+      UNIQUE_PRICE_MULT *
+      config.priceMult,
+  );
   return {
     id: newId(),
     name: def.name,
@@ -620,6 +820,155 @@ export const createUniqueItem = (def, iLevel = 1, holofoil) => {
 
 export const GEAR_SLOT_TYPES = Object.keys(SLOT_CONFIG);
 export const RARITY_NAMES = RARITIES.map((r) => r.name);
+export const CONDITION_NAMES = CONDITIONS.map((c) => c.name);
+export const MAIN_STAT_NAMES = Object.values(GEMSTONES).map((g) => g.stat);
+export const SUBSTAT_NAMES = Object.keys(SUBSTAT_CAPS);
+
+export const STAT_TIERS = TIER_COLORS.map((_, tier) => tier);
+
+const getTierRollRange = (first, last, tier, getTier) => {
+  const lowerBound = (target) => {
+    let low = first;
+    let high = last + 1;
+    while (low < high) {
+      const mid = low + Math.floor((high - low) / 2);
+      if (getTier(mid) < target) low = mid + 1;
+      else high = mid;
+    }
+    return low;
+  };
+  const min = lowerBound(tier);
+  const max = lowerBound(tier + 1) - 1;
+  return min <= max ? { min, max } : null;
+};
+
+const getCustomSubStatRange = (stat, iLevel, tier, scale) => {
+  const { min, max } = getSubStatRollRange(stat, iLevel);
+  const precision = getSubStatPrecision(stat);
+  const range = getTierRollRange(
+    Math.round(min * precision),
+    Math.round(max * precision),
+    tier,
+    (value) => rollTier(stat, value / precision, iLevel, scale),
+  );
+  return range ? { ...range, precision } : null;
+};
+
+export const getCustomSubStatTiers = (stat, iLevel, twoHanded = false) => {
+  if (
+    !SUBSTAT_NAMES.includes(stat) ||
+    !Number.isSafeInteger(iLevel) ||
+    iLevel < 1
+  )
+    return [];
+  return STAT_TIERS.filter((tier) =>
+    getCustomSubStatRange(stat, iLevel, tier, twoHanded ? TWO_HANDED_MULT : 1),
+  );
+};
+
+// Roll only inside the selected tiers, then store final values for exact inbox delivery.
+export const createCustomItem = ({
+  name,
+  slot,
+  rarity,
+  condition,
+  iLevel,
+  price,
+  mainStat,
+  subStats = {},
+  ability: abilityName = "",
+  twoHanded = false,
+  holofoil,
+}) => {
+  if (typeof name !== "string" || !name.trim())
+    throw new Error("Enter an item name.");
+  if (!GEAR_SLOT_TYPES.includes(slot))
+    throw new Error("Select a valid item slot.");
+  if (!Object.keys(RARITY_COLORS).includes(rarity))
+    throw new Error("Select a valid rarity.");
+  if (!CONDITION_NAMES.includes(condition))
+    throw new Error("Select a valid condition.");
+  if (!Number.isSafeInteger(iLevel) || iLevel < 1)
+    throw new Error("Item level must be a positive whole number.");
+  if (!Number.isSafeInteger(price) || price < 0)
+    throw new Error("Item value must be a non-negative whole number.");
+  if (
+    !MAIN_STAT_NAMES.includes(mainStat?.stat) ||
+    !STAT_TIERS.includes(mainStat?.tier)
+  ) {
+    throw new Error("Choose a main stat and a tier from T0 to T7.");
+  }
+  if (
+    !subStats ||
+    typeof subStats !== "object" ||
+    Array.isArray(subStats) ||
+    Object.entries(subStats).some(
+      ([stat, tier]) =>
+        !SUBSTAT_POOLS[slot].includes(stat) || !STAT_TIERS.includes(tier),
+    )
+  ) {
+    throw new Error(
+      "Substats must be available for this slot and have tiers from T0 to T7.",
+    );
+  }
+  if (typeof twoHanded !== "boolean" || (twoHanded && slot !== "weapon")) {
+    throw new Error("Only weapons can be two-handed.");
+  }
+  const ability = [
+    ...ABILITIES.filter((a) => a.slots.includes(slot)),
+    ...UNIQUE_ABILITIES,
+  ].find((a) => a.name === abilityName);
+  if (abilityName && !ability)
+    throw new Error("Select an ability available for this slot.");
+  validateHolofoil(holofoil);
+  const scale = twoHanded ? TWO_HANDED_MULT : 1;
+  const mainRange = getTierRollRange(
+    0,
+    MAIN_STAT_MAX_VALUE,
+    mainStat.tier,
+    getMainStatTier,
+  );
+  const subRanges = Object.entries(subStats).map(([stat, tier]) => {
+    const range = getCustomSubStatRange(stat, iLevel, tier, scale);
+    if (!range)
+      throw new Error(
+        `${STAT_LABELS[stat]} cannot roll T${tier} at item level ${iLevel} with this handedness.`,
+      );
+    return [stat, range];
+  });
+  const rolledSubStats = Object.fromEntries(
+    subRanges.map(([stat, range]) => [
+      stat,
+      scaleValue(
+        stat,
+        (range.min + randInt(range.max - range.min + 1) - 1) / range.precision,
+        scale,
+      ),
+    ]),
+  );
+  return {
+    id: newId(),
+    name: name.trim(),
+    slot,
+    rarity,
+    condition,
+    iLevel,
+    price,
+    twoHanded,
+    description: "",
+    mainStat: {
+      stat: mainStat.stat,
+      tier: mainStat.tier,
+      value: mainRange.min + randInt(mainRange.max - mainRange.min + 1) - 1,
+    },
+    subStats: rolledSubStats,
+    subTiers: { ...subStats },
+    ability: ability
+      ? { name: ability.name, description: ability.description }
+      : null,
+    ...(holofoil !== undefined ? rollHolofoil(holofoil) : {}),
+  };
+};
 
 export const generateRandomSlotItem = (minRarity = 0, minTier = 0) =>
   generateItem(pick(Object.keys(SLOT_CONFIG)), minRarity, { minTier });
@@ -643,12 +992,15 @@ export const gemstoneTooltip = (gemstone) => {
     title: gemstone.name,
     titleColor: RARITY_COLORS[gemstone.rarity],
     subtitle: `${gemstone.rarity} Gemstone`,
-    description: "Socket into a gear piece to increase its core stat. Can be safely removed for an astra cost.",
-    stats: [{
-      label: STAT_LABELS[gemstone.stat] || gemstone.stat,
-      value: formatValue(gemstone.stat, gemstone.value),
-      color: "#7bd88f",
-    }],
+    description:
+      "Socket into a gear piece to increase its core stat. Can be safely removed for an astra cost.",
+    stats: [
+      {
+        label: STAT_LABELS[gemstone.stat] || gemstone.stat,
+        value: formatValue(gemstone.stat, gemstone.value),
+        color: "#7bd88f",
+      },
+    ],
     footer: `Value: ${getGemstoneValue(gemstone) ?? 0}`,
   };
 };
@@ -680,12 +1032,14 @@ export const itemTooltip = (item, extra) => {
       tierColor: TIER_COLORS[getMainStatTier(item.mainStat.value)],
     });
   }
-  for (const [k, v] of Object.entries(item.subStats || {})) {
+  for (const [index, [k, v]] of Object.entries(item.subStats || {}).entries()) {
     stats.push({
       label: STAT_LABELS[k] || k,
       value: formatValue(k, v),
       color: v < 0 ? "#ff6b6b" : "#7bd88f",
-      tier: item.subTiers?.[k] !== undefined ? `T${item.subTiers[k]}` : undefined,
+      divider: index === 0 && Boolean(item.mainStat),
+      tier:
+        item.subTiers?.[k] !== undefined ? `T${item.subTiers[k]}` : undefined,
       tierColor: TIER_COLORS[item.subTiers?.[k]],
     });
   }
@@ -801,7 +1155,12 @@ export const getEquipLevel = (item) => {
   const level = (item?.iLevel || 1) - 1;
   return Math.min(
     100,
-    Math.max(1, level + (item?.ability ? 1 : 0) + (item?.rarity === "Legendary" || item?.rarity === "Unique" ? 1 : 0)),
+    Math.max(
+      1,
+      level +
+        (item?.ability ? 1 : 0) +
+        (item?.rarity === "Legendary" || item?.rarity === "Unique" ? 1 : 0),
+    ),
   );
 };
 
@@ -819,10 +1178,12 @@ export const findItem = (id) =>
 
 export const findGemstone = (id) => {
   const player = getPlayer();
-  return [
-    ...(player?.gemstones || []),
-    ...Object.values(player?.equipment || {}).map((item) => item?.gemstone),
-  ].find((gemstone) => gemstone?.id === id) || null;
+  return (
+    [
+      ...(player?.gemstones || []),
+      ...Object.values(player?.equipment || {}).map((item) => item?.gemstone),
+    ].find((gemstone) => gemstone?.id === id) || null
+  );
 };
 
 // Accepts an item object, or a key from ITEMS
@@ -852,7 +1213,8 @@ export function sellGemstone(index) {
   const gemstone = gemstones[index];
   const value = getGemstoneValue(gemstone);
   if (!gemstone || value === null) return { ok: false };
-  if (isFavorite(player, "gemstones", gemstone)) return { ok: false, reason: "favorite" };
+  if (isFavorite(player, "gemstones", gemstone))
+    return { ok: false, reason: "favorite" };
   gemstones.splice(index, 1);
   setPlayer({ gemstones, astra: (player.astra || 0) + value });
   return { ok: true, item: gemstone, value };
@@ -892,7 +1254,9 @@ export function socketGemstone(gemstoneId, target) {
   const player = getPlayer();
   if (!player || getEnemy()) return { ok: false, reason: "combat" };
   const gemstones = [...(player.gemstones || [])];
-  const gemstoneIndex = gemstones.findIndex((gemstone) => gemstone.id === gemstoneId);
+  const gemstoneIndex = gemstones.findIndex(
+    (gemstone) => gemstone.id === gemstoneId,
+  );
   const gemstone = gemstones[gemstoneIndex];
   const targetItem = getGemstoneTarget(player, target);
   if (!gemstone || !targetItem) return { ok: false, reason: "invalid" };
@@ -920,8 +1284,7 @@ export function removeGemstone(target) {
   const gemstone = targetItem.item.gemstone;
   const cost = getGemstoneRemovalCost(gemstone);
   if (cost === null) return { ok: false, reason: "invalid" };
-  if ((player.astra || 0) < cost)
-    return { ok: false, reason: "astra", cost };
+  if ((player.astra || 0) < cost) return { ok: false, reason: "astra", cost };
 
   const item = { ...targetItem.item };
   delete item.gemstone;
@@ -955,13 +1318,18 @@ const getGearTraderHour = () => Math.floor(Date.now() / GEAR_TRADER_REFRESH_MS);
 
 export const getGearTraderStock = (player = getPlayer()) => {
   const hour = getGearTraderHour();
-  if (player?.gearTraderStock?.hour === hour && Array.isArray(player.gearTraderStock.items))
+  if (
+    player?.gearTraderStock?.hour === hour &&
+    Array.isArray(player.gearTraderStock.items)
+  )
     return player.gearTraderStock.items;
 
   const slots = Object.keys(SLOT_CONFIG);
-  const quality = [...GEAR_TRADER_QUALITY].reverse().find(
-    (entry) => (player?.rep || 0) >= entry.rep,
-  ) || GEAR_TRADER_QUALITY[0];
+  const quality =
+    [...GEAR_TRADER_QUALITY]
+      .reverse()
+      .find((entry) => (player?.rep || 0) >= entry.rep) ||
+    GEAR_TRADER_QUALITY[0];
   const items = Array.from({ length: GEAR_TRADER_STOCK_SIZE }, () =>
     generateItem(pick(slots), 0, quality, player),
   );
@@ -976,10 +1344,18 @@ export function sellInventoryItem(index) {
   const item = inventory[index];
   const value = getSellPrice(item);
   if (!item || value === null) return { ok: false };
-  if (isFavorite(player, "gear", item)) return { ok: false, reason: "favorite" };
+  if (isFavorite(player, "gear", item))
+    return { ok: false, reason: "favorite" };
   inventory.splice(index, 1);
-  const buyback = [{ item, price: value }, ...(player.gearTraderBuyback || [])].slice(0, BUYBACK_LIMIT);
-  setPlayer({ inventory, astra: (player.astra || 0) + value, gearTraderBuyback: buyback });
+  const buyback = [
+    { item, price: value },
+    ...(player.gearTraderBuyback || []),
+  ].slice(0, BUYBACK_LIMIT);
+  setPlayer({
+    inventory,
+    astra: (player.astra || 0) + value,
+    gearTraderBuyback: buyback,
+  });
   return { ok: true, item, value };
 }
 
@@ -990,11 +1366,15 @@ export function sellEquippedItem(slotKey) {
   const item = equipment[slotKey];
   const value = getSellPrice(item);
   if (!item || item.twoHandedOf || value === null) return { ok: false };
-  if (isFavorite(player, "gear", item)) return { ok: false, reason: "favorite" };
+  if (isFavorite(player, "gear", item))
+    return { ok: false, reason: "favorite" };
 
   delete equipment[slotKey];
   if (item.twoHanded) delete equipment.offHand;
-  const buyback = [{ item, price: value }, ...(player.gearTraderBuyback || [])].slice(0, BUYBACK_LIMIT);
+  const buyback = [
+    { item, price: value },
+    ...(player.gearTraderBuyback || []),
+  ].slice(0, BUYBACK_LIMIT);
   setPlayer({
     ...recalculateStats(player, {
       equipment,

@@ -33,7 +33,7 @@ export function TooltipContent({ data }) {
       {stats?.length > 0 && (
         <div className='tooltip-stats'>
           {stats.map((s, i) => (
-            <div key={i} className='tooltip-stat'>
+            <div key={i} className={`tooltip-stat ${s.divider ? "tooltip-stat-divider" : ""}`}>
               <span>
                 {s.tier && <span className='tooltip-stat-tier' style={s.tierColor ? { color: s.tierColor } : undefined}>{s.tier} </span>}
                 {s.label}

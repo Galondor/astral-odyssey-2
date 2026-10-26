@@ -50,7 +50,13 @@ export const CONSUMABLES = {
     name: "Item Certificate",
     description: "Allows you to rename an owned item.",
   },
+  prismaticAlloy: {
+    name: "Prismatic Alloy",
+    description: "Adds a Holofoil to an owned item or rerolls an existing Holofoil.",
+  },
 };
+
+export const PRISMATIC_ALLOY_DROP_CHANCE = 0.005;
 
 export const ITEM_CERTIFICATE_DROP_CHANCE = {
   overworld: { elite: 0.1, boss: 0.25 },
@@ -148,6 +154,8 @@ export function applyConsumable(player, key, s, { healScale = 1 } = {}) {
     return { ok: false, message: "Use this elixir from your inventory outside combat to choose a new name." };
   if (key === "itemCertificate")
     return { ok: false, message: "Use this certificate from your inventory outside combat to rename an item." };
+  if (key === "prismaticAlloy")
+    return { ok: false, message: "Use this alloy from your inventory outside combat to apply or reroll a Holofoil." };
   if (c.rune)
     return { ok: false, message: "Use runes from your inventory outside combat to choose an item." };
   const canHeal = c.heal && s.health < s.maxHealth;
@@ -189,6 +197,11 @@ export function drinkConsumable(key) {
   if (key === "itemCertificate") {
     return p?.consumables?.[key] > 0
       ? { ok: true, requiresItemRename: true, message: "Choose an item and a new name. The certificate is used only when applied." }
+      : { ok: false, message: "You don't have that item." };
+  }
+  if (key === "prismaticAlloy") {
+    return p?.consumables?.[key] > 0
+      ? { ok: true, requiresHolofoilReroll: true, message: "Choose an item to apply or reroll its Holofoil. The alloy is used only when applied." }
       : { ok: false, message: "You don't have that item." };
   }
   if (CONSUMABLES[key]?.rune) {

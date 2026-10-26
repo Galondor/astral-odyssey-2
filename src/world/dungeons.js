@@ -1,5 +1,11 @@
 import { getPlayer, setPlayer } from "../character/player";
-import { applyDeathPenalties, endCombat, getEnemy, startCombat } from "../combat/combat";
+import {
+  applyDeathPenalties,
+  endCombat,
+  getEnemy,
+  startCombat,
+  takeOpeningReplies,
+} from "../combat/combat";
 import { createUniqueItem } from "../items/items";
 import { MATERIALS, addToMaterials } from "../items/materials";
 import { expForLevel } from "../character/stats";
@@ -8,7 +14,7 @@ import { DUNGEON_TYPES, DUNGEON_TYPE_IDS, TRAP_COUNTERS, UNIQUES, UNIQUE_DROP_CH
 
 /*
  Solo dungeons.
- Every 30 minutes the board offers 3 new dungeons rated near the player's level (10-100). A dungeon is a fixed chain:
+ Every 30 minutes the board offers 3 new dungeons rated near the player's level (minimum 12). A dungeon is a fixed chain:
    Puzzle/Challenge -> 3 Basic enemies -> Puzzle/Challenge -> Elite -> Puzzle/Challenge -> Boss
  Entering locks the player out of town and travel. They have 5 minutes; dying or running out of time ends the run.
  The saved run lives in player.dungeon, the board in player.dungeonBoard:
@@ -18,8 +24,8 @@ import { DUNGEON_TYPES, DUNGEON_TYPE_IDS, TRAP_COUNTERS, UNIQUES, UNIQUE_DROP_CH
 */
 export const DUNGEON_REFRESH_MS = 30 * 60 * 1000;
 export const DUNGEON_TIME_LIMIT_MS = 5 * 60 * 1000;
+export const DUNGEON_REROLL_COST = 300_000;
 export const DUNGEON_MIN_LEVEL = 12;
-export const DUNGEON_MAX_LEVEL = 100;
 export const NAME_ELIXIR_DROP_CHANCE = 0.05;
 export const ARCHITECTS_RUNE_DROP_CHANCE = { elite: 0.05, boss: 0.1 };
 const OFFER_COUNT = 3;
@@ -88,7 +94,7 @@ const generateOffers = (playerLevel, slot, gearScore = 0) => {
   const baseLevel = getEffectiveLevel(playerLevel, gearScore);
   const types = shuffle(DUNGEON_TYPE_IDS).slice(0, OFFER_COUNT);
   return types.map((typeId, i) => {
-    const level = Math.min(DUNGEON_MAX_LEVEL, Math.max(DUNGEON_MIN_LEVEL, baseLevel + rnd(-3, 5)));
+    const level = Math.max(DUNGEON_MIN_LEVEL, baseLevel + rnd(-3, 5));
     return buildOffer(typeId, level, `${slot}-${i}`);
   });
 };
@@ -105,6 +111,31 @@ export const getBoard = (passed) => {
   const board = { slot, offers: generateOffers(Math.max(1, player?.level || 1), slot, player?.stats?.gearScore || 0) };
   if (player) setPlayer({ dungeonBoard: board });
   return board;
+};
+
+export const rerollDungeons = () => {
+  const player = getPlayer();
+  if (!player) return { ok: false, message: "No character loaded." };
+  if (player.dungeon) return { ok: false, message: "You cannot reroll dungeons while inside one." };
+  if ((player.level || 1) < DUNGEON_MIN_LEVEL) return { ok: false, message: `Dungeons unlock at level ${DUNGEON_MIN_LEVEL}.` };
+  if (getEnemy()) return { ok: false, message: "Finish your fight first." };
+  if ((player.astra || 0) < DUNGEON_REROLL_COST)
+    return { ok: false, message: `You need ${DUNGEON_REROLL_COST.toLocaleString()} astra to roll new dungeons.` };
+
+  const currentBoard = getBoard(player);
+  const slot = getBoardSlot();
+  const generation = (currentBoard.generation || 0) + 1;
+  const board = {
+    slot,
+    generation,
+    offers: generateOffers(
+      Math.max(1, player.level || 1),
+      `${slot}-reroll-${generation}`,
+      player.stats?.gearScore || 0,
+    ),
+  };
+  setPlayer({ astra: player.astra - DUNGEON_REROLL_COST, dungeonBoard: board });
+  return { ok: true };
 };
 
 // ---- Runs ----
@@ -813,6 +844,7 @@ export function getDungeonOptions() {
         const fresh = getRun();
         if (!fresh) return { next: "menu" };
         startCombat(buildEnemy(fresh, currentStep(fresh)));
+        if (!getEnemy()) return { reply: takeOpeningReplies(), next: "menu" };
         return { next: "combat" };
       }),
     ];

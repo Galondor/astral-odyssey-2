@@ -3,6 +3,7 @@ import { db } from "../firebase";
 import { publishLeaderboardEntry } from "../world/leaderboards";
 import { migratePowerProgression, recalculateStats } from "./stats";
 import { hasInappropriateName } from "../shared/names";
+import { createDirectoryEntry, createPublicProfile } from "./profiles";
 
 const PLAYER_KEY = "Player";
 const META_KEY = "PlayerMeta";
@@ -71,9 +72,7 @@ export async function savePlayerName(input) {
       if (!consumables.elixirOfNameChanging) delete consumables.elixirOfNameChanging;
       patch.consumables = consumables;
     }
-    const writes = {
-      [`directory/${uid}`]: { name, level: current?.level || 1 },
-    };
+    const writes = {};
     if (current?.name !== name && /^[a-zA-Z]{1,64}$/.test(current?.name || "")) {
       const old = await get(ref(db, `characterNames/${current.name}`));
       if (old.val() === uid) writes[`characterNames/${current.name}`] = null;
@@ -112,6 +111,12 @@ const getMeta = () => {
     return {};
   }
 };
+export const getCharacterIdentity = () => getMeta().uid || null;
+
+const playerPath = (meta) => meta.characterId
+  ? `users/${meta.accountId}/characters/${meta.characterId}/player`
+  : `users/${meta.uid}/player`;
+const accountPath = (meta) => `users/${meta.accountId || meta.uid}`;
 const setMeta = (meta) => {
   currentMeta = meta;
   localStorage.setItem(META_KEY, JSON.stringify(meta));
@@ -259,12 +264,24 @@ const writePlayer = async (writes = {}) => {
   const player = getPlayer();
   const serialized = JSON.stringify(player);
   writingRevision = (meta.revision || 0) + 1;
+  const profileWrites = player?.name
+    ? {
+      [`directory/${meta.uid}`]: createDirectoryEntry(player),
+      [`publicProfiles/${meta.uid}`]: player.publicProfile !== false
+        ? createPublicProfile(player)
+        : null,
+    }
+    : {
+      [`directory/${meta.uid}`]: null,
+      [`publicProfiles/${meta.uid}`]: null,
+    };
   // The revision and any external effects must pass the rules in the same write.
   flushing = Promise.resolve().then(() => update(ref(db), {
-    ...(player?.name ? { [`directory/${meta.uid}`]: { name: String(player.name), level: player.level || 1 } } : {}),
+    ...profileWrites,
     ...writes,
-    [`users/${meta.uid}/player`]: player,
-    [`users/${meta.uid}/saveRevision`]: writingRevision,
+    [playerPath(meta)]: player,
+    [`${accountPath(meta)}/saveRevision`]: writingRevision,
+    ...(meta.characterId ? { [`${accountPath(meta)}/lastCharacterIdentity`]: meta.uid } : {}),
   }))
     .then(() => {
       setMeta({ ...getMeta(), revision: writingRevision, dirty: JSON.stringify(getPlayer()) !== serialized, savedAt: Date.now() });
@@ -316,8 +333,9 @@ const backfillOwnership = () => {
 };
 
 // Always read the cloud, including returning sessions in the same browser.
-export const loadPlayer = async (uid) => {
-  await loadPlayerData(uid);
+export const loadPlayer = async (accountId, characterId) => {
+  await loadPlayerData(accountId, characterId);
+  const uid = getMeta().uid;
   let player = getPlayer();
   if (player?.stats?.maxPower != null) {
     const migrated = migratePowerProgression(player);
@@ -337,8 +355,16 @@ export const loadPlayer = async (uid) => {
     const result = valid ? await reserveName(player.name, uid, true) : null;
     if (!result?.committed) setPlayer({ needsNameChange: true });
   }
+  if (player && player.publicProfile === undefined) setPlayer({ publicProfile: true });
   backfillOwnership();
   await flushPlayer();
+  player = getPlayer();
+  await update(ref(db), {
+    [`directory/${uid}`]: player?.name ? createDirectoryEntry(player) : null,
+    [`publicProfiles/${uid}`]: player?.name && player.publicProfile !== false
+      ? createPublicProfile(player)
+      : null,
+  });
   await syncLeaderboard(uid, getPlayer());
 };
 
@@ -351,7 +377,7 @@ const syncLeaderboard = async (uid, player) => {
   }
 };
 
-const loadPlayerData = async (uid) => {
+const loadPlayerData = async (accountId, characterId) => {
   stopSync();
   clearTimeout(flushTimer);
   await saveQueue;
@@ -359,15 +385,20 @@ const loadPlayerData = async (uid) => {
   currentPlayer = undefined;
   const meta = getMeta();
   const cached = getPlayer();
-  const snap = await get(ref(db, `users/${uid}`));
-  const cloud = snap.val() || {};
-  const revision = cloud.saveRevision || 0;
-  const recover = meta.uid === uid && meta.dirty && !meta.unsafe && meta.revision != null && meta.revision === revision;
-  const legacy = (!meta.uid || (meta.uid === uid && meta.dirty && meta.revision == null))
+  const snap = await get(ref(db, `users/${accountId}`));
+  const account = snap.val() || {};
+  const slot = characterId ? account.characters?.[characterId] : null;
+  if (characterId && (!slot || slot.deletedAt)) throw new Error("This character no longer exists. Return to the main menu.");
+  const uid = slot?.externalId || accountId;
+  const cloud = characterId ? slot : account;
+  const revision = account.saveRevision || 0;
+  const sameCharacter = meta.uid === uid && (meta.characterId || null) === (characterId || null);
+  const recover = sameCharacter && meta.dirty && !meta.unsafe && meta.revision != null && meta.revision === revision;
+  const legacy = !characterId && (!meta.uid || (meta.uid === uid && meta.dirty && meta.revision == null))
     && !cloud.player && !revision && cached;
   notice = null;
-  if (meta.uid === uid && meta.dirty && !recover && !legacy) {
-    localStorage.setItem(`PlayerRecovery/${uid}`, JSON.stringify({ player: cached, meta }));
+  if (meta.uid && meta.dirty && !recover && !legacy) {
+    localStorage.setItem(meta.characterId ? `PlayerRecovery/${meta.accountId}/${meta.characterId}` : `PlayerRecovery/${meta.uid}`, JSON.stringify({ player: cached, meta }));
     notice = "Loaded newer cloud progress. An older unsynced save was kept on this device for recovery.";
   }
   currentPlayer = recover || legacy ? cached : cloud.player || null;
@@ -375,13 +406,13 @@ const loadPlayerData = async (uid) => {
   else localStorage.removeItem(PLAYER_KEY);
   syncError = null;
   connected = true;
-  setMeta({ uid, revision, dirty: false, savedAt: meta.uid === uid ? meta.savedAt : null });
+  setMeta({ uid, accountId, ...(characterId ? { characterId } : {}), revision, dirty: false, savedAt: sameCharacter ? meta.savedAt : null });
   if (recover || legacy || (cloud.player && !revision)) {
     markDirty();
     await flushPlayer();
   }
   const stops = [
-    onValue(ref(db, `users/${uid}/saveRevision`), (s) => {
+    onValue(ref(db, `users/${accountId}/saveRevision`), (s) => {
       const remote = s.val() || 0;
       if (remote !== getMeta().revision && remote !== writingRevision) {
         syncError = "Progress changed in another browser or device. Reload the cloud save before continuing.";
@@ -406,6 +437,9 @@ export const unloadPlayer = async () => {
   stopSync();
   currentPlayer = null;
   currentMeta = null;
+  syncError = null;
+  notice = null;
+  connected = true;
   localStorage.removeItem(PLAYER_KEY);
   localStorage.removeItem(META_KEY);
 };

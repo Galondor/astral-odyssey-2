@@ -4,15 +4,17 @@ import { getBaseStatPoints, recalculateStats } from "./stats";
 
 export const CORE_STAT_KEYS = ["strength", "dexterity", "intelligence"];
 
-// Spends one stat point on a core stat. Not allowed during combat.
-export function spendStatPoint(stat) {
+// Spends stat points on a core stat. Not allowed during combat.
+export function spendStatPoint(stat, amount = 1) {
   const p = getPlayer();
   if (!p || !CORE_STAT_KEYS.includes(stat)) return { ok: false };
   if (getEnemy()) return { ok: false, reason: "combat" };
-  if ((p.statPoints || 0) < 1) return { ok: false, reason: "points" };
+  if (!Number.isInteger(amount) || amount < 1) return { ok: false };
+  const statPoints = p.statPoints || 0;
+  if (statPoints < amount) return { ok: false, reason: "points" };
   const baseStats = { ...getBaseStatPoints(p) };
-  baseStats[stat] += 1;
-  setPlayer(recalculateStats(p, { baseStats, statPoints: p.statPoints - 1 }));
+  baseStats[stat] += amount;
+  setPlayer(recalculateStats(p, { baseStats, statPoints: statPoints - amount }));
   return { ok: true };
 }
 

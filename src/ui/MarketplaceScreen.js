@@ -30,6 +30,7 @@ import {
   subscribeListings,
 } from "../world/marketplace";
 import Tooltip from "./Tooltip";
+import PlayerName from "./PlayerName";
 
 const TABS = [
   ["browse", "Browse"],
@@ -318,7 +319,7 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
               ) : (
                 <>
                   <span>
-                    Buy <strong style={{ color: itemColor(selected.item) }}>{selected.item.name}</strong> from {selected.sellerName} for{" "}
+                    Buy <strong style={{ color: itemColor(selected.item) }}>{selected.item.name}</strong> from <PlayerName name={selected.sellerName} activeTitle={selected.sellerTitle} /> for{" "}
                     <strong>{selected.price} astra</strong>?
                   </span>
                   <button type='button' className='buttons' disabled={busy || inCombat || (player.astra || 0) < selected.price} onClick={() => buy(selected)}>
@@ -349,7 +350,7 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
                     }}
                   >
                     <span className='market-card-footer'>
-                      <span className='market-card-seller'>{own ? "Your listing" : l.sellerName}</span>
+                      <span className='market-card-seller'>{own ? "Your listing" : <PlayerName name={l.sellerName} activeTitle={l.sellerTitle} />}</span>
                       <span style={{ color: own || affordable ? "#7bd88f" : "#ff6b6b" }}>{l.price.toLocaleString()} astra</span>
                     </span>
                     {l.item.kind !== "consumable" && l.item.kind !== "material" && l.item.kind !== "gemstone" && !canEquip(l.item, player.level || 1) && <span className='market-card-warn'>Requires level {getEquipLevel(l.item)}</span>}

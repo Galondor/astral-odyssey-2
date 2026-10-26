@@ -22,10 +22,10 @@ import { DUNGEON_TYPES } from "./dungeonData";
 export const QUEST_TIERS = [
   { key: "D", color: "#b0b0b0", minLevel: 1, minRep: 0, rep: 5, mult: 1, weight: 30, minRarity: null, potion: "minorPotion", hunt: ["basic", 5], gather: [["common"], 5] },
   { key: "C", color: "#1eff00", minLevel: 5, minRep: 20, rep: 10, mult: 1.8, weight: 25, minRarity: null, potion: "healthPotion", hunt: ["basic", 8], gather: [["common"], 8] },
-  { key: "B", color: "#0070dd", minLevel: 12, minRep: 80, rep: 25, mult: 3, weight: 20, minRarity: 1, minTier: 1, dungeonMaterialTier: "basic", hunt: ["elite", 3], gather: [["uncommon"], 6] },
-  { key: "A", color: "#a335ee", minLevel: 22, minRep: 250, rep: 60, mult: 5, weight: 13, minRarity: 2, minTier: 2, dungeonMaterialTier: "elite", hunt: ["elite", 6], gather: [["uncommon"], 10] },
-  { key: "S", color: "#ff8000", minLevel: 35, minRep: 700, rep: 140, mult: 8.5, weight: 8, minRarity: 3, minTier: 3, dungeonMaterialTier: "boss", hunt: ["boss", 1], gather: [["rare"], 8] },
-  { key: "S+", color: "#ff4d6d", minLevel: 50, minRep: 1800, rep: 300, mult: 14, weight: 4, minRarity: 4, minTier: 4, hunt: ["boss", 2] },
+  { key: "B", color: "#0070dd", minLevel: 12, minRep: 80, rep: 25, mult: 3, weight: 20, minRarity: 1, minTier: 1, dungeonMaterialTier: "basic", hunt: ["elite", 3], gather: [["uncommon"], 5] },
+  { key: "A", color: "#a335ee", minLevel: 22, minRep: 250, rep: 60, mult: 5, weight: 13, minRarity: 2, minTier: 2, dungeonMaterialTier: "elite", hunt: ["elite", 5], gather: [["uncommon"], 3] },
+  { key: "S", color: "#ff8000", minLevel: 35, minRep: 700, rep: 140, mult: 8.5, weight: 8, minRarity: 3, minTier: 3, dungeonMaterialTier: "boss", hunt: ["boss", 1], gather: [["rare"], 2] },
+  { key: "S+", color: "#ff4d6d", minLevel: 50, minRep: 1800, rep: 300, mult: 14, weight: 4, minRarity: 4, minTier: 4, hunt: ["boss", 1] },
 ];
 
 const TITLES = {
@@ -35,11 +35,13 @@ const TITLES = {
 
 export const REP_RANKS = [
   { min: 0, name: "Stranger" },
-  { min: 20, name: "Familiar Face" },
-  { min: 80, name: "Trusted Hand" },
-  { min: 250, name: "Local Hero" },
-  { min: 700, name: "Town Champion" },
-  { min: 1800, name: "Legend of the Town" },
+  { min: 20, name: "Familiar" },
+  { min: 80, name: "Friend" },
+  { min: 250, name: "Trusted" },
+  { min: 700, name: "Guardian" },
+  { min: 1800, name: "Champion" },
+  { min: 2700, name: "Hero" },
+  { min: 4000, name: "Legend" },
 ];
 
 export const MAX_ACTIVE_QUESTS = 5;
