@@ -127,7 +127,16 @@ export const UNIQUES = {
     stat: "dexterity",
     ability: "Star-Charted",
     subStats: ["maxPower", "defense", "speed", "criticalDamage", "attackPercent", "magicAttackPercent"]
-  }
+  },
+  unwrittenPath: {
+    id: "unwrittenPath",
+    name: "The Unwritten Path",
+    slot: "weapon",
+    stat: "dexterity",
+    twoHanded: true,
+    ability: "Unwritten Path",
+    subStats: ["attackMin", "attackMax", "magicAttackMin", "magicAttackMax", "attackPercent", "magicAttackPercent"],
+  },
 };
 
 const stun = (chance) => ({ id: "stun", chance });

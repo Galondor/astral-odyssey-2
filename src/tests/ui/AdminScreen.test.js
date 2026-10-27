@@ -1,7 +1,14 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import AdminScreen from "../../ui/AdminScreen";
 import { resolveBugReport, subscribeBugReports } from "../../world/bugReports";
-import { describeAttachments, getBroadcasts, getDirectory, sendMessage } from "../../world/inbox";
+import {
+  administerPlayerTimer,
+  describeAttachments,
+  getBroadcasts,
+  getDirectory,
+  grantLabyrinthAttempt,
+  sendMessage,
+} from "../../world/inbox";
 
 jest.mock("../../items/consumables", () => ({
   CONSUMABLES: { architectsRune: { name: "Architect's Rune" } }, KEY_ITEMS: {},
@@ -12,13 +19,18 @@ jest.mock("../../items/items", () => ({
   ...jest.requireActual("../../items/items"),
   GEAR_SLOT_TYPES: ["helmet", "weapon"], RARITY_NAMES: ["Common"],
 }));
-jest.mock("../../items/materials", () => ({ MATERIALS: {} }));
-jest.mock("../../world/dungeonData", () => ({ UNIQUES: { testUnique: { name: "Test Unique" } } }));
+jest.mock("../../items/materials", () => ({ MATERIALS: { relicFragments: { name: "Relic Fragments" } } }));
+jest.mock("../../world/dungeonData", () => ({ UNIQUES: {
+  testUnique: { name: "Test Unique" },
+  unwrittenPath: { name: "The Unwritten Path" },
+} }));
 jest.mock("../../world/inbox", () => ({
+  administerPlayerTimer: jest.fn(),
   deleteBroadcast: jest.fn(),
   describeAttachments: jest.fn(() => []),
   getBroadcasts: jest.fn(),
   getDirectory: jest.fn(),
+  grantLabyrinthAttempt: jest.fn(),
   sendMessage: jest.fn(),
 }));
 jest.mock("../../world/bugReports", () => ({
@@ -31,6 +43,8 @@ beforeEach(() => {
   describeAttachments.mockReturnValue(["2x Architect's Rune"]);
   getDirectory.mockResolvedValue([]);
   getBroadcasts.mockResolvedValue([]);
+  administerPlayerTimer.mockResolvedValue();
+  grantLabyrinthAttempt.mockResolvedValue();
   resolveBugReport.mockResolvedValue();
   subscribeBugReports.mockImplementation((onReports) => {
     onReports([{
@@ -44,6 +58,28 @@ beforeEach(() => {
     }]);
     return jest.fn();
   });
+});
+
+test("admins can refresh a selected player's timer and grant a Labyrinth attempt", async () => {
+  getDirectory.mockResolvedValue([{ uid: "player-1", name: "Nova", level: 22 }]);
+  render(<AdminScreen />);
+  fireEvent.click(screen.getByRole("tab", { name: "Timers & Attempts" }));
+  fireEvent.change(screen.getByRole("combobox", { name: /player/i }), { target: { value: "Nova" } });
+  fireEvent.mouseDown(await screen.findByRole("option", { name: /Nova/ }));
+
+  fireEvent.change(screen.getByLabelText("Timer"), { target: { value: "labyrinth" } });
+  fireEvent.click(screen.getByRole("button", { name: "Force refresh timer" }));
+  await waitFor(() => expect(administerPlayerTimer).toHaveBeenCalledWith("player-1", "labyrinth"));
+  expect((await screen.findByRole("status")).textContent).toContain("Labyrinth timer refreshed.");
+
+  fireEvent.change(screen.getByLabelText("Timer"), { target: { value: "dungeons" } });
+  fireEvent.click(screen.getByRole("button", { name: "Force refresh timer" }));
+  await waitFor(() => expect(administerPlayerTimer).toHaveBeenCalledWith("player-1", "dungeons"));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Dungeons timer refreshed."));
+
+  fireEvent.click(screen.getByRole("button", { name: "Grant another Labyrinth attempt" }));
+  await waitFor(() => expect(grantLabyrinthAttempt).toHaveBeenCalledWith("player-1"));
+  expect((await screen.findByRole("status")).textContent).toContain("A fresh Labyrinth attempt has been granted.");
 });
 
 test("admins can view player reports and resolve them", async () => {
@@ -78,6 +114,33 @@ test.each(["broadcast", "individual"])("admins can attach runes to a %s message"
   await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
     to: mode === "broadcast" ? "all" : "player-1",
     attachments: expect.objectContaining({ consumables: { architectsRune: 2 } }),
+  })));
+});
+
+test("admins can attach Labyrinth Relic Fragments and the Unwritten Path unique", async () => {
+  sendMessage.mockResolvedValue();
+  render(<AdminScreen />);
+  fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "Labyrinth rewards" } });
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "An expedition reward." } });
+  const keySelect = () => screen.getByLabelText("Attachment type").closest(".admin-attach").querySelectorAll("select")[1];
+
+  fireEvent.change(screen.getByLabelText("Attachment type"), { target: { value: "material" } });
+  expect(screen.getByRole("option", { name: "Relic Fragments" })).toBeTruthy();
+  fireEvent.change(keySelect(), { target: { value: "relicFragments" } });
+  fireEvent.click(screen.getByRole("button", { name: "Attach" }));
+
+  fireEvent.change(screen.getByLabelText("Attachment type"), { target: { value: "unique" } });
+  expect(screen.getByRole("option", { name: "The Unwritten Path" })).toBeTruthy();
+  fireEvent.change(keySelect(), { target: { value: "unwrittenPath" } });
+  fireEvent.click(screen.getByRole("button", { name: "Attach" }));
+  fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+  await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+    to: "all",
+    attachments: expect.objectContaining({
+      materials: { relicFragments: 1 },
+      uniques: [{ id: "unwrittenPath", count: 1 }],
+    }),
   })));
 });
 

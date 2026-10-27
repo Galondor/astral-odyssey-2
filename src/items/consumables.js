@@ -37,6 +37,10 @@ export const CONSUMABLES = {
     power: 1,
     price: 260,
   },
+  relic: {
+    name: "Sealed Relic",
+    description: "A powerful relic recovered from a completed Labyrinth. Spend it at the Forge to craft a custom item.",
+  },
   elixirOfNameChanging: {
     name: "Elixir of Name Changing",
     description: "Allows you to change your character's name.",

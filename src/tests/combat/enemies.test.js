@@ -42,6 +42,37 @@ test("enemy stats scale against the 150 gear-score-per-level target across every
   }
 });
 
+test("enemy stats grow more strongly above the template level", () => {
+  const template = ENEMIES.find((entry) => entry.id === "greenSlime");
+  const enemy = getRandomEnemy(
+    template.tier,
+    template.regions[0],
+    10,
+    1500,
+    template.id,
+  );
+  const levelDifference = enemy.level - template.level;
+  const tier = { hp: 1.1, attack: 2.4, defense: 5 };
+
+  expect(enemy.level).toBe(9);
+  expect(enemy.maxHp).toBe(
+    Math.round(template.maxHp * (1 + levelDifference * 0.5) * tier.hp),
+  );
+  expect(enemy.attack).toEqual(
+    template.attack.map((value) =>
+      Math.round(value * (1 + levelDifference * 0.4) * tier.attack),
+    ),
+  );
+  expect(enemy.defense).toBe(
+    Math.round(
+      template.defense * (1 + levelDifference * 0.3) * tier.defense,
+    ),
+  );
+  expect(enemy.speed).toBe(
+    Math.round(template.speed * (1 + levelDifference * 0.3)),
+  );
+});
+
 test("undergeared and well-geared players are scaled against the same gear-score target", () => {
   expect(getUndergearFactor(10, 0)).toBe(0.4);
   expect(getUndergearFactor(10, 1500)).toBe(1);

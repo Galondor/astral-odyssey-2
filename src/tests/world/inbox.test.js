@@ -125,6 +125,49 @@ test("marketplace material stacks and exact gemstones can be claimed", async () 
   expect(player.gemstones).toEqual([ruby]);
 });
 
+test("Labyrinth materials and consumables can be mailed and claimed", async () => {
+  const attachments = {
+    materials: { relicFragments: 7, labyrinth_etched_fang: 2 },
+    consumables: { relic: 1, healthPotion: 2 },
+    uniques: [{ id: "unwrittenPath", count: 1 }],
+  };
+  expect(normalizeAttachments(attachments).materials).toEqual([
+    ["relicFragments", 7],
+    ["labyrinth_etched_fang", 2],
+  ]);
+  expect(normalizeAttachments(attachments).consumables).toEqual([
+    ["relic", 1],
+    ["healthPotion", 2],
+  ]);
+  await sendMessage({ to: "alice", subject: "Labyrinth supplies", body: "A reward.", attachments });
+  expect(set).toHaveBeenCalledWith(
+    "inbox/alice/sent",
+    expect.objectContaining({ attachments }),
+  );
+
+  stop();
+  onValue.mockImplementation((path, callback) => {
+    callback({ val: () => path === "inbox/alice"
+      ? { labyrinth: { subject: "Labyrinth supplies", attachments } }
+      : {} });
+    return () => {};
+  });
+  stop = startInbox("alice", () => {});
+
+  expect(await claimMessage("labyrinth")).toEqual({
+    ok: true,
+    lines: ["7× Relic Fragments", "2× Maze-Etched Fang", "1× Sealed Relic", "2× Health Potion", "The Unwritten Path"],
+  });
+  expect(player.materials).toEqual({ relicFragments: 7, labyrinth_etched_fang: 2 });
+  expect(player.consumables).toEqual({ relic: 1, healthPotion: 2 });
+  expect(player.inventory[0]).toMatchObject({
+    name: "The Unwritten Path",
+    rarity: "Unique",
+    slot: "weapon",
+    ability: { name: "Unwritten Path" },
+  });
+});
+
 test("exact gear attachments are restricted to the slot's substat pool", async () => {
   const item = {
     id: "admin-gift",

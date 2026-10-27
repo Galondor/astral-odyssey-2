@@ -40,23 +40,215 @@ beforeEach(() => {
 
 afterEach(() => jest.restoreAllMocks());
 
-test("Bloom of Decay can weaken and poison an enemy on a hit", () => {
+test("Bloom of Decay adds a poison stack on every hit", () => {
   jest.spyOn(Math, "random").mockReturnValue(0);
 
   attackRound("melee");
 
-  expect(getEnemy().statuses.map(({ id }) => id)).toEqual(
-    expect.arrayContaining(["weaken", "poison"]),
-  );
+  expect(getEnemy().statuses.find(({ id }) => id === "poison").stacks).toBe(1);
+  attackRound("melee");
+  expect(getEnemy().statuses.find(({ id }) => id === "poison").stacks).toBe(2);
   expect(setPlayer).toHaveBeenCalled();
 });
 
-test("Bloom of Decay does not apply effects when their chance roll fails", () => {
+test("Marrow Ward absorbs damage at the start of combat", () => {
+  getPlayer.mockReturnValue({
+    ...player,
+    equipment: { chestplate: { ability: { name: "Marrow Ward" } } },
+  });
+  startCombat({
+    name: "Target",
+    maxHp: 1000,
+    attack: [10, 10],
+    defense: 0,
+    speed: 1,
+    critical: 0,
+    abilities: [],
+  });
+  jest.spyOn(Math, "random").mockReturnValue(0);
+
+  const { replies } = attackRound("melee");
+
+  expect(replies).toContain("Marrow Ward absorbs 10 damage (10 ward remains).");
+  expect(setPlayer.mock.calls.at(-1)[0].stats.health).toBe(100);
+});
+
+test("Frozen Resolve has a chance to stun an enemy that hits the player", () => {
+  getPlayer.mockReturnValue({
+    ...player,
+    stats: { ...player.stats, health: 100 },
+    equipment: { helmet: { ability: { name: "Frozen Resolve" } } },
+  });
+  startCombat({
+    name: "Target",
+    maxHp: 1000,
+    attack: [10, 10],
+    defense: 0,
+    speed: 1,
+    critical: 0,
+    abilities: [],
+  });
+  jest.spyOn(Math, "random").mockReturnValue(0);
+
+  const { replies } = attackRound("melee");
+
+  expect(replies).toContain("Frozen Resolve stuns the attacker!");
+  expect(setPlayer.mock.calls.at(-1)[0].stats.health).toBe(90);
+  expect(getEnemy().statuses.map(({ id }) => id)).toContain("stun");
+});
+
+test("Glacial Edge consumes vulnerability for a shattering strike", () => {
+  getPlayer.mockReturnValue({
+    ...player,
+    stats: { ...player.stats, attackMin: 100, attackMax: 100 },
+    equipment: { weapon: { ability: { name: "Glacial Edge" } } },
+  });
+  startCombat({
+    name: "Target",
+    maxHp: 1000,
+    defense: 0,
+    speed: 1,
+    abilities: [],
+  });
+  getEnemy().statuses.push({ id: "vulnerable", turns: 3, power: 0.25, stacks: 1 });
+  jest.spyOn(Math, "random").mockReturnValue(0.1);
+
+  const { replies } = attackRound("melee");
+
+  expect(replies.some((reply) => reply.includes("{{169|"))).toBe(true);
+  expect(replies).toContain("Glacial Edge shatters the enemy's vulnerability!");
+  expect(getEnemy().statuses.some(({ id }) => id === "vulnerable")).toBe(false);
+});
+
+test.each([
+  ["Fortune's Spark", "Fortune's Spark deals"],
+  ["Orbital Focus", "Orbital Focus launches a shard"],
+])("%s activates on each critical hit", (ability, expectedReply) => {
+  getPlayer.mockReturnValue({
+    ...player,
+    equipment: { weapon: { ability: { name: ability } } },
+    stats: { ...player.stats, criticalHitChance: 1 },
+  });
+  startCombat({
+    name: "Target",
+    maxHp: 1000,
+    defense: 0,
+    speed: 1,
+    abilities: [],
+  });
+  jest.spyOn(Math, "random").mockReturnValue(0);
+
+  const { replies } = attackRound("melee");
+
+  expect(replies).toContain("Critical hit!");
+  expect(replies.some((reply) => reply.includes(expectedReply))).toBe(true);
+});
+
+test("Fortune's Spark restores 25% of maximum power and deals 10% of enemy maximum health", () => {
+  getPlayer.mockReturnValue({
+    ...player,
+    equipment: { weapon: { ability: { name: "Fortune's Spark" } } },
+    stats: { ...player.stats, criticalHitChance: 1, power: 0, maxPower: 40 },
+  });
+  startCombat({
+    name: "Target",
+    maxHp: 1000,
+    defense: 0,
+    speed: 1,
+    abilities: [],
+  });
+  jest.spyOn(Math, "random").mockReturnValue(0);
+
+  const { replies } = attackRound("melee");
+
+  expect(replies.some((reply) => reply.includes("{{100|"))).toBe(true);
+  expect(replies).toContain("Fortune's Spark restores 10 power.");
+  expect(setPlayer.mock.calls.at(-1)[0].stats.power).toBe(10);
+});
+
+test("Unwritten Path doubles every third strike and ignores enemy defense", () => {
+  getPlayer.mockReturnValue({
+    ...player,
+    equipment: { weapon: { ability: { name: "Unwritten Path" } } },
+    stats: { ...player.stats, attackMin: 10, attackMax: 10 },
+  });
+  startCombat({
+    name: "Armored Target",
+    maxHp: 1000,
+    defense: 9,
+    speed: 1,
+    abilities: [],
+  });
+  jest.spyOn(Math, "random").mockReturnValue(0);
+
+  const first = attackRound("melee");
+  const second = attackRound("melee");
+  const third = attackRound("melee");
+
+  expect(first.replies.some((reply) => reply.includes("Unwritten Path"))).toBe(false);
+  expect(second.replies.some((reply) => reply.includes("Unwritten Path"))).toBe(false);
+  expect(third.replies).toContain(
+    "Unwritten Path finds a shortcut, bypassing defense for a doubled strike!",
+  );
+  expect(third.replies.some((reply) => reply.includes("{{20|"))).toBe(true);
+  expect(getEnemy().hp).toBe(978);
+});
+
+test("Tempered Steel blocks and counters every second enemy strike", () => {
+  getPlayer.mockReturnValue({
+    ...player,
+    equipment: { chestplate: { ability: { name: "Tempered Steel" } } },
+  });
+  startCombat({
+    name: "Target",
+    maxHp: 1000,
+    attack: [10, 10],
+    defense: 0,
+    speed: 1,
+    critical: 0,
+    abilities: [],
+  });
+  jest.spyOn(Math, "random").mockReturnValue(0);
+
+  const first = attackRound("melee");
+  const second = attackRound("melee");
+
+  expect(first.replies.some((reply) => reply.includes("turns the strike aside"))).toBe(false);
+  expect(second.replies).toContain("Tempered Steel turns the strike aside!");
+  expect(setPlayer.mock.calls.at(-1)[0].stats.health).toBe(100);
+});
+
+test("Star-Charted's aligned strike deals 150% more damage", () => {
+  getPlayer.mockReturnValue({
+    ...player,
+    equipment: { ring: { ability: { name: "Star-Charted" } } },
+    skills: { backstab: 1 },
+    stats: {
+      ...player.stats,
+      attackMin: 10,
+      attackMax: 10,
+      magicAttackMin: 10,
+      magicAttackMax: 10,
+      power: 10,
+      maxPower: 10,
+    },
+  });
+  startCombat({
+    name: "Target",
+    maxHp: 1000,
+    defense: 0,
+    speed: 1,
+    abilities: [],
+  });
   jest.spyOn(Math, "random").mockReturnValue(0.5);
 
   attackRound("melee");
+  attackRound("magic");
+  attackRound("melee", "backstab");
+  const { replies } = attackRound("melee");
 
-  expect(getEnemy().statuses).toEqual([]);
+  expect(replies.some((reply) => reply.includes("{{25|"))).toBe(true);
+  expect(replies).toContain("The constellation aligns and locks the enemy in place!");
 });
 
 test("skill bonuses cannot raise critical chance above 60 percent", () => {

@@ -90,15 +90,27 @@ export const startCombat = (template, { enemyFirst = false } = {}) => {
   openingReplies = [];
 
   const p = getPlayer();
+  const ab = getAbilityTotals(p);
   fight = {
-    ab: getAbilityTotals(p),
+    ab,
     cls: p.class,
     secondWindUsed: false,
     combo: 0,
     kinds: new Set(),
     spellstrike: false,
     playerStunGrace: false,
+    playerActsFirst: !enemyFirst && enemy.speed <= Math.round(
+      (p.stats?.speed || 0) * (1 + (ab.speedMult || 0)),
+    ),
+    ward: 0,
+    temperedStrikes: 0,
+    starKinds: new Set(),
+    starReady: false,
+    rootstrideReady: true,
+    unwrittenPathStrikes: 0,
   };
+  if (fight.ab.uniqueEffects.includes("marrowWard"))
+    fight.ward = Math.round((p.stats?.maxHealth || 0) * 0.2);
 
   // The faster combatant acts first; ties go to the player.
   const speed = Math.round(
@@ -357,6 +369,26 @@ function enemyStrike(s, replies, ability) {
   const beforeRounding = dmg;
   dmg = Math.max(1, Math.round(dmg));
   calculation.push(`Final rounding: ${beforeRounding} → ${dmg} (minimum 1).`);
+
+  if (fight.ab.uniqueEffects.includes("marrowWard") && fight.ward > 0) {
+    const absorbed = Math.min(fight.ward, dmg);
+    fight.ward -= absorbed;
+    dmg -= absorbed;
+    replies.push(`Marrow Ward absorbs ${absorbed} damage${fight.ward ? ` (${fight.ward} ward remains)` : " and breaks"}.`);
+    calculation.push(`Marrow Ward absorbs ${absorbed}; ${dmg} damage passes through.`);
+  }
+  if (fight.ab.uniqueEffects.includes("temperedSteel")) {
+    fight.temperedStrikes += 1;
+    if (fight.temperedStrikes === 2) {
+      fight.temperedStrikes = 0;
+      dmg = 0;
+      replies.push("Tempered Steel turns the strike aside!");
+      const counter = Math.max(1, Math.round(s.attackMax * 0.6 - enemy.defense));
+      hurtEnemy(counter, replies, "Your tempered counter", [
+        `Counterattack: round(${s.attackMax} × 0.6 - ${enemy.defense}) = ${counter}.`,
+      ]);
+    }
+  }
   damagePlayer(s, dmg, replies);
   fight.combo = 0;
   replies.push(
@@ -364,6 +396,13 @@ function enemyStrike(s, replies, ability) {
       ? `The ${enemy.name} ${used} on you for ${damageNumber(dmg, calculation, critical)} damage.`
       : `The ${enemy.name} hits you for ${damageNumber(dmg, calculation, critical)} damage.`,
   );
+  if (
+    fight.ab.uniqueEffects.includes("frozenResolve") &&
+    Math.random() < 0.1
+  ) {
+    inflictOnEnemy("stun", {}, replies);
+    replies.push("Frozen Resolve stuns the attacker!");
+  }
   if (fight.ab.reflect) {
     const reflected = Math.max(1, Math.round(dmg * fight.ab.reflect));
     hurtEnemy(reflected, replies, "Your thorns", [
@@ -483,7 +522,19 @@ export function applyDeathPenalties(p, s, replies, patch) {
 }
 
 function winCombat(p, s, replies, patch) {
-  const astra = Math.round(enemy.astra * (1 + (fight.ab.astraBonus || 0)));
+  const plunderBonus = fight.ab.uniqueEffects.includes("plunder")
+    ? Math.min(
+        0.3,
+        new Set(
+          enemy.statuses
+            .filter((status) => ["burn", "poison", "bleed", "weaken", "vulnerable", "stun"].includes(status.id))
+            .map((status) => status.id),
+        ).size * 0.1,
+      )
+    : 0;
+  const astra = Math.round(
+    enemy.astra * (1 + (fight.ab.astraBonus || 0) + plunderBonus),
+  );
   patch.astra = (p.astra || 0) + astra;
   replies.push(
     `The ${enemy.name} falls! You gain ${enemy.exp} exp and ${astra} {{astra|astra}}.`,
@@ -636,6 +687,17 @@ export function attackRound(type, skillKey) {
     log: (text) => replies.push(text),
   };
 
+  const starCategory = skill ? "skill" : type;
+  const constellationReady =
+    ab.uniqueEffects.includes("starCharted") && fight.starReady;
+  if (constellationReady) {
+    fight.starReady = false;
+    fight.starKinds.clear();
+  }
+  const unwrittenPathReady =
+    ab.uniqueEffects.includes("unwrittenPath") &&
+    fight.unwrittenPathStrikes === 2;
+
   const calculation = [];
   const baseHit = hit;
   calculation.push(
@@ -686,6 +748,12 @@ export function attackRound(type, skillKey) {
   const outgoing = outgoingMult(playerStatuses);
   const incoming = incomingMult(enemy.statuses);
   const beforeMultipliers = hit;
+  const glacialShatter =
+    ab.uniqueEffects.includes("glacialEdge") &&
+    enemy.statuses.some((status) => status.id === "vulnerable");
+  if (constellationReady) bonus += 1.5;
+  if (glacialShatter) bonus += 0.35;
+  if (unwrittenPathReady) bonus += 1;
   hit *= bonus * outgoing * incoming;
   calculation.push(
     `Damage modifiers: ${beforeMultipliers} × ${bonus} × ${outgoing} × ${incoming} = ${hit}.`,
@@ -696,7 +764,9 @@ export function attackRound(type, skillKey) {
 
   const ignore = Math.min(
     1,
-    (skill?.ignoreDefense?.(level) || 0) + (ab.pierce || 0),
+    (skill?.ignoreDefense?.(level) || 0) +
+      (ab.pierce || 0) +
+      (unwrittenPathReady ? 1 : 0),
   );
   const beforeDefense = hit - enemy.defense * (1 - ignore);
   let dealt = Math.max(1, Math.round(beforeDefense));
@@ -712,10 +782,43 @@ export function attackRound(type, skillKey) {
   }
   ctx.dealt = dealt;
   enemy.hp = Math.max(0, enemy.hp - dealt);
+  if (ab.uniqueEffects.includes("unwrittenPath")) {
+    if (unwrittenPathReady) {
+      fight.unwrittenPathStrikes = 0;
+      replies.push("Unwritten Path finds a shortcut, bypassing defense for a doubled strike!");
+    } else {
+      fight.unwrittenPathStrikes += 1;
+    }
+  }
   replies.push(
     `${skill ? `You use ${skill.name} on` : "You strike"} the ${enemy.name} for ${damageNumber(dealt, calculation, ctx.crit)} damage${enemy.defending ? " (defended)" : ""}.`,
   );
 
+  if (glacialShatter) {
+    enemy.statuses = enemy.statuses.filter((status) => status.id !== "vulnerable");
+    replies.push("Glacial Edge shatters the enemy's vulnerability!");
+  }
+  if (constellationReady && enemy.hp > 0) {
+    inflictOnEnemy("stun", {}, replies);
+    replies.push("The constellation aligns and locks the enemy in place!");
+  }
+  if (ab.uniqueEffects.includes("rootstride") && fight.playerActsFirst && fight.rootstrideReady) {
+    fight.rootstrideReady = false;
+    if (enemy.hp > 0) {
+      inflictOnEnemy("stun", {}, replies);
+      replies.push("Rootstride binds the enemy with your opening strike!");
+    }
+  }
+  if (ab.uniqueEffects.includes("undyingHunger") && dealt > 0 &&
+      enemy.statuses.some((status) => ["burn", "poison", "bleed"].includes(status.id))) {
+    healPlayer(s, Math.round(s.maxHealth * 0.08), replies, "Undying Hunger");
+  }
+  if (ab.uniqueEffects.includes("moltenGrip") && dealt > 0 && enemy.hp > 0 &&
+      enemy.statuses.some((status) => status.id === "burn")) {
+    const burst = Math.max(1, Math.round(enemy.maxHp * 0.06));
+    enemy.hp = Math.max(0, enemy.hp - burst);
+    replies.push(`Molten Grip detonates the flames for ${damageNumber(burst, [`Maximum health: ${enemy.maxHp}.`, `Flame detonation: ${enemy.maxHp} × 6% = ${burst}.`])} damage.`);
+  }
   if (ab.lifesteal)
     healPlayer(
       s,
@@ -730,6 +833,30 @@ export function attackRound(type, skillKey) {
     );
     replies.push("Arcane Surge: you recover power!");
   }
+  if (ctx.crit && ab.uniqueEffects.includes("fortunesSpark")) {
+    if (enemy.hp > 0) {
+      const spark = Math.max(1, Math.round(enemy.maxHp * 0.1));
+      enemy.hp = Math.max(0, enemy.hp - spark);
+      replies.push(`Fortune's Spark deals ${damageNumber(spark, [`Maximum health: ${enemy.maxHp}.`, `Spark: ${enemy.maxHp} × 10% = ${spark}.`])} bonus damage.`);
+    }
+    const restored = Math.max(
+      0,
+      Math.min(Math.round(s.maxPower * 0.25), s.maxPower - s.power),
+    );
+    s.power += restored;
+    replies.push(
+      restored
+        ? `Fortune's Spark restores ${restored} power.`
+        : "Fortune's Spark has no power to restore.",
+    );
+  }
+  if (ctx.crit && ab.uniqueEffects.includes("orbitalFocus")) {
+    if (enemy.hp > 0) {
+      const shard = Math.max(1, Math.round(dealt * 0.35));
+      enemy.hp = Math.max(0, enemy.hp - shard);
+      replies.push(`Orbital Focus launches a shard for ${damageNumber(shard, [`Strike damage: ${dealt}.`, `Orbiting shard: ${dealt} × 35% = ${shard}.`])} bonus damage.`);
+    }
+  }
   skill?.onHit?.(ctx);
   if (enemy.hp > 0) {
     if (ab.ignite && Math.random() < ab.ignite)
@@ -738,12 +865,27 @@ export function attackRound(type, skillKey) {
       inflictOnEnemy("weaken", {}, replies);
     if (ab.poison && Math.random() < ab.poison)
       inflictOnEnemy("poison", {}, replies);
+    if (ab.uniqueEffects.includes("bloomOfDecay")) {
+      const existing = enemy.statuses.find((status) => status.id === "poison");
+      const stacks = Math.min(5, (existing?.stacks || 0) + 1);
+      inflictOnEnemy("poison", {}, replies);
+      const poison = enemy.statuses.find((status) => status.id === "poison");
+      if (poison) poison.stacks = stacks;
+      replies.push(`Bloom of Decay grows to ${stacks} poison stack${stacks === 1 ? "" : "s"}.`);
+    }
     if (cls === "Trickster" && Math.random() < HEX_CHANCE)
       inflictOnEnemy(
         Math.random() < 0.5 ? "weaken" : "vulnerable",
         { turns: 2 },
         replies,
       );
+  }
+  if (ab.uniqueEffects.includes("starCharted")) {
+    fight.starKinds.add(starCategory);
+    if (fight.starKinds.size >= 3) {
+      fight.starReady = true;
+      replies.push("A constellation takes shape around your next strike.");
+    }
   }
   fight.combo += 1;
   if (cls === "Spellblade" && skill) {

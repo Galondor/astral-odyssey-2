@@ -137,6 +137,17 @@ function choose(label) {
   return option.onSelect();
 }
 
+test.each([
+  ["basic", 100, 81],
+  ["elite", 300, 242],
+  ["boss", 700, 564],
+])("dungeon %s enemy rewards half astra and exp", (tier, astra, exp) => {
+  const foe = enemy(tier);
+
+  expect(foe.astra).toBe(astra);
+  expect(foe.exp).toBe(exp);
+});
+
 test.each(DUNGEON_TYPE_IDS)("%s has eight challenges and three distinct exclusive materials", (id) => {
   const dungeon = DUNGEON_TYPES[id];
   expect(dungeon.puzzles).toHaveLength(8);
@@ -225,7 +236,10 @@ test.each([12, 20, 50, 100])("boss completion at level %s adds only one essence 
   const patch = { materials: { [type.materials.boss]: 1, primal_essence: 7 } };
   const replies = [];
   boss.onDefeat(player, {}, patch, replies);
+  const completionAstra = Math.round(Math.round(level * 45) / 2);
+  expect(patch.astra).toBe(completionAstra);
   expect(patch.materials).toEqual({ [type.materials.boss]: 1, primal_essence: 8 });
+  expect(replies.join(" ")).toContain(`Completion bonus: ${completionAstra}`);
   expect(replies.join(" ")).toContain("and 1 {{Primal Essence|material:primal_essence}}");
 });
 
@@ -360,7 +374,7 @@ test("circuits toggle only immediate neighbors and can be solved without damage"
   for (let i = 0; i < 5; i++) if (solution & (1 << i)) choose(`Toggle rune ${i + 1}`);
   choose("Check circuit");
   expect(player.dungeon.index).toBe(1);
-  expect(player.astra).toBe(1450);
+  expect(player.astra).toBe(1225);
 });
 
 test("an incorrect circuit check preserves the board and increases mistake damage", () => {
@@ -450,7 +464,7 @@ test("rune pairs contain four pairs, retain revealed mismatches, and preserve ma
     cards.forEach((card, i) => { if (card === symbol) choose(`Reveal rune ${i + 1}`); });
   }
   expect(player.dungeon.index).toBe(1);
-  expect(player.astra).toBe(1300);
+  expect(player.astra).toBe(1150);
 });
 
 test.each(["scales", "path", "pairs"])("%s restores empty arrays removed by Firebase", (kind) => {

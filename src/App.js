@@ -13,6 +13,7 @@ import { createCharacter, deleteCharacter, loadCharacters } from "./character/ch
 import { endCombat, getEnemy } from "./combat/combat";
 import { clearBlackjack } from "./world/blackjack";
 import { expireIfNeeded, isInDungeon } from "./world/dungeons";
+import { isLabyrinthActive } from "./world/labyrinth";
 import { isAdmin, startInbox } from "./world/inbox";
 import { DEFAULT_SCREEN, SCREENS } from "./ui/screens";
 import {
@@ -161,7 +162,9 @@ function Game({ uid, onLogout, onMainMenu }) {
     if (!getPlayer() || getPlayer().needsNameChange) return "start";
     if (!getPlayer().stats) return "createCharacter";
     if (getEnemy()) return "combat";
-    return expireIfNeeded() || !isInDungeon() ? "menu" : "dungeon";
+    if (expireIfNeeded()) return "menu";
+    if (isLabyrinthActive()) return "labyrinth";
+    return isInDungeon() ? "dungeon" : "menu";
   });
   const [messages, setMessages] = useState(() => initialMessages(sceneId));
   const [input, setInput] = useState("");

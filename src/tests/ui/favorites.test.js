@@ -263,15 +263,19 @@ test("trader gear popup protects favorites and allows unfavoriting before sellin
 
 test("trader can mass-sell selected gear while excluding favorites", () => {
   player.favoriteInventoryItems = { gear: [sword.id] };
+  const equippedBoots = { ...sword, id: "equipped-boots", name: "Equipped Boots", slot: "boots" };
+  player.equipment = { boots: equippedBoots };
   const Trader = SCREENS.gearTrader.component;
   render(<Trader />);
 
   fireEvent.click(screen.getByRole("button", { name: "Select all sellable gear" }));
   expect(screen.getByRole("checkbox", { name: `Select ${sword.name} to sell` })).toBeDisabled();
+  expect(screen.getByRole("checkbox", { name: `Select equipped ${equippedBoots.name} to sell` })).not.toBeChecked();
   expect(screen.getByRole("button", { name: /Sell selected \(1 • 50 astra\)/ })).toBeEnabled();
   fireEvent.click(screen.getByRole("button", { name: /Sell selected/ }));
 
   expect(player.inventory).toEqual([sword]);
+  expect(player.equipment.boots).toEqual(equippedBoots);
   expect(player.astra).toBe(1050);
   expect(screen.getByText("1 gear item sold for 50 astra.")).toBeInTheDocument();
 });

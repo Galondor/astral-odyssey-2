@@ -1,18 +1,21 @@
 :root {
   color-scheme: dark;
-  --bg: #0b0b12;
-  --surface: #12121a;
-  --surface-2: #1c1c24;
-  --surface-3: #2a2a36;
-  --border: #33334a;
-  --text: #e6e6ee;
-  --muted: #9a9ab0;
-  --accent: #ffd866;
+  --bg: #090e16;
+  --surface: #101824;
+  --surface-2: #172230;
+  --surface-3: #202e40;
+  --border: #304155;
+  --text: #e7edf5;
+  --muted: #94a3b5;
+  --accent: #9bc5ff;
 }
 
 html,
 body {
-  background: var(--bg);
+  background:
+    radial-gradient(ellipse at 12% 0%, rgba(86, 126, 181, 0.12), transparent 38%),
+    radial-gradient(ellipse at 88% 100%, rgba(91, 87, 155, 0.1), transparent 40%),
+    var(--bg);
   color: var(--text);
 }
 
@@ -34,6 +37,10 @@ textarea {
   color: var(--text);
   background: var(--surface-3);
   border: 1px solid var(--border);
+}
+
+button {
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
 button:disabled {

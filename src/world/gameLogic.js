@@ -1,6 +1,7 @@
 import { Player, getPlayer, savePlayerName, setPlayer } from "../character/player";
 import { runTravelEvent } from "./events";
 import { expireIfNeeded, getDungeonOptions, getDungeonText, isInDungeon } from "./dungeons";
+import { isLabyrinthActive } from "./labyrinth";
 import {
   attackRound,
   defendRound,
@@ -184,7 +185,7 @@ export const scenes = {
         keywords: ["portal", "3"],
         next: "portal",
       },
-    ].map((o) => ({ ...o, when: () => !isInDungeon() })),
+    ].map((o) => ({ ...o, when: () => !isInDungeon() && !isLabyrinthActive() })),
   },
   dungeon: {
     screen: "dungeonRun",
@@ -338,23 +339,28 @@ export const scenes = {
         next: "workshop",
       },
       {
+        label: "Forge",
+        keywords: ["forge", "6"],
+        next: "forge",
+      },
+      {
         label: "Gear Trader",
-        keywords: ["gear trader", "6"],
+        keywords: ["gear trader", "7"],
         next: "gearTrader",
       },
       {
         label: "Bank",
-        keywords: ["bank", "7"],
+        keywords: ["bank", "8"],
         next: "bank",
       },
       {
         label: "Tavern",
-        keywords: ["tavern", "8"],
+        keywords: ["tavern", "9"],
         next: "tavern",
       },
       {
         label: "Marketplace",
-        keywords: ["marketplace", "9"],
+        keywords: ["marketplace", "10"],
         tooltip: () => ({
           title: "Marketplace",
           description: `Buy and sell gear with other players. 10% tax on sales.${isMarketUnlocked() ? "" : `\nRequires level ${MARKETPLACE_MIN_LEVEL}.`}`,
@@ -580,6 +586,22 @@ export const scenes = {
       { label: "Leave Workshop", keywords: ["leave", "1"], next: "town" },
     ],
   },
+  forge: {
+    screen: "forge",
+    clearLog: true,
+    input: INPUT_MODES[0],
+    text: "The Forge's star-forged anvils are ready. Shape a relic into a custom item.",
+    options: [
+      { label: "Leave Forge", keywords: ["leave", "1"], next: "town" },
+    ],
+  },
+  labyrinth: {
+    screen: "dungeons",
+    clearLog: true,
+    input: INPUT_MODES[0],
+    text: "You continue your Labyrinth expedition.",
+    options: [],
+  },
   combat: {
     screen: "combat",
     clearLog: true,
@@ -799,7 +821,8 @@ function navigate(sceneId, result, fallbackNext) {
   }
   let next = result.next || fallbackNext;
   // Inside a dungeon the town menu is locked, so every road back leads to the dungeon
-  if (next === "menu" && isInDungeon()) next = "dungeon";
+  if (next === "menu" && isLabyrinthActive()) next = "labyrinth";
+  else if (next === "menu" && isInDungeon()) next = "dungeon";
   if (next && scenes[next]) {
     // keepLog moves between scenes of one screen (e.g. combat menus) without wiping or repeating the log
     if (!keepLog) replies.push(sceneText(next));

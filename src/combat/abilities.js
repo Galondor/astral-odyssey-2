@@ -80,67 +80,85 @@ export const ABILITIES = [
   },
 ];
 
-// Fixed abilities of Unique gear (dropped by dungeon bosses). Same fields as ABILITIES; never rolled at random.
+// Fixed combat mechanics of Unique gear (dropped by dungeon bosses).
 export const UNIQUE_ABILITIES = [
   {
     name: "Undying Hunger",
-    description: "Heal for 10% of damage dealt.",
-    effects: { lifesteal: 0.1 }
+    description: "Striking an enemy with a damage-over-time effect restores 8% of your maximum health.",
+    uniqueEffect: "undyingHunger",
+    effects: {},
   },
   {
     name: "Marrow Ward",
-    description: "Reduce damage taken by 20% and reflect 20% of damage taken back to the attacker.",
-    effects: { damageReduction: 0.2, reflect: 0.2 }
+    description: "A bone ward absorbs damage equal to 20% of your maximum health at the start of each combat.",
+    uniqueEffect: "marrowWard",
+    effects: {},
   },
   {
     name: "Plunder",
-    description: "Increase damage dealt by 20% and astra gain by 30%.",
-    effects: { damageBonus: 0.2, astraBonus: 0.3 }
+    description: "Defeating an enemy grants 10% more astra for each different harmful effect on it, up to 30%.",
+    uniqueEffect: "plunder",
+    effects: {},
   },
   {
     name: "Fortune's Spark",
-    description: "Restore 75% of your max power when landing a critical hit. Increase astra gain by 20%. Hits have a 20% chance to set the enemy on fire.",
-    effects: { surge: 0.75, astraBonus: 0.2, ignite: 0.2 }
+    description: "Critical hits release a spark that deals 10% of the enemy's maximum health and restores 25% of your maximum power.",
+    uniqueEffect: "fortunesSpark",
+    effects: {},
   },
   {
     name: "Molten Grip",
-    description: "Hits have a 30% chance to set the enemy on fire. Increase damage dealt by 10% and ignore 20% of the enemy's defense.",
-    effects: { ignite: 0.3, damageBonus: 0.1, pierce: 0.2 }
+    description: "Hitting a burning enemy detonates it for 6% of its maximum health.",
+    uniqueEffect: "moltenGrip",
+    effects: {},
   },
   {
     name: "Tempered Steel",
-    description: "Reduce damage taken by 20% and reflect 10% of damage taken back to the attacker.",
-    effects: { damageReduction: 0.25, reflect: 0.15 }
+    description: "Every second enemy strike is blocked, then answered with a counterattack.",
+    uniqueEffect: "temperedSteel",
+    effects: {},
   },
   {
     name: "Frozen Resolve",
-    description: "Reduce damage taken by 10%. Once per combat, recover 75% health when falling below 10% health.",
-    effects: { damageReduction: 0.1, secondWind: 0.75 }
+    description: "When an enemy hits you, you have a 10% chance to stun it.",
+    uniqueEffect: "frozenResolve",
+    effects: {},
   },
   {
     name: "Glacial Edge",
-    description: "Ignore 40% of the enemy's defense and increase damage dealt by 5%.",
-    effects: { pierce: 0.4, damageBonus: 0.05 }
+    description: "Striking a vulnerable enemy shatters them, dealing 35% more damage.",
+    uniqueEffect: "glacialEdge",
+    effects: {},
   },
   {
     name: "Rootstride",
-    description: "Increase speed by 100% when determining turn order and speed comparisons. Reflect 10% of damage taken.",
-    effects: { speedMult: 1, reflect: 0.1 }
+    description: "If you act first, your first strike roots the enemy and steals its first action.",
+    uniqueEffect: "rootstride",
+    effects: {},
   },
   {
     name: "Bloom of Decay",
-    description: "Hits have a 25% chance to weaken and a 50% chance to poison the enemy.",
-    effects: { weakened: 0.25, poison: 0.5 }
+    description: "Every hit adds a poison stack, up to 5 stacks.",
+    uniqueEffect: "bloomOfDecay",
+    effects: {},
   },
   {
     name: "Orbital Focus",
-    description: "Restore your full power when landing a critical hit and increase damage dealt by 20%.",
-    effects: { surge: 1, damageBonus: 0.2 }
+    description: "Critical hits launch a second attack form orbit that deals 35% of the critical hit's damage.",
+    uniqueEffect: "orbitalFocus",
+    effects: {},
   },
   {
     name: "Star-Charted",
-    description: "Increase speed by 30%, ignore 20% of the enemy's defense and increase astra gain by 20%.",
-    effects: { speedMult: 0.3, pierce: 0.2, astraBonus: 0.2 }
+    description: "Use a basic melee attack, a basic magic attack, and a skill to align a constellation; your next strike stuns and deals 150% more damage.",
+    uniqueEffect: "starCharted",
+    effects: {},
+  },
+  {
+    name: "Unwritten Path",
+    description: "Every third attack discovers an impossible shortcut, ignoring the enemy's defense and dealing double damage.",
+    uniqueEffect: "unwrittenPath",
+    effects: {},
   },
 ];
 
@@ -151,11 +169,12 @@ export const findAbility = (ability) =>
 
 // Sums the effects of every equipped item's ability.
 export const getAbilityTotals = (player) => {
-  const totals = {};
+  const totals = { uniqueEffects: [] };
   for (const item of Object.values(player?.equipment || {})) {
     const def = findAbility(item?.ability);
     if (!def) continue;
     for (const [k, v] of Object.entries(def.effects)) totals[k] = (totals[k] || 0) + v;
+    if (def.uniqueEffect) totals.uniqueEffects.push(def.uniqueEffect);
   }
   return totals;
 };

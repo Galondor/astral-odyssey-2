@@ -11,6 +11,7 @@ import { MATERIALS, addToMaterials } from "../items/materials";
 import { expForLevel } from "../character/stats";
 import { getEffectiveLevel } from "../combat/enemies";
 import { DUNGEON_TYPES, DUNGEON_TYPE_IDS, TRAP_COUNTERS, UNIQUES, UNIQUE_DROP_CHANCE } from "./dungeonData";
+import { isLabyrinthActive } from "./labyrinth";
 
 /*
  Solo dungeons.
@@ -195,6 +196,7 @@ export const describeOffer = (offer) => {
 export function startDungeon(offerId) {
   const player = getPlayer();
   if (!player) return { ok: false, message: "No character loaded." };
+  if (isLabyrinthActive()) return { ok: false, message: "Leave the Labyrinth before entering another dungeon." };
   if (player.dungeon) return { ok: false, message: "You are already inside a dungeon." };
   if ((player.level || 1) < DUNGEON_MIN_LEVEL) return { ok: false, message: `Dungeons unlock at level ${DUNGEON_MIN_LEVEL}.` };
   if (getEnemy()) return { ok: false, message: "Finish your fight first." };
@@ -262,6 +264,8 @@ const grantAstra = (amount) => {
   return amount;
 };
 
+const halfReward = (amount) => Math.round(amount / 2);
+
 // ---- Enemies ----
 
 const buildEnemy = (run, step) => {
@@ -284,8 +288,8 @@ const buildEnemy = (run, step) => {
     defense: Math.round(BASE_DEFENSE * level * t.def * mod.def),
     speed: Math.round((BASE_SPEED + 0.35 * level) * t.spd * mod.spd),
     critical: t.crit,
-    astra: Math.round(level * t.astra),
-    exp: Math.round(levelExp * t.exp),
+    astra: halfReward(Math.round(level * t.astra)),
+    exp: halfReward(Math.round(levelExp * t.exp)),
     abilities: template.abilities || [],
     phases: template.phases || [],
     drops: [
@@ -337,7 +341,7 @@ function onFightWon(p, s, patch, replies, template) {
     patch.consumables = consumables;
     replies.push("The boss drops an Elixir of Name Changing!");
   }
-  const astra = Math.round(run.level * 45);
+  const astra = halfReward(Math.round(run.level * 45));
   patch.astra = (patch.astra ?? p.astra ?? 0) + astra;
   const board = p.dungeonBoard;
   if (board?.offers?.some((o) => o.id === run.offerId))
@@ -535,7 +539,7 @@ function mistake(run, message, { regenerate = true, damageFraction } = {}) {
 
 // The puzzle was solved: reward it and move to the next step.
 function solved(run, message, { perfect = false, heal = 0.15, power = 0.3 } = {}) {
-  const astra = grantAstra(Math.round(run.level * PUZZLE_ASTRA * (perfect ? 1.5 : 1)));
+  const astra = grantAstra(halfReward(Math.round(run.level * PUZZLE_ASTRA * (perfect ? 1.5 : 1))));
   const healed = restore(heal, power);
   const next = prepareStep({ ...run, index: run.index + 1 });
   setPlayer({ dungeon: next });

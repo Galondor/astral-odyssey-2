@@ -244,6 +244,37 @@ export const getDirectory = async () => {
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 };
 
+export async function administerPlayerTimer(uid, timer) {
+  if (!state.admin) throw new Error("Admin access is required.");
+  if (typeof uid !== "string" || !uid || uid.includes("/") || !["dungeons", "labyrinth"].includes(timer))
+    throw new Error("Choose a player and a valid timer.");
+
+  const ownerSnapshot = await get(ref(db, `characterOwners/${uid}`));
+  const owner = ownerSnapshot.val();
+  if (owner && (
+    typeof owner.accountId !== "string" || !owner.accountId ||
+    typeof owner.characterId !== "string" || !/^[0-9]{40}$/.test(owner.characterId)
+  ))
+    throw new Error("The player's character ownership record is invalid.");
+  const accountId = owner?.accountId || uid;
+  const playerPath = owner
+    ? `users/${accountId}/characters/${owner.characterId}/player`
+    : `users/${accountId}/player`;
+  const revisionSnapshot = await get(ref(db, `users/${accountId}/saveRevision`));
+  const revision = revisionSnapshot.val() || 0;
+  if (!Number.isSafeInteger(revision) || revision < 0)
+    throw new Error("The player's save revision is invalid.");
+
+  const updates = {
+    [`users/${accountId}/saveRevision`]: revision + 1,
+  };
+  if (timer === "dungeons") updates[`${playerPath}/dungeonBoard/slot`] = -1;
+  else updates[`${playerPath}/labyrinth/weekId`] = null;
+  await update(ref(db), updates);
+}
+
+export const grantLabyrinthAttempt = (uid) => administerPlayerTimer(uid, "labyrinth");
+
 export const getBroadcasts = async () => {
   const s = await get(ref(db, "broadcasts"));
   return Object.entries(s.val() || {})

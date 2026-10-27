@@ -14,9 +14,13 @@ import {
   buyBackGear,
   buyGearTraderItem,
   canEquip,
+  CONDITION_NAMES,
   equipItem,
+  GEAR_SLOT_TYPES,
   GEAR_TRADER_REFRESH_MS,
+  getCustomSubStatTiers,
   getGearTraderStock,
+  getSubStatPool,
   getSellPrice,
   getGemstoneValue,
   getGemstoneRemovalCost,
@@ -29,7 +33,9 @@ import {
   sellInventoryItem,
   unequipItem,
 } from "../items/items";
+import { craftRelicItem, getRelicCraftCost, RELIC_CONDITION_COST, RELIC_CRAFT_RARITIES, RELIC_RARITY_COSTS } from "../world/relicForge";
 import { getItemGearScore } from "../items/gearScore";
+import { ABILITIES } from "../combat/abilities";
 import { isFavorite, toggleFavorite } from "../items/favorites";
 import { applyRune, canApplyRune, RUNE_MAIN_STATS } from "../items/runes";
 import { canRenameItem, renameItem } from "../items/certificates";
@@ -105,6 +111,7 @@ import MarketplaceScreen from "./MarketplaceScreen";
 import { MARKETPLACE_MIN_LEVEL } from "../world/marketplace";
 import AdminScreen from "./AdminScreen";
 import BugReportScreen from "./BugReportScreen";
+import LabyrinthScreen from "./LabyrinthExpeditionScreen";
 import { getUnreadCount } from "../world/inbox";
 import { DUNGEON_MIN_LEVEL, DUNGEON_REROLL_COST, describeOffer, formatTime, getBoard, getBoardRefreshMs, getRun, getStages, getTimeLeftMs, rerollDungeons, startDungeon } from "../world/dungeons";
 /*
@@ -207,10 +214,13 @@ const DungeonRunScreen = ({ messages, player }) => {
   );
 };
 
-const DungeonsScreen = ({ player, goToScene, inCombat, onChange }) => {
-  const tab = "solo";
+const DungeonsScreen = ({ player, goToScene, inCombat, onChange, sceneId }) => {
+  const [tab, setTab] = useState(sceneId === "labyrinth" ? "labyrinth" : "solo");
   const [error, setError] = useState("");
   const now = useNow();
+  useEffect(() => {
+    if (sceneId === "labyrinth") setTab("labyrinth");
+  }, [sceneId]);
   const run = getRun(player);
   const board = tab === "solo" && player ? getBoard(player) : null;
   const enter = (offerId) => {
@@ -237,11 +247,20 @@ const DungeonsScreen = ({ player, goToScene, inCombat, onChange }) => {
       {error && <p className='dungeon-warning' role='alert'>{error}</p>}
       <div className='dungeon-tabs'>
         {[["solo", "Solo Dungeons"], ["labyrinth", "Labyrinth"], ["group", "Group Dungeons"]].map(([key, label]) => (
-          <button key={key} type='button' className={`buttons ${tab === key ? "active" : ""}`} disabled>{label}</button>
+          <button
+            key={key}
+            type='button'
+            className={`buttons ${tab === key ? "active" : ""}`}
+            disabled={key === "group" || (key === "labyrinth" && (player?.level || 1) < 22)}
+            onClick={() => setTab(key)}
+          >
+            {label}
+          </button>
         ))}
-        <button type='button' className='buttons' disabled>Raids (Coming Soon)</button>
+        <button type='button' className='buttons' disabled>Raids</button>
       </div>
       {tab === "group" && <p>Group dungeons are coming soon!</p>}
+      {tab === "labyrinth" && <LabyrinthScreen player={player} inCombat={inCombat} goToScene={goToScene} onChange={onChange} />}
       {tab === "solo" && (
         <>
           <p className='dungeon-rules'>
@@ -471,6 +490,136 @@ const CraftingScreen = ({ data, onChange }) => {
   );
 };
 
+const ForgeScreen = ({ onChange }) => {
+  const [tab, setTab] = useState("relic");
+  const [name, setName] = useState("");
+  const [slot, setSlot] = useState("weapon");
+  const [rarity, setRarity] = useState("Rare");
+  const [condition, setCondition] = useState("random");
+  const [ability, setAbility] = useState("");
+  const [twoHanded, setTwoHanded] = useState(false);
+  const [subStats, setSubStats] = useState([]);
+  const [note, setNote] = useState("");
+  const player = getPlayer() || {};
+  const relicCount = player.consumables?.relic || 0;
+  const fragmentCount = player.materials?.relicFragments || 0;
+  const substatCount = RELIC_CRAFT_RARITIES.indexOf(rarity) + 1;
+  const updateSubStat = (index, field, value) =>
+    setSubStats((current) => {
+      const next = [...current];
+      next[index] = { ...(next[index] || { stat: "random", tier: 3 }), [field]: value };
+      return next;
+    });
+  const selectedSubStats = subStats.filter((entry) => entry?.stat && entry.stat !== "random");
+  const fragmentCost = getRelicCraftCost(rarity, selectedSubStats, ability, condition);
+  const forge = () => {
+    const result = craftRelicItem(player, { name, slot, rarity, condition, ability, twoHanded, subStats });
+    if (!result.ok) {
+      setNote(result.message);
+      return;
+    }
+    setPlayer(result.patch);
+    onChange?.();
+    setNote(result.message);
+  };
+  return (
+    <div className='workshop relic-forge'>
+      <header className='relic-forge-header'>
+        <div>
+          <h3>Relic Forge</h3>
+          <p>Design one custom item. Random choices are free; fragment costs are shown before forging.</p>
+        </div>
+        <div className='relic-forge-wallet' aria-label='Crafting materials'>
+          <span><strong>{relicCount}</strong> Sealed Relics</span>
+          <span><strong>{fragmentCount}</strong> Relic Fragments</span>
+        </div>
+      </header>
+      <div className='inventory-tabs' role='tablist' aria-label='Forge'>
+        <button type='button' role='tab' aria-selected={tab === "relic"} className={`inventory-tab ${tab === "relic" ? "active" : ""}`} onClick={() => setTab("relic")}>Relic Crafting</button>
+        <button type='button' role='tab' aria-selected='false' className='inventory-tab' disabled title='Material crafting is not available yet'>Material Crafting</button>
+      </div>
+      {tab === "relic" && (
+        <div className='relic-forge-content'>
+          <section className='relic-forge-section'>
+            <h4>Item design</h4>
+            <div className='relic-forge-fields'>
+              <label>Item name <span>Free</span>
+                <input className='input-field' value={name} maxLength={60} placeholder='Random name' onChange={(event) => setName(event.target.value)} />
+              </label>
+              <label>Slot
+                <select className='input-field' value={slot} onChange={(event) => { setSlot(event.target.value); setSubStats([]); setAbility(""); setTwoHanded(false); }}>
+                  {GEAR_SLOT_TYPES.map((value) => <option key={value} value={value}>{SLOTS.find((entry) => entry.type === value)?.label || value}</option>)}
+                </select>
+              </label>
+              <label>Rarity
+                <select className='input-field' value={rarity} onChange={(event) => { setRarity(event.target.value); setSubStats([]); }}>
+                  {RELIC_CRAFT_RARITIES.map((value) => <option key={value} value={value}>{value} · {RELIC_RARITY_COSTS[value]} fragments</option>)}
+                </select>
+              </label>
+              <label>Condition
+                <select className='input-field' value={condition} onChange={(event) => setCondition(event.target.value)}>
+                  <option value='random'>Random · Free</option>
+                  {CONDITION_NAMES.map((value) => <option key={value} value={value}>{value} · +{RELIC_CONDITION_COST} fragments</option>)}
+                </select>
+              </label>
+              <label>Ability
+                <select className='input-field' value={ability} onChange={(event) => setAbility(event.target.value)}>
+                  <option value=''>Random · Free</option>
+                  {ABILITIES.filter((entry) => entry.slots.includes(slot)).map((entry) => <option key={entry.name} value={entry.name}>{entry.name} · 18 fragments</option>)}
+                </select>
+              </label>
+              {slot === "weapon" && <label className='relic-forge-checkbox'>
+                <input type='checkbox' checked={twoHanded} onChange={(event) => { setTwoHanded(event.target.checked); setSubStats([]); }} />
+                Two-handed weapon
+              </label>}
+            </div>
+          </section>
+          <section className='relic-forge-section'>
+            <div className='relic-forge-section-heading'>
+              <div><h4>Substats ({substatCount})</h4><p>Choose each stat and tier, or leave it Random to pay no selection cost.</p></div>
+            </div>
+            <div className='relic-forge-substats'>
+              {Array.from({ length: substatCount }, (_, index) => {
+                const entry = subStats[index] || { stat: "random", tier: 3 };
+                const pool = getSubStatPool(slot).filter((value) => !subStats.some((other, otherIndex) => otherIndex !== index && other?.stat === value));
+                const tiers = entry.stat === "random" ? [] : getCustomSubStatTiers(entry.stat, Math.max(1, player.level || 1), twoHanded);
+                return (
+                  <div className='relic-forge-substat-row' key={index}>
+                    <span className='relic-forge-substat-number'>{index + 1}</span>
+                    <label>Stat
+                      <select className='input-field' value={entry.stat || "random"} onChange={(event) => {
+                        const value = event.target.value;
+                        updateSubStat(index, "stat", value);
+                        if (value !== "random") {
+                          const availableTiers = getCustomSubStatTiers(value, Math.max(1, player.level || 1), twoHanded);
+                          updateSubStat(index, "tier", availableTiers[0] ?? 0);
+                        }
+                      }}>
+                        <option value='random'>Random · Free</option>
+                        {pool.map((value) => <option key={value} value={value}>{STAT_LABELS[value] || value}</option>)}
+                      </select>
+                    </label>
+                    <label>Tier
+                      <select className='input-field' value={entry.tier} disabled={entry.stat === "random"} onChange={(event) => updateSubStat(index, "tier", Number(event.target.value))}>
+                        {tiers.map((tier) => <option key={tier} value={tier}>T{tier} · {(tier + 1) ** 2} fragments</option>)}
+                      </select>
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+          <footer className='relic-forge-footer'>
+            <div className='relic-forge-cost'><span>Crafting cost</span><strong>{fragmentCost} / {fragmentCount} fragments</strong><small>1 Sealed Relic per item · Item name is free</small></div>
+            <button type='button' className='buttons' disabled={!relicCount || fragmentCount < fragmentCost} onClick={forge}>Forge Custom Item</button>
+          </footer>
+          <div className='recipe-note' role='status'>{note || "Your item is added directly to your inventory when forged."}</div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const GearTraderScreen = ({ data, onChange }) => {
   const [tab, setTab] = useState("sellGear");
   const [note, setNote] = useState("");
@@ -529,12 +678,13 @@ const GearTraderScreen = ({ data, onChange }) => {
   );
   const buyback = player.gearTraderBuyback || [];
   const stock = getGearTraderStock(player);
+  const sellableInventoryGear = inventory.flatMap((item, index) =>
+    isFavorite(player, "gear", item)
+      ? []
+      : [{ key: `inventory:${index}:${getInventoryItemKey(item)}`, item }],
+  );
   const sellableGear = [
-    ...inventory.flatMap((item, index) =>
-      isFavorite(player, "gear", item)
-        ? []
-        : [{ key: `inventory:${index}:${getInventoryItemKey(item)}`, item }],
-    ),
+    ...sellableInventoryGear,
     ...equipped.flatMap(([slot, item]) =>
       isFavorite(player, "gear", item)
         ? []
@@ -674,8 +824,8 @@ const GearTraderScreen = ({ data, onChange }) => {
             <button
               type='button'
               className='buttons'
-              onClick={() => setSelectedGearToSell(sellableGear.map(({ key }) => key))}
-              disabled={!sellableGear.length}
+              onClick={() => setSelectedGearToSell(sellableInventoryGear.map(({ key }) => key))}
+              disabled={!sellableInventoryGear.length}
             >
               Select all sellable gear
             </button>
@@ -1270,7 +1420,7 @@ const Inventory = ({ player, onChange, locked }) => {
             </button>
           ))}
         </div>
-        {tab !== "titles" && <p className='recipe-kind'>Select gear to inspect its details and choose an action.</p>}
+        {tab === "gear" && <p className='recipe-kind'>Select gear to inspect its details and choose an action.</p>}
         {tab === "gear" && <select className='input-field inventory-favorite-filter' aria-label='Filter favorites' value={favoriteFilter} onChange={(event) => setFavoriteFilter(event.target.value)}>
           <option value=''>All items</option>
           <option value='favorites'>Favorites only</option>
@@ -2140,6 +2290,11 @@ export const SCREENS = {
   questBoard: {
     label: "Quest Board",
     component: QuestBoardScreen,
+    hideUnlessActive: true,
+  },
+  forge: {
+    label: "Forge",
+    component: ForgeScreen,
     hideUnlessActive: true,
   },
 };

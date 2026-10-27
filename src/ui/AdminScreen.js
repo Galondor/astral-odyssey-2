@@ -5,7 +5,15 @@ import { ABILITIES, UNIQUE_ABILITIES } from "../combat/abilities";
 import { MATERIALS } from "../items/materials";
 import { isHolofoilColors } from "../items/holofoil";
 import { UNIQUES } from "../world/dungeonData";
-import { deleteBroadcast, describeAttachments, getBroadcasts, getDirectory, sendMessage } from "../world/inbox";
+import {
+  administerPlayerTimer,
+  deleteBroadcast,
+  describeAttachments,
+  getBroadcasts,
+  getDirectory,
+  grantLabyrinthAttempt,
+  sendMessage,
+} from "../world/inbox";
 import { resolveBugReport, subscribeBugReports } from "../world/bugReports";
 import { TITLES } from "../character/titles";
 import PlayerName from "./PlayerName";
@@ -71,6 +79,8 @@ const AdminScreen = () => {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [bugsNote, setBugsNote] = useState("");
+  const [maintenanceNote, setMaintenanceNote] = useState("");
+  const [timer, setTimer] = useState("dungeons");
   const [custom, setCustom] = useState(initialCustom);
   const [customSubStats, setCustomSubStats] = useState({});
   const updateCustom = (field, value) => setCustom((c) => ({ ...c, [field]: value }));
@@ -184,6 +194,29 @@ const AdminScreen = () => {
     }
   };
 
+  const runMaintenanceAction = async (action) => {
+    if (!players.some((player) => player.uid === to)) {
+      setMaintenanceNote("Select a player.");
+      return;
+    }
+    setMaintenanceNote("");
+    setBusy(true);
+    try {
+      if (action === "attempt") {
+        await grantLabyrinthAttempt(to);
+        setMaintenanceNote("A fresh Labyrinth attempt has been granted.");
+      } else {
+        await administerPlayerTimer(to, timer);
+        setMaintenanceNote(`${timer === "dungeons" ? "Dungeons" : "Labyrinth"} timer refreshed.`);
+      }
+    } catch (err) {
+      console.error("Couldn't update player timers", err);
+      setMaintenanceNote(err.message || "Couldn't update the player's timer. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className='panel admin-panel'>
       <h2>Admin controls</h2>
@@ -221,6 +254,17 @@ const AdminScreen = () => {
         >
           Bugs
         </button>
+        <button
+          id='admin-tab-maintenance'
+          type='button'
+          role='tab'
+          aria-selected={activeTab === "maintenance"}
+          aria-controls='admin-panel-maintenance'
+          className={`inventory-tab ${activeTab === "maintenance" ? "active" : ""}`}
+          onClick={() => setActiveTab("maintenance")}
+        >
+          Timers & Attempts
+        </button>
       </div>
       {activeTab === "bugs" ? (
         <section
@@ -255,6 +299,81 @@ const AdminScreen = () => {
               </li>
             ))}
           </ul>
+        </section>
+      ) : activeTab === "maintenance" ? (
+        <section
+          id='admin-panel-maintenance'
+          role='tabpanel'
+          aria-labelledby='admin-tab-maintenance'
+        >
+          <h3>Refresh a player's timer or grant an attempt</h3>
+          <p>Refreshing the Labyrinth or granting another attempt replaces the current maze with a fresh one.</p>
+          <p>Players with an open game session must reload to receive the change.</p>
+          <div className='admin-form'>
+            <div className='player-combobox' onBlur={() => setListOpen(false)}>
+              <label htmlFor='admin-player-input'>Player</label>
+              <input
+                id='admin-player-input'
+                className='input-field'
+                role='combobox'
+                aria-expanded={listOpen}
+                aria-controls='admin-player-list'
+                placeholder='Search by character name'
+                autoComplete='off'
+                value={search}
+                onFocus={() => setListOpen(true)}
+                onChange={(e) => onPlayerInput(e.target.value)}
+              />
+              {listOpen && (
+                <ul id='admin-player-list' className='player-combobox-list' role='listbox'>
+                  {!matches.length && <li className='player-combobox-empty'>No matching players</li>}
+                  {matches.map((p) => (
+                    <li
+                      key={p.uid}
+                      role='option'
+                      aria-selected={p.uid === to}
+                      className={p.uid === to ? "selected" : ""}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        pickPlayer(p);
+                      }}
+                    >
+                      <PlayerName name={`${p.name} (Lv ${p.level})`} activeTitle={p.activeTitle} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <label htmlFor='admin-timer-select'>
+              Timer
+              <select
+                id='admin-timer-select'
+                className='input-field'
+                value={timer}
+                onChange={(e) => setTimer(e.target.value)}
+              >
+                <option value='dungeons'>Dungeons</option>
+                <option value='labyrinth'>Labyrinth</option>
+              </select>
+            </label>
+            <button
+              type='button'
+              className='buttons input-button'
+              disabled={busy || !players.length}
+              onClick={() => runMaintenanceAction("timer")}
+            >
+              {busy ? "Updating..." : "Force refresh timer"}
+            </button>
+            <button
+              type='button'
+              className='buttons input-button'
+              disabled={busy || !players.length}
+              onClick={() => runMaintenanceAction("attempt")}
+            >
+              {busy ? "Updating..." : "Grant another Labyrinth attempt"}
+            </button>
+            {maintenanceNote && <div className='recipe-note' role='status'>{maintenanceNote}</div>}
+          </div>
         </section>
       ) : (
       <section

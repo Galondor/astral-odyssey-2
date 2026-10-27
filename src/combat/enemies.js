@@ -839,10 +839,10 @@ export const getRandomEnemy = (
 
   const round = Math.round;
   const levelScaled = {
-    maxHp: template.maxHp * (1 + d * 0.4) * t.hp * weak,
-    attack: template.attack.map((v) => v * (1 + d * 0.3) * t.attack * weak),
-    defense: template.defense * (1 + d * 0.2) * t.defense * weak,
-    speed: template.speed * (1 + d * 0.25) * (0.5 + 0.5 * weak),
+    maxHp: template.maxHp * (1 + d * 0.5) * t.hp * weak,
+    attack: template.attack.map((v) => v * (1 + d * 0.4) * t.attack * weak),
+    defense: template.defense * (1 + d * 0.3) * t.defense * weak,
+    speed: template.speed * (1 + d * 0.3) * (0.5 + 0.5 * weak),
   };
   return {
     ...template,

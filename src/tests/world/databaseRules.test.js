@@ -19,6 +19,7 @@ const emulator = process.env.DATABASE_RULES_TEST_URL;
 const rulesTests = emulator ? describe : describe.skip;
 const project = "demo-name-elixir";
 const namespace = `${project}-default-rtdb`;
+const characterId = "0000000000000000000000000000000000000000";
 if (emulator && !["127.0.0.1", "localhost", "[::1]"].includes(new URL(emulator).hostname))
   throw new Error("Database rules tests must target a local emulator.");
 
@@ -69,7 +70,23 @@ const purchase = (attachments = { consumables: { elixirOfNameChanging: 1 } }) =>
 rulesTests("Firebase name and consumable marketplace rules", () => {
   beforeEach(async () => {
     const result = await request("PUT", "", {
-      users: { seller: { player: { name: "Seller", consumables: { elixirOfNameChanging: 1 } } } },
+      users: {
+        seller: { player: { name: "Seller", consumables: { elixirOfNameChanging: 1 } } },
+        account: {
+          saveRevision: 4,
+          characters: {
+            [characterId]: {
+              externalId: "character-player",
+              slot: 0,
+              createdAt: 1,
+              player: { dungeonBoard: { slot: 3 }, labyrinth: { weekId: "old-week" } },
+            },
+          },
+        },
+      },
+      characterOwners: {
+        "character-player": { accountId: "account", characterId },
+      },
       directory: { seller: { name: "Seller", level: 10 } },
       characterNames: { Seller: "seller" },
       marketplace: { test: listing() },
@@ -122,6 +139,26 @@ rulesTests("Firebase name and consumable marketplace rules", () => {
     const query = '&orderBy="name"&equalTo="Seller"';
     expect((await request("GET", "directory", undefined, "buyer", query)).body).toEqual({ seller: { name: "Seller", level: 10 } });
     expect((await request("GET", "directory", undefined, "buyer")).status).toBe(401);
+  });
+
+  test("admins can refresh legacy and character timers while other users cannot", async () => {
+    expect((await request("PATCH", "", {
+      "users/seller/player/labyrinth": null,
+    }, "buyer")).status).toBe(401);
+    expect((await request("GET", "characterOwners/character-player", undefined, "admin")).body)
+      .toEqual({ accountId: "account", characterId });
+    expect((await request("PATCH", "", {
+      "users/seller/saveRevision": 1,
+      "users/seller/player/dungeonBoard/slot": -1,
+      "users/account/saveRevision": 5,
+      [`users/account/characters/${characterId}/player/labyrinth/weekId`]: null,
+    }, "admin")).status).toBe(200);
+    expect((await request("GET", "users/seller", undefined, "seller")).body)
+      .toMatchObject({ saveRevision: 1, player: { dungeonBoard: { slot: -1 } } });
+    expect((await request("GET", `users/account/characters/${characterId}`, undefined, "account")).body.player)
+      .toMatchObject({ dungeonBoard: { slot: 3 } });
+    expect((await request("GET", `users/account/characters/${characterId}`, undefined, "account")).body.player.labyrinth)
+      .toBeUndefined();
   });
 
   test.each([...consumableItems, sword, slimeGel, ruby])("sellers can list and cancel $name", async (item) => {
