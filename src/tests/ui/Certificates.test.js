@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { getPlayer, setPlayer } from "../../character/player";
 import { recalculateStats } from "../../character/stats";
 import { SCREENS } from "../../ui/screens";
@@ -41,8 +41,9 @@ test("renames gear through the certificate UI and updates the remaining count", 
   render(<CharacterScreen player={player} />);
   openCertificate();
   expect(player.consumables.itemCertificate).toBe(2);
-  expect(screen.getAllByRole("option", { name: "Wooden Staff" })).toHaveLength(1);
-  fireEvent.change(screen.getByLabelText("Item to rename"), { target: { value: "sword" } });
+  const popup = screen.getByRole("dialog", { name: "Use Item Certificate" });
+  expect(within(popup).getAllByRole("button", { name: /Wooden Staff/ })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: /Iron Sword/ }));
   fireEvent.change(screen.getByLabelText("New item name"), { target: { value: "Nova Blade 42" } });
   fireEvent.click(screen.getByRole("button", { name: "Rename item" }));
   expect(player.inventory[0].name).toBe("Nova Blade 42");
@@ -53,7 +54,7 @@ test("renames gear through the certificate UI and updates the remaining count", 
 test("invalid names display an error without consuming a certificate; cancelling changes nothing", () => {
   render(<CharacterScreen player={player} />);
   openCertificate();
-  fireEvent.change(screen.getByLabelText("Item to rename"), { target: { value: "sword" } });
+  fireEvent.click(screen.getByRole("button", { name: /Iron Sword/ }));
   for (const name of ["Sword!", "F u c k"]) {
     fireEvent.change(screen.getByLabelText("New item name"), { target: { value: name } });
     fireEvent.click(screen.getByRole("button", { name: "Rename item" }));

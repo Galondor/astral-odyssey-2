@@ -1,12 +1,12 @@
-import { craftRelicItem, getRelicCraftCost } from "../../world/relicForge";
-import { getCustomSubStatTiers } from "../../items/items";
+import { craftRelicItem, getRelicCraftCost, RELIC_CONDITION_COSTS } from "../../world/relicForge";
+import { getCustomSubStatTiers, itemTooltip } from "../../items/items";
 
 jest.mock("../../firebase", () => ({ db: {} }));
 
 const playerWithRelic = (extra = {}) => ({
   level: 30,
-  materials: { relicFragments: 500 },
-  consumables: { relic: 1 },
+  materials: { relicFragments: 500, sealedRelic: 1 },
+  consumables: {},
   inventory: [],
   ...extra,
 });
@@ -29,21 +29,22 @@ test("custom relic crafting charges selected rarity, ability, and substat tier c
   const result = craftRelicItem(player, selection);
 
   expect(result.ok).toBe(true);
-  expect(result.cost).toBe(25 + 18 + 10 + (attackMinTier + 1) ** 2 + (maxPowerTier + 1) ** 2);
+  expect(result.cost).toBe(25 + 18 + RELIC_CONDITION_COSTS.Perfect + (attackMinTier + 1) ** 2 + (maxPowerTier + 1) ** 2);
   expect(result.item.name).toBe("Nova's Edge");
   expect(result.item.condition).toBe("Perfect");
   expect(result.item.slot).toBe("weapon");
   expect(result.item.rarity).toBe("Epic");
+  expect(result.item.crafted).toBe(true);
+  expect(itemTooltip(result.item).tags).toContain("Crafted");
   expect(result.item.subStats).toHaveProperty("attackMin");
   expect(Object.keys(result.item.subStats)).toHaveLength(4);
   expect(result.patch.inventory).toHaveLength(1);
-  expect(result.patch.materials.relicFragments).toBe(500 - result.cost);
-  expect(result.patch.consumables.relic).toBe(0);
+  expect(result.patch.materials).toEqual({ relicFragments: 500 - result.cost });
   expect(getRelicCraftCost("Epic", [{ stat: "random", tier: 7 }], "")).toBe(25);
 });
 
-test("custom item names cost nothing and chosen conditions add a fixed fragment cost", () => {
-  const player = playerWithRelic({ materials: { relicFragments: 50 } });
+test("custom item names cost nothing and condition costs increase with quality", () => {
+  const player = playerWithRelic({ materials: { relicFragments: 100, sealedRelic: 1 } });
   const result = craftRelicItem(player, {
     name: "Named at no cost",
     slot: "weapon",
@@ -60,8 +61,17 @@ test("custom item names cost nothing and chosen conditions add a fixed fragment 
     rarity: "Common",
     condition: "Perfect",
   });
-  expect(conditionChoice.cost).toBe(10);
+  expect(conditionChoice.cost).toBe(RELIC_CONDITION_COSTS.Perfect);
   expect(conditionChoice.item.condition).toBe("Perfect");
+  expect(RELIC_CONDITION_COSTS).toEqual({
+    Broken: 0,
+    Poor: 0,
+    Average: 10,
+    Pristine: 20,
+    Flawless: 30,
+    Perfect: 40,
+  });
+  expect(getRelicCraftCost("Common", [], "", "random")).toBe(0);
 });
 
 test("relic crafting rejects slot-incompatible substats without consuming materials", () => {
@@ -75,15 +85,15 @@ test("relic crafting rejects slot-incompatible substats without consuming materi
   expect(result).toMatchObject({ ok: false });
   expect(result.message).toMatch(/available for this slot/);
   expect(player.materials.relicFragments).toBe(500);
-  expect(player.consumables.relic).toBe(1);
+  expect(player.materials.sealedRelic).toBe(1);
 });
 
 test("relic crafting requires both a relic and enough fragments", () => {
-  expect(craftRelicItem(playerWithRelic({ consumables: {} }), {
+  expect(craftRelicItem(playerWithRelic({ materials: { relicFragments: 500, sealedRelic: 0 } }), {
     slot: "weapon",
     rarity: "Common",
   }).message).toMatch(/Sealed Relic/);
-  expect(craftRelicItem(playerWithRelic({ materials: { relicFragments: 1 } }), {
+  expect(craftRelicItem(playerWithRelic({ materials: { relicFragments: 1, sealedRelic: 1 } }), {
     slot: "weapon",
     rarity: "Legendary",
   }).message).toMatch(/Relic Fragments/);

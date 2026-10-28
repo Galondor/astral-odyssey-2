@@ -11,6 +11,13 @@ export const TITLES = {
     criteria: "Reach level 100 before version 0.3.0.0.",
     accountWide: true,
   },
+  giantSlayer: {
+    id: "giantSlayer",
+    name: "Giant Slayer",
+    rarity: "Unique",
+    color: RARITY_COLORS.Unique,
+    criteria: "Claim the first-place reward from a World Boss.",
+  },
 };
 
 export const getTitle = (id) => TITLES[id] || null;

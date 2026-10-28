@@ -380,10 +380,20 @@ test("circuits toggle only immediate neighbors and can be solved without damage"
 test("an incorrect circuit check preserves the board and increases mistake damage", () => {
   const { runes } = puzzle("circuit");
   choose("Check circuit");
-  expect(player.stats.health).toBe(80);
+  expect(player.stats.health).toBe(70);
   expect(player.dungeon.pz).toMatchObject({ runes, mistakes: 1 });
   choose("Check circuit");
-  expect(player.stats.health).toBe(55);
+  expect(player.stats.health).toBe(30);
+});
+
+test("gauntlet traps deal escalating damage when the approach fails", () => {
+  puzzle("gauntlet");
+  jest.spyOn(Math, "random").mockReturnValue(0.99);
+
+  choose("Dash");
+  expect(player.stats.health).toBe(70);
+  choose("Dash");
+  expect(player.stats.health).toBe(30);
 });
 
 test("scales allow adding and removing weights, and accept any exact balance", () => {
@@ -403,7 +413,7 @@ test("scales allow adding and removing weights, and accept any exact balance", (
 test("an incorrect balance hurts but preserves the weights and target", () => {
   const { weights, target } = puzzle("scales");
   choose("Check balance");
-  expect(player.stats.health).toBe(80);
+  expect(player.stats.health).toBe(70);
   expect(player.dungeon.pz).toMatchObject({ weights, target, mistakes: 1, selected: [] });
 });
 
@@ -439,7 +449,7 @@ test("a trapped path tile hurts and leaves the player in the same position", () 
   puzzle("path");
   player.dungeon.pz = { ...player.dungeon.pz, start: 1, grid: [[true, false, true], [true, true, true]], visited: [] };
   choose("Step to column 2");
-  expect(player.stats.health).toBe(80);
+  expect(player.stats.health).toBe(70);
   expect(player.dungeon.pz.visited).toEqual([]);
   expect(player.dungeon.pz.mistakes).toBe(1);
 });

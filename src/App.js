@@ -15,6 +15,7 @@ import { clearBlackjack } from "./world/blackjack";
 import { expireIfNeeded, isInDungeon } from "./world/dungeons";
 import { isLabyrinthActive } from "./world/labyrinth";
 import { isAdmin, startInbox } from "./world/inbox";
+import { finishWorldBossAttempt, reportWorldBossError, subscribeWorldBoss } from "./world/worldBoss";
 import { DEFAULT_SCREEN, SCREENS } from "./ui/screens";
 import {
   INPUT_MODES,
@@ -198,6 +199,11 @@ function Game({ uid, onLogout, onMainMenu }) {
   }, [navigationModal]);
 
   useEffect(() => startInbox(getCharacterIdentity(), () => setTick((t) => t + 1), uid), [uid]);
+  useEffect(() => subscribeWorldBoss(() => {}, reportWorldBossError), []);
+  useEffect(() => () => {
+    const enemy = getEnemy();
+    if (enemy?.worldBossCycle) finishWorldBossAttempt(enemy).catch(reportWorldBossError);
+  }, []);
   const apply = useCallback((result) => {
     setMessages((prev) => [
       ...(result.clearLog ? [] : prev),
@@ -323,7 +329,8 @@ function Game({ uid, onLogout, onMainMenu }) {
           </button>
           <div id='sidebar-links' className={`sidebar-links ${sidebarOpen ? "open" : ""}`}>
             {Object.entries(SCREENS).filter(([key, s]) => (!s.hideUnlessActive || key === sceneScreen) && (!s.adminOnly || isAdmin())).map(([key, s], index, visibleScreens) => {
-              const enabled = !!player?.stats && !player.needsNameChange && (s.link || key === sceneScreen) && (player.level || 1) >= (s.minLevel || 0);
+              const enabled = !!player?.stats && !player.needsNameChange && (s.link || key === sceneScreen) &&
+                ((player.level || 1) >= (s.minLevel || 0) || (s.adminAccess && isAdmin()));
               const badge = player && s.badge ? s.badge(player) : 0;
               const notification = player && s.notification?.(player);
               const attention = s.hideUnlessActive && key !== activeScreen;

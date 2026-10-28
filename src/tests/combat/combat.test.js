@@ -1,5 +1,5 @@
 import { getPlayer, setPlayer } from "../../character/player";
-import { attackRound, getEnemy, startCombat } from "../../combat/combat";
+import { attackRound, getCombatRound, getEnemy, getMarrowWard, startCombat } from "../../combat/combat";
 
 jest.mock("../../character/player", () => ({
   getPlayer: jest.fn(),
@@ -40,6 +40,40 @@ beforeEach(() => {
 
 afterEach(() => jest.restoreAllMocks());
 
+test("combat rounds start at one and advance after each completed player turn", () => {
+  expect(getCombatRound()).toBe(1);
+
+  attackRound("melee");
+
+  expect(getCombatRound()).toBe(2);
+});
+
+test("World Boss combat ends after ten completed rounds", () => {
+  getPlayer.mockReturnValue({ ...player, equipment: {} });
+  startCombat({
+    name: "Astral Colossus",
+    maxHp: 1_000_000,
+    attack: [1, 1],
+    defense: 0,
+    speed: 1,
+    abilities: [],
+    worldBossCycle: "cycle",
+    maxRounds: 10,
+  });
+
+  for (let round = 1; round < 10; round++) {
+    const result = attackRound("melee");
+    expect(result.over).toBe(false);
+    expect(getCombatRound()).toBe(round + 1);
+  }
+
+  const result = attackRound("melee");
+  expect(result.over).toBe(true);
+  expect(result.replies.join(" ")).toContain("forces you from the fight after 10 rounds");
+  expect(getEnemy()).toBeNull();
+  expect(getCombatRound()).toBeNull();
+});
+
 test("Bloom of Decay adds a poison stack on every hit", () => {
   jest.spyOn(Math, "random").mockReturnValue(0);
 
@@ -70,6 +104,7 @@ test("Marrow Ward absorbs damage at the start of combat", () => {
   const { replies } = attackRound("melee");
 
   expect(replies).toContain("Marrow Ward absorbs 10 damage (10 ward remains).");
+  expect(getMarrowWard()).toEqual({ current: 10, max: 20 });
   expect(setPlayer.mock.calls.at(-1)[0].stats.health).toBe(100);
 });
 
@@ -121,9 +156,9 @@ test("Glacial Edge consumes vulnerability for a shattering strike", () => {
 });
 
 test.each([
-  ["Fortune's Spark", "Fortune's Spark deals"],
+  ["Fortune's Spark", "Fortune's Spark activates"],
   ["Orbital Focus", "Orbital Focus launches a shard"],
-])("%s activates on each critical hit", (ability, expectedReply) => {
+])("%s reports its critical-hit effect when it activates", (ability, expectedReply) => {
   getPlayer.mockReturnValue({
     ...player,
     equipment: { weapon: { ability: { name: ability } } },
@@ -144,11 +179,14 @@ test.each([
   expect(replies.some((reply) => reply.includes(expectedReply))).toBe(true);
 });
 
-test("Fortune's Spark restores 25% of maximum power and deals 10% of enemy maximum health", () => {
+test.each([
+  [0, 100, 960],
+  [0.999, 300, 920],
+])("Fortune's Spark rolls %s for a +%s%% damage bonus", (bonusRoll, bonusPercent, expectedHp) => {
   getPlayer.mockReturnValue({
     ...player,
     equipment: { weapon: { ability: { name: "Fortune's Spark" } } },
-    stats: { ...player.stats, criticalHitChance: 1, power: 0, maxPower: 40 },
+    stats: { ...player.stats, attackMin: 10, attackMax: 10, criticalHitChance: 1 },
   });
   startCombat({
     name: "Target",
@@ -157,13 +195,62 @@ test("Fortune's Spark restores 25% of maximum power and deals 10% of enemy maxim
     speed: 1,
     abilities: [],
   });
-  jest.spyOn(Math, "random").mockReturnValue(0);
+  jest.spyOn(Math, "random")
+    .mockReturnValueOnce(0)
+    .mockReturnValueOnce(0)
+    .mockReturnValueOnce(0)
+    .mockReturnValueOnce(bonusRoll);
 
   const { replies } = attackRound("melee");
 
-  expect(replies.some((reply) => reply.includes("{{100|"))).toBe(true);
-  expect(replies).toContain("Fortune's Spark restores 10 power.");
-  expect(setPlayer.mock.calls.at(-1)[0].stats.power).toBe(10);
+  expect(replies).toContain(`Fortune's Spark activates for +${bonusPercent}% damage!`);
+  expect(getEnemy().hp).toBe(expectedHp);
+});
+
+test("Fortune's Spark does not activate when its chance roll fails", () => {
+  getPlayer.mockReturnValue({
+    ...player,
+    equipment: { weapon: { ability: { name: "Fortune's Spark" } } },
+    stats: { ...player.stats, attackMin: 10, attackMax: 10, criticalHitChance: 1 },
+  });
+  startCombat({
+    name: "Target",
+    maxHp: 1000,
+    defense: 0,
+    speed: 1,
+    abilities: [],
+  });
+  jest.spyOn(Math, "random")
+    .mockReturnValueOnce(0)
+    .mockReturnValueOnce(0)
+    .mockReturnValueOnce(0.25);
+
+  const { replies } = attackRound("melee");
+
+  expect(replies).not.toContain("Fortune's Spark activates for +100% damage!");
+  expect(getEnemy().hp).toBe(980);
+});
+
+test("Molten Grip detonates twice one burn tick and consumes the burn", () => {
+  getPlayer.mockReturnValue({
+    ...player,
+    equipment: { weapon: { ability: { name: "Molten Grip" } } },
+  });
+  startCombat({
+    name: "Target",
+    maxHp: 1000,
+    defense: 0,
+    speed: 1,
+    abilities: [],
+  });
+  getEnemy().statuses.push({ id: "burn", turns: 3, power: 0.04, stacks: 1 });
+  jest.spyOn(Math, "random").mockReturnValue(0.5);
+
+  const { replies } = attackRound("melee");
+
+  expect(replies.some((reply) => reply.includes("{{80|"))).toBe(true);
+  expect(getEnemy().hp).toBe(919);
+  expect(getEnemy().statuses.some(({ id }) => id === "burn")).toBe(false);
 });
 
 test("Unwritten Path doubles every third strike and ignores enemy defense", () => {
@@ -352,7 +439,10 @@ test.each([false, true])("basic enemies never drop certificates (dungeon=%s)", (
   startCombat({ name: "Target", maxHp: 1, defense: 0, speed: 1, tier: "basic", dungeon });
   jest.spyOn(Math, "random").mockReturnValue(0);
   const { replies } = attackRound("melee");
-  expect(setPlayer.mock.calls.at(-1)[0].consumables).toEqual({ prismaticAlloy: 1 });
+  expect(setPlayer.mock.calls.at(-1)[0].consumables).toEqual({
+    prismaticAlloy: 1,
+    ...(!dungeon && { runeOfUnpredictability: 1 }),
+  });
   expect(replies.some((line) => line.includes("Item Certificate"))).toBe(false);
 });
 
@@ -374,6 +464,7 @@ test.each(["basic", "elite", "boss"])("any defeated %s enemy can drop a Prismati
   const { replies, over } = attackRound("melee");
   expect(over).toBe(true);
   expect(setPlayer.mock.calls.at(-1)[0].consumables.prismaticAlloy).toBe(3);
+  expect(setPlayer.mock.calls.at(-1)[0].consumables.runeOfUnpredictability).toBe(1);
   expect(replies.some((line) => line.includes("Prismatic Alloy"))).toBe(true);
 });
 
@@ -383,6 +474,21 @@ test("Prismatic Alloy drop chance excludes the exact 0.5% threshold", () => {
   jest.spyOn(Math, "random").mockReturnValue(0.005);
   const { replies, over } = attackRound("melee");
   expect(over).toBe(true);
-  expect(setPlayer.mock.calls.at(-1)[0].consumables).toBeUndefined();
+  expect(setPlayer.mock.calls.at(-1)[0].consumables).toEqual({ runeOfUnpredictability: 1 });
   expect(replies.some((line) => line.includes("Prismatic Alloy"))).toBe(false);
 });
+
+test.each([[0, true], [0.009999, true], [0.01, false]])(
+  "adventures drop the Rune of Unpredictability at 1%% (roll=%s)",
+  (roll, drops) => {
+    getPlayer.mockReturnValue({ ...player, level: 1, inventory: [], equipment: {} });
+    startCombat({ name: "Target", maxHp: 1, defense: 0, speed: 1, tier: "basic", dropChance: 0 });
+    jest.spyOn(Math, "random").mockReturnValue(roll);
+
+    const { replies, over } = attackRound("melee");
+
+    expect(over).toBe(true);
+    expect(setPlayer.mock.calls.at(-1)[0].consumables?.runeOfUnpredictability).toBe(drops ? 1 : undefined);
+    expect(replies.some((line) => line.includes("Rune of Unpredictability"))).toBe(drops);
+  },
+);

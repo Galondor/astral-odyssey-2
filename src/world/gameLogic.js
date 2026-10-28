@@ -4,8 +4,11 @@ import { expireIfNeeded, getDungeonOptions, getDungeonText, isInDungeon } from "
 import { isLabyrinthActive } from "./labyrinth";
 import {
   attackRound,
+  getCombatRound,
   defendRound,
+  endCombat,
   getEnemy,
+  getMarrowWard,
   isPlayerDefending,
   getPlayerStatuses,
   takeOpeningReplies,
@@ -13,6 +16,7 @@ import {
   passRound,
   isPlayerStunned,
 } from "../combat/combat";
+import { finishWorldBossAttempt, reportWorldBossError } from "./worldBoss";
 import { createStarterInventory, getGearTraderStock } from "../items/items";
 import {
   CONSUMABLES,
@@ -287,6 +291,110 @@ export const scenes = {
           };
         },
       },
+      {
+        label: "Suncleft Expanse",
+        keywords: ["suncleft", "desert", "5"],
+        tooltip: {
+          title: "Suncleft Expanse",
+          description: `Portal fare: ${65 * (getPlayer()?.level ?? 1)} astra.`,
+        },
+        onSelect: ({ player, setPlayer }) => {
+          const fare = 65 * player.level;
+          if ((player.astra || 0) < fare)
+            return {
+              reply: `You need ${fare} {{astra|astra}} to use the portal.`,
+            };
+          setPlayer({
+            ...player,
+            astra: player.astra - fare,
+            region: "SuncleftExpanse",
+            regionSteps: 0,
+            regionLimit: rollRegionLimit(),
+          });
+          return {
+            reply: "You step through the portal to the Suncleft Expanse.",
+            next: "menu",
+          };
+        },
+      },
+      {
+        label: "Tempest Reach",
+        keywords: ["tempest", "sea", "6"],
+        tooltip: {
+          title: "Tempest Reach",
+          description: `Portal fare: ${75 * (getPlayer()?.level ?? 1)} astra.`,
+        },
+        onSelect: ({ player, setPlayer }) => {
+          const fare = 75 * player.level;
+          if ((player.astra || 0) < fare)
+            return {
+              reply: `You need ${fare} {{astra|astra}} to use the portal.`,
+            };
+          setPlayer({
+            ...player,
+            astra: player.astra - fare,
+            region: "TempestReach",
+            regionSteps: 0,
+            regionLimit: rollRegionLimit(),
+          });
+          return {
+            reply: "You step through the portal to Tempest Reach.",
+            next: "menu",
+          };
+        },
+      },
+      {
+        label: "Frostfall Range",
+        keywords: ["frostfall", "cold mountain", "7"],
+        tooltip: {
+          title: "Frostfall Range",
+          description: `Portal fare: ${85 * (getPlayer()?.level ?? 1)} astra.`,
+        },
+        onSelect: ({ player, setPlayer }) => {
+          const fare = 85 * player.level;
+          if ((player.astra || 0) < fare)
+            return {
+              reply: `You need ${fare} {{astra|astra}} to use the portal.`,
+            };
+          setPlayer({
+            ...player,
+            astra: player.astra - fare,
+            region: "FrostfallRange",
+            regionSteps: 0,
+            regionLimit: rollRegionLimit(),
+          });
+          return {
+            reply: "You step through the portal to Frostfall Range.",
+            next: "menu",
+          };
+        },
+      },
+      {
+        label: "Shattered Front",
+        keywords: ["shattered", "warzone", "8"],
+        tooltip: {
+          title: "Shattered Front",
+          description: `Portal fare: ${95 * (getPlayer()?.level ?? 1)} astra.`,
+        },
+        onSelect: ({ player, setPlayer }) => {
+          const fare = 95 * player.level;
+          if ((player.astra || 0) < fare)
+            return {
+              reply: `You need ${fare} {{astra|astra}} to use the portal.`,
+            };
+          setPlayer({
+            ...player,
+            astra: player.astra - fare,
+            region: "ShatteredFront",
+            regionSteps: 0,
+            regionLimit: rollRegionLimit(),
+          });
+          return {
+            reply: "You step through the portal to the Shattered Front.",
+            next: "menu",
+          };
+        },
+      },
     ],
   },
   travel: {
@@ -315,46 +423,82 @@ export const scenes = {
     options: [
       {
         label: "Travel",
+        tooltip: {
+          title: "Travel",
+          description: "Head out from town to explore and encounter events.",
+        },
         keywords: ["travel", "1"],
         next: "travel",
       },
       {
         label: "Leave",
+        tooltip: {
+          title: "Leave Town",
+          description: "Return to the world menu to travel or use the portal.",
+        },
         keywords: ["leave", "2"],
         next: "menu",
       },
       {
         label: "Apothecary",
+        tooltip: {
+          title: "Apothecary",
+          description: "Buy potions and supplies with astra.",
+        },
         keywords: ["apothecary", "3"],
         next: "apothecary",
       },
       {
         label: "Lodging",
+        tooltip: {
+          title: "Lodging",
+          description: "Rest at the inn to fully restore health, stamina, and power for astra.",
+        },
         keywords: ["lodging", "4"],
         next: "lodging",
       },
       {
         label: "Workshop",
+        tooltip: {
+          title: "Workshop",
+          description: "Craft lasting items using materials and astra.",
+        },
         keywords: ["workshop", "5"],
         next: "workshop",
       },
       {
         label: "Forge",
+        tooltip: {
+          title: "Forge",
+          description: "Shape relics into custom items.",
+        },
         keywords: ["forge", "6"],
         next: "forge",
       },
       {
         label: "Gear Trader",
+        tooltip: {
+          title: "Gear Trader",
+          description: "Sell spare gear and gems for astra.",
+        },
         keywords: ["gear trader", "7"],
         next: "gearTrader",
       },
       {
         label: "Bank",
+        tooltip: {
+          title: "Bank",
+          description: "Deposit or withdraw astra. Your bank balance earns 2% interest every hour.",
+        },
         keywords: ["bank", "8"],
         next: "bank",
       },
       {
         label: "Tavern",
+        tooltip: {
+          title: "Tavern",
+          description: "Check your town reputation, take quests, or play blackjack.",
+        },
         keywords: ["tavern", "9"],
         next: "tavern",
       },
@@ -615,9 +759,11 @@ export const scenes = {
     },
     screenData: () => ({
       enemy: getEnemy(),
+      round: getCombatRound(),
       stats: getPlayer()?.stats,
       defending: isPlayerDefending(),
       playerStatuses: getPlayerStatuses(),
+      marrowWard: getMarrowWard(),
     }),
     options: [
       {
@@ -632,8 +778,9 @@ export const scenes = {
           };
         },
         onSelect: () => {
-          if (!getEnemy()) return { next: "menu" };
-          const { replies, over } = attackRound("melee");
+          const enemy = getEnemy();
+          if (!enemy) return { next: "menu" };
+          const { replies, over } = settleWorldBossAttempt(enemy, attackRound("melee"));
           return over ? { reply: replies, next: "menu" } : { reply: replies };
         },
       },
@@ -649,8 +796,9 @@ export const scenes = {
           };
         },
         onSelect: () => {
-          if (!getEnemy()) return { next: "menu" };
-          const { replies, over } = attackRound("magic");
+          const enemy = getEnemy();
+          if (!enemy) return { next: "menu" };
+          const { replies, over } = settleWorldBossAttempt(enemy, attackRound("magic"));
           return over ? { reply: replies, next: "menu" } : { reply: replies };
         },
       },
@@ -664,8 +812,9 @@ export const scenes = {
           footer: "Takes your turn",
         },
         onSelect: () => {
-          if (!getEnemy()) return { next: "menu" };
-          const { replies, over } = defendRound();
+          const enemy = getEnemy();
+          if (!enemy) return { next: "menu" };
+          const { replies, over } = settleWorldBossAttempt(enemy, defendRound());
           return over ? { reply: replies, next: "menu" } : { reply: replies };
         },
       },
@@ -705,14 +854,28 @@ export const scenes = {
           footer: "Takes your turn",
         },
         onSelect: () => {
-          if (!getEnemy()) return { next: "menu" };
-          const { replies, over } = passRound();
+          const enemy = getEnemy();
+          if (!enemy) return { next: "menu" };
+          const { replies, over } = settleWorldBossAttempt(enemy, passRound());
           return over ? { reply: replies, next: "menu" } : { reply: replies };
         },
       },
-    ].map((o) =>
-      o.label === "Pass" ? o : { ...o, when: () => !isPlayerStunned() },
-    ),
+      {
+        label: "Withdraw",
+        keywords: ["withdraw", "flee"],
+        onSelect: () => {
+          const enemy = getEnemy();
+          if (!enemy?.worldBossCycle) return { next: "menu" };
+          endCombat();
+          finishWorldBossAttempt(enemy).catch(reportWorldBossError);
+          return { reply: ["You withdraw from the attempt. Your damage contribution is recorded."], next: "menu" };
+        },
+      },
+    ].map((o) => {
+      if (o.label === "Pass") return o;
+      if (o.label === "Withdraw") return { ...o, when: () => !!getEnemy()?.worldBossCycle };
+      return { ...o, when: () => !isPlayerStunned() };
+    }),
   },
   combatSkills: {
     screen: "combat",
@@ -720,6 +883,7 @@ export const scenes = {
     text: "Choose a skill to use.",
     screenData: () => ({
       enemy: getEnemy(),
+      round: getCombatRound(),
       stats: getPlayer()?.stats,
       defending: isPlayerDefending(),
       playerStatuses: getPlayerStatuses(),
@@ -742,8 +906,9 @@ export const scenes = {
               "Takes your turn",
             ),
           onSelect: () => {
-            if (!getEnemy()) return { next: "menu" };
-            const { replies, over, used } = attackRound(null, key);
+            const enemy = getEnemy();
+            if (!enemy) return { next: "menu" };
+            const { replies, over, used } = settleWorldBossAttempt(enemy, attackRound(null, key));
             if (!used) return { reply: replies };
             return over
               ? { reply: replies, next: "menu" }
@@ -759,6 +924,7 @@ export const scenes = {
     text: "Choose an item to use.",
     screenData: () => ({
       enemy: getEnemy(),
+      round: getCombatRound(),
       stats: getPlayer()?.stats,
       defending: isPlayerDefending(),
       playerStatuses: getPlayerStatuses(),
@@ -775,8 +941,9 @@ export const scenes = {
           keywords: [c.name.toLowerCase()],
           tooltip: () => consumableTooltip(c.key, "Takes your turn"),
           onSelect: () => {
-            if (!getEnemy()) return { next: "menu" };
-            const { replies, over, used } = consumeItemRound(c.key);
+            const enemy = getEnemy();
+            if (!enemy) return { next: "menu" };
+            const { replies, over, used } = settleWorldBossAttempt(enemy, consumeItemRound(c.key));
             if (!used) return { reply: replies };
             return over
               ? { reply: replies, next: "menu" }
@@ -792,6 +959,12 @@ export const scenes = {
 const sceneText = (id) => {
   const t = scenes[id].text;
   return typeof t === "function" ? t() : t;
+};
+
+const settleWorldBossAttempt = (enemy, result) => {
+  if (result.over && enemy?.worldBossCycle)
+    finishWorldBossAttempt(enemy).catch(reportWorldBossError);
+  return result;
 };
 
 export const getVisibleOptions = (scene) =>

@@ -85,6 +85,17 @@ test("each Labyrinth move costs five stamina and refuses moves below the cost", 
   expect(player.stats.stamina).toBe(4);
 });
 
+test("a Labyrinth trap deals over a third of max health without reducing health below one", () => {
+  const state = createLabyrinth(player);
+  state.active = true;
+  const trap = state.floors[0].tiles[1 * 9 + 2];
+  trap.type = "trap";
+  player.labyrinth = state;
+
+  expect(moveInLabyrinth(2, 1)).toMatchObject({ ok: true, message: expect.stringContaining("35 damage") });
+  expect(player.stats.health).toBe(65);
+});
+
 test("a pending puzzle can only be solved from its tile", () => {
   const state = createLabyrinth(player);
   state.active = true;

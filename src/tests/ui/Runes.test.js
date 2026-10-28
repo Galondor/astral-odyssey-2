@@ -42,9 +42,9 @@ test("selecting and applying a rune persists Crafted gear and hides it from furt
   render(<CharacterScreen player={player} />);
   openRune();
   expect(player.consumables.architectsRune).toBe(2);
-  expect(screen.queryByRole("option", { name: /Crafted Helmet/ })).toBeNull();
-  fireEvent.change(screen.getByLabelText("Rune target"), { target: { value: "sword" } });
-  expect(screen.queryByRole("option", { name: "Strength" })).toBeNull();
+  screen.getByRole("dialog", { name: "Use Architect's Rune" });
+  expect(screen.queryByRole("button", { name: /Crafted Helmet/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /Iron Sword/ }));
   fireEvent.change(screen.getByLabelText("New main stat"), { target: { value: "intelligence" } });
   fireEvent.click(screen.getByRole("button", { name: "Apply rune" }));
   expect(player.inventory[0]).toMatchObject({
@@ -52,7 +52,7 @@ test("selecting and applying a rune persists Crafted gear and hides it from furt
   });
   expect(player.consumables.architectsRune).toBe(1);
   fireEvent.click(screen.getByRole("button", { name: "Architect's Rune x1" }));
-  expect(screen.queryByRole("option", { name: /Iron Sword/ })).toBeNull();
+  expect(screen.getByRole("dialog", { name: "Use Architect's Rune" })).toBeTruthy();
   expect(screen.getByText(/You have no eligible items/)).toBeTruthy();
 });
 
@@ -60,9 +60,26 @@ test("cancelling does not consume a rune or change an item", () => {
   render(<CharacterScreen player={player} />);
   openRune();
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  expect(screen.queryByLabelText("Rune target")).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "Use Architect's Rune" })).toBeNull();
   expect(player.consumables.architectsRune).toBe(2);
   expect(player.inventory[0].crafted).toBeUndefined();
+});
+
+test("the unpredictability rune can be applied without choosing a main stat", () => {
+  player.consumables.runeOfUnpredictability = 1;
+  jest.spyOn(Math, "random").mockReturnValue(0.01);
+  render(<CharacterScreen player={player} />);
+  fireEvent.click(screen.getByRole("tab", { name: /Consumables/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Rune of Unpredictability x1" }));
+  fireEvent.click(screen.getByRole("button", { name: /Iron Sword/ }));
+
+  expect(screen.queryByLabelText("New main stat")).toBeNull();
+  expect(screen.getByRole("button", { name: "Apply rune" }).disabled).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Apply rune" }));
+
+  expect(player.inventory[0].crafted).toBe(true);
+  expect(player.consumables.runeOfUnpredictability).toBeUndefined();
+  expect(screen.getByRole("status").textContent).toContain("nothing happened");
 });
 
 test("combat disables rune selection", () => {

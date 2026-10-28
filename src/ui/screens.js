@@ -33,7 +33,7 @@ import {
   sellInventoryItem,
   unequipItem,
 } from "../items/items";
-import { craftRelicItem, getRelicCraftCost, RELIC_CONDITION_COST, RELIC_CRAFT_RARITIES, RELIC_RARITY_COSTS } from "../world/relicForge";
+import { craftRelicItem, getRelicCraftCost, RELIC_CONDITION_COSTS, RELIC_CRAFT_RARITIES, RELIC_RARITY_COSTS } from "../world/relicForge";
 import { getItemGearScore } from "../items/gearScore";
 import { ABILITIES } from "../combat/abilities";
 import { isFavorite, toggleFavorite } from "../items/favorites";
@@ -42,6 +42,7 @@ import { canRenameItem, renameItem } from "../items/certificates";
 import { applyPrismaticAlloy, canApplyPrismaticAlloy } from "../items/prismaticAlloy";
 import { getItemStats, MARKET_RARITIES, MARKET_SLOTS, MARKET_STATS } from "../world/marketplace";
 import {
+  CONSUMABLES,
   KEY_ITEMS,
   consumableTooltip,
   getConsumables,
@@ -87,6 +88,7 @@ import ItemPopup from "./ItemPopup";
 import ChangelogScreen from "./ChangelogScreen";
 import LeaderboardScreen from "./LeaderboardScreen";
 import ArenaScreen from "./ArenaScreen";
+import WorldBossScreen from "./WorldBossScreen";
 import {
   MAX_ACTIVE_QUESTS,
   abandonQuest,
@@ -242,25 +244,25 @@ const DungeonsScreen = ({ player, goToScene, inCombat, onChange, sceneId }) => {
     onChange();
   };
   return (
-    <div className='panel dungeons'>
+    <div className={`panel dungeons adventures-theme-${tab} ${tab === "solo" ? "dungeons-solo" : ""}`}>
       <h2>Adventures</h2>
       {error && <p className='dungeon-warning' role='alert'>{error}</p>}
       <div className='dungeon-tabs'>
-        {[["solo", "Solo Dungeons"], ["labyrinth", "Labyrinth"], ["group", "Group Dungeons"]].map(([key, label]) => (
+        {[["solo", "Solo Dungeons"], ["labyrinth", "Labyrinth"], ["world-boss", "World Boss"], ["group", "Group Dungeons"], ["raids", "Raids"]].map(([key, label]) => (
           <button
             key={key}
             type='button'
-            className={`buttons ${tab === key ? "active" : ""}`}
-            disabled={key === "group" || (key === "labyrinth" && (player?.level || 1) < 22)}
+            className={`buttons dungeon-tab-${key} ${tab === key ? "active" : ""}`}
+            disabled={key === "group" || key === "raids" || (key === "labyrinth" && (player?.level || 1) < 22)}
             onClick={() => setTab(key)}
           >
             {label}
           </button>
         ))}
-        <button type='button' className='buttons' disabled>Raids</button>
       </div>
       {tab === "group" && <p>Group dungeons are coming soon!</p>}
       {tab === "labyrinth" && <LabyrinthScreen player={player} inCombat={inCombat} goToScene={goToScene} onChange={onChange} />}
+      {tab === "world-boss" && <WorldBossScreen player={player} goToScene={goToScene} onChange={onChange} inCombat={inCombat} />}
       {tab === "solo" && (
         <>
           <p className='dungeon-rules'>
@@ -301,7 +303,8 @@ const DungeonsScreen = ({ player, goToScene, inCombat, onChange, sceneId }) => {
 };
 
 const CombatScreen = ({ messages, data, player }) => {
-  const { enemy, stats, defending, playerStatuses = [] } = data || {};
+  const { enemy, round, stats, defending, playerStatuses = [], marrowWard } = data || {};
+  const showMarrowWard = marrowWard?.current > 0;
   const analyzerUnlocked = getKeyItemEffect(player, "analyzer") > 0;
   const tier = enemy ? TIERS[enemy.tier] : null;
   const chips = (list) => (
@@ -315,6 +318,7 @@ const CombatScreen = ({ messages, data, player }) => {
   );
   return (
     <div className='screen-split'>
+      {round != null && <div className='combat-round'>Round {round}</div>}
       <div className='combat-arena'>
         <div className='combatant'>
           <h3>
@@ -378,12 +382,37 @@ const CombatScreen = ({ messages, data, player }) => {
           <h3>You{defending ? " (Defending)" : ""}</h3>
           {stats && (
             <>
-              <Bar
-                label='Health'
-                value={stats.health}
-                max={stats.maxHealth}
-                color='#1e8449'
-              />
+              <div className={showMarrowWard ? "combat-health-warded" : undefined}>
+                <Bar
+                  label='Health'
+                  value={stats.health}
+                  max={stats.maxHealth}
+                  color='#1e8449'
+                />
+                {showMarrowWard && (
+                  <div className='marrow-ward'>
+                    <div className='marrow-ward-label'>
+                      <span>Marrow Ward</span>
+                      <span>{marrowWard.current}/{marrowWard.max}</span>
+                    </div>
+                    <div
+                      className='marrow-ward-track'
+                      role='progressbar'
+                      aria-label='Marrow Ward'
+                      aria-valuemin={0}
+                      aria-valuemax={marrowWard.max}
+                      aria-valuenow={marrowWard.current}
+                    >
+                      <div
+                        className='marrow-ward-fill'
+                        style={{
+                          width: `${Math.max(0, Math.min(100, (marrowWard.current / marrowWard.max) * 100))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
               <Bar
                 label='Stamina'
                 value={stats.stamina}
@@ -501,7 +530,7 @@ const ForgeScreen = ({ onChange }) => {
   const [subStats, setSubStats] = useState([]);
   const [note, setNote] = useState("");
   const player = getPlayer() || {};
-  const relicCount = player.consumables?.relic || 0;
+  const relicCount = player.materials?.sealedRelic || 0;
   const fragmentCount = player.materials?.relicFragments || 0;
   const substatCount = RELIC_CRAFT_RARITIES.indexOf(rarity) + 1;
   const updateSubStat = (index, field, value) =>
@@ -543,7 +572,7 @@ const ForgeScreen = ({ onChange }) => {
           <section className='relic-forge-section'>
             <h4>Item design</h4>
             <div className='relic-forge-fields'>
-              <label>Item name <span>Free</span>
+              <label><span className='relic-forge-field-heading'>Item name <span>Free</span></span>
                 <input className='input-field' value={name} maxLength={60} placeholder='Random name' onChange={(event) => setName(event.target.value)} />
               </label>
               <label>Slot
@@ -559,7 +588,11 @@ const ForgeScreen = ({ onChange }) => {
               <label>Condition
                 <select className='input-field' value={condition} onChange={(event) => setCondition(event.target.value)}>
                   <option value='random'>Random · Free</option>
-                  {CONDITION_NAMES.map((value) => <option key={value} value={value}>{value} · +{RELIC_CONDITION_COST} fragments</option>)}
+                  {CONDITION_NAMES.map((value) => (
+                    <option key={value} value={value}>
+                      {value} · {RELIC_CONDITION_COSTS[value] ? `+${RELIC_CONDITION_COSTS[value]} fragments` : "Free"}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label>Ability
@@ -1158,6 +1191,95 @@ const GEAR_SORTS = [
   ["nameAsc", "Name: A to Z"],
 ];
 
+const ItemTargetPopup = ({
+  title,
+  description,
+  targets,
+  selectedId,
+  onSelect,
+  onClose,
+  emptyMessage,
+  locked,
+  children,
+}) => {
+  const popup = useRef(null);
+  useEffect(() => {
+    (
+      popup.current?.querySelector(".gemstone-popup-target:not(:disabled)") ||
+      popup.current?.querySelector("button:not(:disabled)")
+    )?.focus();
+  }, []);
+  return (
+    <div
+      className='item-popup-backdrop gemstone-popup-backdrop'
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        ref={popup}
+        className='item-popup gemstone-popup'
+        role='dialog'
+        aria-modal='true'
+        aria-label={title}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onClose();
+          if (event.key === "Tab") {
+            const focusable = event.currentTarget.querySelectorAll(
+              "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])",
+            );
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+          }
+        }}
+      >
+        <button
+          type='button'
+          className='item-popup-close'
+          aria-label='Close item selection'
+          onClick={onClose}
+        >
+          ×
+        </button>
+        <h4>{title}</h4>
+        <p className='gemstone-popup-description'>{description}</p>
+        {targets.length ? (
+          <div className='gemstone-popup-targets'>
+            {targets.map(({ item, label }) => (
+              <button
+                key={`${label}-${item.id}`}
+                type='button'
+                className={`gemstone-popup-target ${selectedId === item.id ? "selected" : ""}`}
+                aria-pressed={selectedId === item.id}
+                style={getHolofoilStyle(item)}
+                disabled={locked}
+                onClick={() => onSelect(item.id)}
+              >
+                <span>{label}</span>
+                <strong style={{ color: RARITY_COLORS[item.rarity] }}>{item.name}</strong>
+                <span>{item.rarity || "Equipment"}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className='equip-empty'>{emptyMessage}</div>
+        )}
+        {children}
+        <div className='item-popup-actions'>
+          <button type='button' className='buttons' onClick={onClose}>Cancel</button>
+        </div>
+      </section>
+    </div>
+  );
+};
+
 const Inventory = ({ player, onChange, locked }) => {
   const [tab, setTab] = useState("gear");
   const [favoriteFilter, setFavoriteFilter] = useState("");
@@ -1170,7 +1292,16 @@ const Inventory = ({ player, onChange, locked }) => {
     Number(isFavorite(player, category, b)) - Number(isFavorite(player, category, a));
   const favoriteClass = (category, item) => isFavorite(player, category, item) ? "favorite-item" : "";
   const [selectedGemstone, setSelectedGemstone] = useState(null);
+  const gemstonePopup = useRef(null);
+  const gemstoneTrigger = useRef(null);
+  const itemTargetTrigger = useRef(null);
   const [gemstoneMessage, setGemstoneMessage] = useState("");
+  const [gemstoneFilters, setGemstoneFilters] = useState({
+    query: "",
+    stat: "",
+    rarity: "",
+    sort: "nameAsc",
+  });
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState("");
   const [consumableMessage, setConsumableMessage] = useState("");
@@ -1196,6 +1327,53 @@ const Inventory = ({ player, onChange, locked }) => {
   });
   const [gearFiltersOpen, setGearFiltersOpen] = useState(false);
   const gemstones = player.gemstones || [];
+  const chosenGemstone = gemstones.find((gemstone) => gemstone.id === selectedGemstone) || null;
+  const gemstoneTerms = gemstoneFilters.query.toLowerCase().split(/\s+/).filter(Boolean);
+  const filteredGemstones = gemstones
+    .filter((gemstone) => {
+      if (gemstoneFilters.stat && gemstone.stat !== gemstoneFilters.stat) return false;
+      if (gemstoneFilters.rarity && gemstone.rarity !== gemstoneFilters.rarity) return false;
+      const searchText = `${gemstone.name} ${gemstone.rarity} ${STAT_LABELS[gemstone.stat] || gemstone.stat}`.toLowerCase();
+      return gemstoneTerms.every((term) => searchText.includes(term));
+    })
+    .sort((a, b) => {
+      const rarityRank = (gemstone) => MARKET_RARITIES.indexOf(gemstone.rarity);
+      const sorters = {
+        nameAsc: () => a.name.localeCompare(b.name),
+        rarityDesc: () => rarityRank(b) - rarityRank(a),
+        statAsc: () => (STAT_LABELS[a.stat] || a.stat).localeCompare(STAT_LABELS[b.stat] || b.stat),
+      };
+      return (sorters[gemstoneFilters.sort]?.() || 0) || gemstones.indexOf(a) - gemstones.indexOf(b);
+    });
+  const availableGemstoneTargets = [
+    ...SLOTS.filter((slot) => player.equipment?.[slot.key] && !player.equipment[slot.key].twoHandedOf)
+      .map((slot) => ({
+        target: { kind: "equipment", slotKey: slot.key },
+        label: slot.label,
+        item: player.equipment[slot.key],
+      })),
+    ...gear.map((item, index) => ({
+      target: { kind: "inventory", index },
+      label: "In pack",
+      item,
+    })).filter(({ item }) => !item.twoHandedOf),
+  ].filter(({ item }) => !item.gemstone);
+  const equippedGemstoneTargets = SLOTS.filter((slot) => {
+    const item = player.equipment?.[slot.key];
+    return item?.gemstone && !item.twoHandedOf;
+  }).map((slot) => ({
+    target: { kind: "equipment", slotKey: slot.key },
+    label: slot.label,
+    item: player.equipment[slot.key],
+  }));
+  const gemstoneFilterActive = gemstoneFilters.query || gemstoneFilters.stat || gemstoneFilters.rarity;
+  useEffect(() => {
+    if (selectedGemstone) {
+      gemstonePopup.current?.querySelector("button:not(:disabled)")?.focus();
+    } else if (gemstoneTrigger.current?.isConnected) {
+      gemstoneTrigger.current.focus();
+    }
+  }, [selectedGemstone]);
   const consumables = getConsumables(player);
   const keyItems = getKeyItems(player);
   const materials = getMaterials(player);
@@ -1262,6 +1440,10 @@ const Inventory = ({ player, onChange, locked }) => {
     ...gearFilters,
     [key]: event.target.type === "checkbox" ? event.target.checked : event.target.value,
   });
+  const closeItemTargetPopup = (close) => {
+    close();
+    if (itemTargetTrigger.current?.isConnected) itemTargetTrigger.current.focus();
+  };
   const counts = {
     gear: gear.length,
     consumables: consumables.reduce((n, c) => n + c.count, 0),
@@ -1310,12 +1492,22 @@ const Inventory = ({ player, onChange, locked }) => {
     ...Object.values(player.equipment || {}),
   ].filter(canApplyPrismaticAlloy);
   const renameTargets = [...gear, ...Object.values(player.equipment || {})].filter(canRenameItem);
+  const alterationTargets = (targets) => [
+    ...gear.map((item) => ({ item, label: "In pack" })),
+    ...SLOTS.flatMap((slot) => {
+      const item = player.equipment?.[slot.key];
+      return item && !item.twoHandedOf ? [{ item, label: slot.label }] : [];
+    }),
+  ].filter(({ item }) => targets.includes(item));
+  const runePopupTargets = alterationTargets(runeTargets);
+  const alloyPopupTargets = alterationTargets(alloyTargets);
+  const renamePopupTargets = alterationTargets(renameTargets);
   const renameGear = (e) => {
     e.preventDefault();
     if (locked) return;
     const result = renameItem(renameItemId, newItemName);
     setConsumableMessage(result.message);
-    if (result.ok) setRenamingItem(false);
+    if (result.ok) closeItemTargetPopup(() => setRenamingItem(false));
     onChange();
   };
   const runeTarget = runeTargets.find((item) => item.id === runeItemId);
@@ -1325,7 +1517,7 @@ const Inventory = ({ player, onChange, locked }) => {
     if (locked) return;
     const result = applyPrismaticAlloy(alloyItemId);
     setConsumableMessage(result.message);
-    if (result.ok) setSelectedAlloy(false);
+    if (result.ok) closeItemTargetPopup(() => setSelectedAlloy(false));
     onChange();
   };
   const craftWithRune = (e) => {
@@ -1333,7 +1525,7 @@ const Inventory = ({ player, onChange, locked }) => {
     if (locked) return;
     const result = applyRune(selectedRune, runeItemId, runeStat);
     setConsumableMessage(result.message);
-    if (result.ok) setSelectedRune(null);
+    if (result.ok) closeItemTargetPopup(() => setSelectedRune(null));
     onChange();
   };
   const rename = async (e) => {
@@ -1355,19 +1547,6 @@ const Inventory = ({ player, onChange, locked }) => {
     markInventoryItemViewed(category, key);
     onChange();
   };
-  const gemstoneTargets = [
-    ...SLOTS.filter((slot) => player.equipment?.[slot.key] && !player.equipment[slot.key].twoHandedOf)
-      .map((slot) => ({
-        target: { kind: "equipment", slotKey: slot.key },
-        label: slot.label,
-        item: player.equipment[slot.key],
-      })),
-    ...gear.map((item, index) => ({
-      target: { kind: "inventory", index },
-      label: "In pack",
-      item,
-    })),
-  ];
   const applyGemstone = (target) => {
     const result = socketGemstone(selectedGemstone, target);
     if (result.ok) {
@@ -1552,60 +1731,74 @@ const Inventory = ({ player, onChange, locked }) => {
           <>
             {consumableMessage && <div role='status'>{consumableMessage}</div>}
             {selectedRune && (
-              <form className='input-form item-input-form' onSubmit={craftWithRune}>
-                <label>
-                  Rune target
-                  <select className='input-field' value={runeItemId} disabled={locked} onChange={(e) => { setRuneItemId(e.target.value); setRuneStat(""); }}>
-                    <option value=''>Choose an item</option>
-                    {runeTargets.map((item) => <option key={item.id} value={item.id}>{item.name} ({STAT_LABELS[item.mainStat.stat]} +{item.mainStat.value})</option>)}
-                  </select>
-                </label>
-                <label>
-                  New main stat
-                  <select className='input-field' value={runeStat} disabled={locked || !runeTarget} onChange={(e) => setRuneStat(e.target.value)}>
-                    <option value=''>Choose a stat</option>
-                    {RUNE_MAIN_STATS.filter((stat) => stat !== runeTarget?.mainStat.stat).map((stat) => <option key={stat} value={stat}>{STAT_LABELS[stat]}</option>)}
-                  </select>
-                </label>
-                <p>Keeps the main stat's value and tier. Adds Crafted, preventing any further rune use.</p>
-                {!runeTargets.length && <p>You have no eligible items. Crafted items cannot receive runes.</p>}
-                <button type='submit' className='buttons' disabled={locked || !runeTarget || !runeStat}>Apply rune</button>
-                <button type='button' className='buttons' onClick={() => setSelectedRune(null)}>Cancel</button>
-              </form>
+              <ItemTargetPopup
+                title={`Use ${CONSUMABLES[selectedRune].name}`}
+                description='Choose an eligible item to use this rune on.'
+                targets={runePopupTargets}
+                selectedId={runeItemId}
+                onSelect={(id) => { setRuneItemId(id); setRuneStat(""); }}
+                onClose={() => closeItemTargetPopup(() => setSelectedRune(null))}
+                emptyMessage='You have no eligible items. Crafted items cannot receive runes.'
+                locked={locked}
+              >
+                <form className='input-form item-input-form' onSubmit={craftWithRune}>
+                  {selectedRune === "architectsRune" && runeTarget && (
+                    <>
+                      <label>
+                        New main stat
+                        <select className='input-field' value={runeStat} disabled={locked} onChange={(e) => setRuneStat(e.target.value)}>
+                          <option value=''>Choose a stat</option>
+                          {RUNE_MAIN_STATS.filter((stat) => stat !== runeTarget.mainStat.stat).map((stat) => <option key={stat} value={stat}>{STAT_LABELS[stat]}</option>)}
+                        </select>
+                      </label>
+                      <p>Keeps the main stat's value and tier. Adds Crafted, preventing any further rune use.</p>
+                    </>
+                  )}
+                  {selectedRune === "runeOfUnpredictability" && (
+                    <p>Randomly does nothing, changes a substat tier or type, or adds a substat line. Adds Crafted, preventing any further rune use.</p>
+                  )}
+                  <button type='submit' className='buttons' disabled={locked || !runeTarget || (selectedRune === "architectsRune" && !runeStat)}>Apply rune</button>
+                </form>
+              </ItemTargetPopup>
             )}
             {selectedAlloy && (
-              <form className='input-form item-input-form' onSubmit={applyAlloy}>
-                <label>
-                  Item to apply the alloy to
-                  <select className='input-field' value={alloyItemId} disabled={locked} onChange={(e) => setAlloyItemId(e.target.value)}>
-                    <option value=''>Choose an item</option>
-                    {alloyTargets.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                  </select>
-                </label>
-                <p>Applies a random Holofoil or rerolls the colors and effect on an existing Holofoil.</p>
-                {!alloyTargets.length && <p>You have no equipment items to apply the alloy to.</p>}
-                <button type='submit' className='buttons' disabled={locked || !alloyTarget}>Apply alloy</button>
-                <button type='button' className='buttons' onClick={() => setSelectedAlloy(false)}>Cancel</button>
-              </form>
+              <ItemTargetPopup
+                title='Use Prismatic Alloy'
+                description='Choose an item to apply or reroll its Holofoil.'
+                targets={alloyPopupTargets}
+                selectedId={alloyItemId}
+                onSelect={setAlloyItemId}
+                onClose={() => closeItemTargetPopup(() => setSelectedAlloy(false))}
+                emptyMessage='You have no equipment items to apply the alloy to.'
+                locked={locked}
+              >
+                <form className='input-form item-input-form' onSubmit={applyAlloy}>
+                  <button type='submit' className='buttons' disabled={locked || !alloyTarget}>Apply alloy</button>
+                </form>
+              </ItemTargetPopup>
             )}
             {renamingItem && (
-              <form className='input-form item-input-form' onSubmit={renameGear}>
-                <label>
-                  Item to rename
-                  <select className='input-field' value={renameItemId} disabled={locked} onChange={(e) => setRenameItemId(e.target.value)}>
-                    <option value=''>Choose an item</option>
-                    {renameTargets.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                  </select>
-                </label>
-                <label>
-                  New item name
-                  <input className='input-field' value={newItemName} onChange={(e) => setNewItemName(e.target.value)} maxLength={64} disabled={locked} />
-                </label>
-                <p>Letters, numbers, and spaces only, up to 64 characters. Inappropriate names are not allowed.</p>
-                {!renameTargets.length && <p>You have no equipment to rename.</p>}
-                <button type='submit' className='buttons' disabled={locked || !renameItemId || !newItemName.trim()}>Rename item</button>
-                <button type='button' className='buttons' onClick={() => setRenamingItem(false)}>Cancel</button>
-              </form>
+              <ItemTargetPopup
+                title='Use Item Certificate'
+                description='Choose an item to rename.'
+                targets={renamePopupTargets}
+                selectedId={renameItemId}
+                onSelect={setRenameItemId}
+                onClose={() => closeItemTargetPopup(() => setRenamingItem(false))}
+                emptyMessage='You have no equipment to rename.'
+                locked={locked}
+              >
+                {renameItemId && (
+                  <form className='input-form item-input-form' onSubmit={renameGear}>
+                    <label>
+                      New item name
+                      <input className='input-field' value={newItemName} onChange={(e) => setNewItemName(e.target.value)} maxLength={64} disabled={locked} />
+                    </label>
+                    <p>Letters, numbers, and spaces only, up to 64 characters. Inappropriate names are not allowed.</p>
+                    <button type='submit' className='buttons' disabled={locked || !newItemName.trim()}>Rename item</button>
+                  </form>
+                )}
+              </ItemTargetPopup>
             )}
             {renaming && (
               <form className='input-form item-input-form' onSubmit={rename}>
@@ -1634,7 +1827,10 @@ const Inventory = ({ player, onChange, locked }) => {
                     type='button'
                     disabled={locked || savingName}
                     className={`inventory-item ${favoriteClass("consumables", c)}`}
-                    onClick={() => use(c.key)}
+                    onClick={(event) => {
+                      itemTargetTrigger.current = event.currentTarget;
+                      use(c.key);
+                    }}
                   >
                     {isNew("consumables", c.key) && (
                       <span className='inventory-new-dot' aria-label='New item' />
@@ -1649,22 +1845,85 @@ const Inventory = ({ player, onChange, locked }) => {
           </>
         )}
         {tab === "gemstones" && (
-          <>
+          <div className='gemstone-workbench'>
+            <div className='gemstone-intro'>
+              <div>
+                <h4>Gemstone Socketing</h4>
+                <p>Socket and unsocket gemstones into your gear.</p>
+              </div>
+              <span className='gemstone-count'>{gemstones.length} available</span>
+            </div>
             {locked && (
-              <div className='progression-locked'>
+              <div className='progression-locked' role='status'>
                 You can't socket or remove gemstones during combat.
               </div>
             )}
-            {gemstoneMessage && <div className='gemstone-message'>{gemstoneMessage}</div>}
-            {gemstones.length === 0 ? (
-              <div className='equip-empty'>You have no gemstones. Enemies may drop them.</div>
-            ) : (
-              <>
-                <div className='recipe-kind'>
-                  {selectedGemstone ? "Select gear to socket into" : "Select a gemstone to use"}
+            {gemstoneMessage && <div className='gemstone-message' role='status'>{gemstoneMessage}</div>}
+            <section className='gemstone-section' aria-labelledby='gemstone-inventory-heading'>
+              <div className='gemstone-section-heading'>
+                <h4 id='gemstone-inventory-heading'>Your gemstones</h4>
+                <span>{filteredGemstones.length} of {gemstones.length}</span>
+              </div>
+              {gemstones.length > 0 && (
+                <div className='gemstone-filters' aria-label='Gemstone filters'>
+                  <input
+                    className='input-field gemstone-search'
+                    type='search'
+                    aria-label='Search gemstones'
+                    placeholder='Search name or stat'
+                    value={gemstoneFilters.query}
+                    onChange={(event) => setGemstoneFilters({ ...gemstoneFilters, query: event.target.value })}
+                  />
+                  <select
+                    className='input-field'
+                    aria-label='Filter gemstones by stat'
+                    value={gemstoneFilters.stat}
+                    onChange={(event) => setGemstoneFilters({ ...gemstoneFilters, stat: event.target.value })}
+                  >
+                    <option value=''>All stats</option>
+                    {[...new Set(gemstones.map((gemstone) => gemstone.stat))].sort().map((stat) => (
+                      <option key={stat} value={stat}>{STAT_LABELS[stat] || stat}</option>
+                    ))}
+                  </select>
+                  <select
+                    className='input-field'
+                    aria-label='Filter gemstones by rarity'
+                    value={gemstoneFilters.rarity}
+                    onChange={(event) => setGemstoneFilters({ ...gemstoneFilters, rarity: event.target.value })}
+                  >
+                    <option value=''>All rarities</option>
+                    {[...new Set(gemstones.map((gemstone) => gemstone.rarity))]
+                      .sort((a, b) => MARKET_RARITIES.indexOf(a) - MARKET_RARITIES.indexOf(b))
+                      .map((rarity) => <option key={rarity} value={rarity}>{rarity}</option>)}
+                  </select>
+                  <select
+                    className='input-field'
+                    aria-label='Sort gemstones'
+                    value={gemstoneFilters.sort}
+                    onChange={(event) => setGemstoneFilters({ ...gemstoneFilters, sort: event.target.value })}
+                  >
+                    <option value='nameAsc'>Name: A to Z</option>
+                    <option value='rarityDesc'>Rarity: high to low</option>
+                    <option value='statAsc'>Stat: A to Z</option>
+                  </select>
+                  {gemstoneFilterActive && (
+                    <button
+                      type='button'
+                      className='buttons gemstone-reset'
+                      onClick={() => setGemstoneFilters({ ...gemstoneFilters, query: "", stat: "", rarity: "" })}
+                    >
+                      Clear filters
+                    </button>
+                  )}
                 </div>
-                <div className='inventory-list'>
-                  {gemstones.map((gemstone) => (
+              )}
+              {gemstones.length === 0 ? (
+                <div className='equip-empty'>You have no gemstones. Enemies may drop them.</div>
+              ) : filteredGemstones.length === 0 ? (
+                <div className='equip-empty'>No gemstones match these filters.</div>
+              ) : (
+                <div className='inventory-list gemstone-inventory'>
+                  {filteredGemstones.map((gemstone) => (
                     <Tooltip
                       key={gemstone.id}
                       onView={() => viewItem("gemstones", gemstone.id)}
@@ -1672,11 +1931,13 @@ const Inventory = ({ player, onChange, locked }) => {
                     >
                       <button
                         type='button'
-                        className={`inventory-item ${selectedGemstone === gemstone.id ? "gemstone-selected" : ""} ${favoriteClass("gemstones", gemstone)}`}
+                        aria-haspopup='dialog'
+                        className={`inventory-item gemstone-item ${favoriteClass("gemstones", gemstone)}`}
                         disabled={locked}
-                        onClick={() => {
+                        onClick={(event) => {
                           markInventoryItemViewed("gemstones", gemstone.id);
-                          setSelectedGemstone(selectedGemstone === gemstone.id ? null : gemstone.id);
+                          gemstoneTrigger.current = event.currentTarget;
+                          setSelectedGemstone(gemstone.id);
                           setGemstoneMessage("");
                           onChange();
                         }}
@@ -1687,44 +1948,122 @@ const Inventory = ({ player, onChange, locked }) => {
                         <strong style={{ color: RARITY_COLORS[gemstone.rarity] }}>
                           {gemstone.name}
                         </strong>
+                        <span className='gemstone-item-stat'>
+                          {STAT_LABELS[gemstone.stat] || gemstone.stat} +{gemstone.value}
+                        </span>
+                        <span className='gemstone-item-hint'>
+                          {gemstone.rarity} · click to socket
+                        </span>
                       </button>
                     </Tooltip>
                   ))}
                 </div>
-              </>
-            )}
-            <div className='gemstone-targets'>
-              {gemstoneTargets.map(({ target, label, item }) => (
-                <div
-                  className={`gemstone-target ${target.kind === "equipment" ? "equipped-gear" : ""}`}
-                  style={getHolofoilStyle(item)}
-                  key={`${target.kind}-${target.slotKey ?? target.index}`}
-                >
-                  <span>{label}</span>
-                  <strong style={{ color: RARITY_COLORS[item.rarity] }}>{item.name}</strong>
-                  {item.gemstone ? (
-                    <button
-                      type='button'
-                      className='buttons gemstone-action'
-                      disabled={locked || (player.astra || 0) < getGemstoneRemovalCost(item.gemstone)}
-                      onClick={() => extractGemstone(target, item.gemstone)}
-                    >
-                      Remove ({getGemstoneRemovalCost(item.gemstone)} astra)
-                    </button>
-                  ) : (
-                    <button
-                      type='button'
-                      className='buttons gemstone-action'
-                      disabled={locked || !selectedGemstone}
-                      onClick={() => applyGemstone(target)}
-                    >
-                      Socket
-                    </button>
-                  )}
+              )}
+            </section>
+            <section className='gemstone-section' aria-labelledby='gemstone-equipped-heading'>
+              <div className='gemstone-section-heading'>
+                <h4 id='gemstone-equipped-heading'>Equipped gemstones</h4>
+                <span>Click an equipped item to remove its gemstone</span>
+              </div>
+              {!equippedGemstoneTargets.length ? (
+                <div className='equip-empty'>No equipped gear has a gemstone socketed.</div>
+              ) : (
+                <div className='gemstone-targets'>
+                  {equippedGemstoneTargets.map(({ target, label, item }) => {
+                    const cost = getGemstoneRemovalCost(item.gemstone);
+                    return (
+                      <button
+                        type='button'
+                        className={`gemstone-equipped-card ${target.kind === "equipment" ? "equipped-gear" : ""}`}
+                        style={getHolofoilStyle(item)}
+                        key={`${target.kind}-${target.slotKey ?? target.index}`}
+                        disabled={locked || (player.astra || 0) < cost}
+                        aria-label={`Remove ${item.gemstone.name} from ${item.name} for ${cost} astra`}
+                        onClick={() => extractGemstone(target, item.gemstone)}
+                      >
+                        <span className='gemstone-target-location'>{label}</span>
+                        <strong style={{ color: RARITY_COLORS[item.rarity] }}>{item.name}</strong>
+                        <span className='gemstone-socket-status'>
+                          Socketed: {item.gemstone.name} · {STAT_LABELS[item.gemstone.stat] || item.gemstone.stat} +{item.gemstone.value}
+                        </span>
+                        <span className='gemstone-unsocket-hint'>
+                          {locked ? "Unavailable during combat" : (player.astra || 0) < cost ? `Need ${cost} astra` : `Click to remove · ${cost} astra`}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
-          </>
+              )}
+            </section>
+            {chosenGemstone && (
+              <div
+                className='item-popup-backdrop gemstone-popup-backdrop'
+                onMouseDown={(event) => {
+                  if (event.target === event.currentTarget) setSelectedGemstone(null);
+                }}
+              >
+                <section
+                  ref={gemstonePopup}
+                  className='item-popup gemstone-popup'
+                  role='dialog'
+                  aria-modal='true'
+                  aria-labelledby='gemstone-popup-title'
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setSelectedGemstone(null);
+                    if (event.key === "Tab") {
+                      const buttons = event.currentTarget.querySelectorAll("button:not(:disabled)");
+                      const first = buttons[0];
+                      const last = buttons[buttons.length - 1];
+                      if (event.shiftKey && document.activeElement === first) {
+                        event.preventDefault();
+                        last.focus();
+                      } else if (!event.shiftKey && document.activeElement === last) {
+                        event.preventDefault();
+                        first.focus();
+                      }
+                    }
+                  }}
+                >
+                  <button
+                    type='button'
+                    className='item-popup-close'
+                    aria-label='Close gemstone gear selection'
+                    onClick={() => setSelectedGemstone(null)}
+                  >
+                    ×
+                  </button>
+                  <h4 id='gemstone-popup-title'>Socket {chosenGemstone.name}</h4>
+                  <p className='gemstone-popup-description'>
+                    {STAT_LABELS[chosenGemstone.stat] || chosenGemstone.stat} +{chosenGemstone.value}. Choose gear with an empty socket.
+                  </p>
+                  {availableGemstoneTargets.length ? (
+                    <div className='gemstone-popup-targets'>
+                      {availableGemstoneTargets.map(({ target, label, item }) => (
+                        <button
+                          key={`${target.kind}-${target.slotKey ?? target.index}`}
+                          type='button'
+                          className='gemstone-popup-target'
+                          aria-label={`Socket ${chosenGemstone.name} into ${item.name} (${label})`}
+                          style={getHolofoilStyle(item)}
+                          disabled={locked}
+                          onClick={() => applyGemstone(target)}
+                        >
+                          <span>{label}</span>
+                          <strong style={{ color: RARITY_COLORS[item.rarity] }}>{item.name}</strong>
+                          <span>Empty socket · Socket into {item.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className='equip-empty'>No gear with an empty socket can accept this gemstone.</div>
+                  )}
+                  <div className='item-popup-actions'>
+                    <button type='button' className='buttons' onClick={() => setSelectedGemstone(null)}>Cancel</button>
+                  </div>
+                </section>
+              </div>
+            )}
+          </div>
         )}
         {tab === "materials" && (
           <>
@@ -2231,8 +2570,8 @@ const QuestsScreen = ({ onChange }) => {
 };
 
 export const SCREENS = {
-  adventure: { label: "Game", sidebarGroup: "adventure", link: true, component: AdventureScreen },
-  dungeons: { label: "Adventures", sidebarGroup: "adventure", link: true, minLevel: DUNGEON_MIN_LEVEL, component: DungeonsScreen },
+  adventure: { label: "Gameplay", sidebarGroup: "adventure", link: true, component: AdventureScreen },
+  dungeons: { label: "Adventures", sidebarGroup: "adventure", link: true, minLevel: DUNGEON_MIN_LEVEL, adminAccess: true, component: DungeonsScreen },
   arena: { label: "Arena", sidebarGroup: "adventure", link: true, component: ArenaScreen },
   character: {
     label: "Character",

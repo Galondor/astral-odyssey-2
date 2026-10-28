@@ -62,14 +62,22 @@ test("unique gear only rolls substats from its slot pool", () => {
   expect(Object.keys(item.subStats).every((stat) => getSubStatPool(item.slot).includes(stat))).toBe(true);
 });
 
-test("every catalog unique rolls five substats from its slot pool", () => {
-  for (const definition of Object.values(UNIQUES)) {
-    expect(definition.subStats).toHaveLength(5);
-    expect(definition.subStats.every((stat) => getSubStatPool(definition.slot).includes(stat))).toBe(true);
+test("the Astral Colossus Heart rolls all six configured necklace substats", () => {
+  const definition = UNIQUES.astralColossusHeart;
+  const item = createUniqueItem(definition, 80);
 
+  expect(Object.keys(item.subStats)).toHaveLength(6);
+  expect(Object.keys(item.subStats)).toEqual(definition.subStats);
+  expect(Object.keys(item.subStats).every((stat) => getSubStatPool(item.slot).includes(stat))).toBe(true);
+});
+
+test("every catalog unique rolls all configured substats valid for its slot", () => {
+  for (const definition of Object.values(UNIQUES)) {
+    const expectedSubStats = definition.subStats.filter((stat) =>
+      getSubStatPool(definition.slot).includes(stat),
+    );
     const item = createUniqueItem(definition, 80);
-    expect(Object.keys(item.subStats)).toHaveLength(5);
-    expect(Object.keys(item.subStats).every((stat) => getSubStatPool(item.slot).includes(stat))).toBe(true);
+    expect(Object.keys(item.subStats)).toEqual(expectedSubStats);
   }
 });
 

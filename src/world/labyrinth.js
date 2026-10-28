@@ -344,9 +344,10 @@ function grantFinalRewards(player, patch, replies, state, floor) {
   Object.assign(patch, leveled.patch);
   replies.push(...leveled.messages);
 
-  const consumables = { ...(patch.consumables || player.consumables || {}) };
   const relics = Math.min(LABYRINTH_MAX_RELICS, state.relicsFound);
-  if (relics > 0) consumables.relic = (consumables.relic || 0) + relics;
+  if (relics > 0)
+    patch.materials = addToMaterials(patch.materials ?? player.materials, { sealedRelic: relics });
+  const consumables = { ...(patch.consumables || player.consumables || {}) };
   consumables.healthPotion = (consumables.healthPotion || 0) + 2;
   patch.consumables = consumables;
   replies.push(`The Labyrinth is cleared! You secure ${relics} relic${relics === 1 ? "" : "s"} and two Health Potions.`);
@@ -412,7 +413,7 @@ export function moveInLabyrinth(x, y) {
       return { ok: true, message: `Secret found! A sealed relic is held for the final clear. Relics secured: ${state.relicsFound}/${LABYRINTH_MAX_RELICS}.` };
     }
     if (tile.type === "trap") {
-      const damage = Math.max(1, Math.round((player.stats?.maxHealth || 1) * 0.12));
+      const damage = Math.max(1, Math.round((player.stats?.maxHealth || 1) * 0.35));
       patch.stats.health = Math.max(1, (player.stats?.health ?? player.stats?.maxHealth ?? 1) - damage);
       awardMaterial(player, patch, "labyrinth_etched_stone", 1);
       tile.resolved = true;

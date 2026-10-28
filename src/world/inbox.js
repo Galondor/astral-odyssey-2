@@ -34,10 +34,26 @@ const asList = (v) => (Array.isArray(v) ? v.filter(Boolean) : Object.values(v ||
 export const normalizeAttachments = (a = {}) => ({
   astra: Math.max(0, Math.floor(Number(a.astra) || 0)),
   exp: Math.max(0, Math.floor(Number(a.exp) || 0)),
-  materials: Object.entries(a.materials || {}).filter(([k, n]) => MATERIALS[k] && n > 0),
-  consumables: Object.entries(a.consumables || {}).filter(([k, n]) => CONSUMABLES[k] && n > 0),
+  materials: Object.entries({
+    ...(a.materials || {}),
+    ...(Number(a.consumables?.relic) > 0
+      ? { sealedRelic: (Number(a.materials?.sealedRelic) || 0) + Number(a.consumables.relic) }
+      : {}),
+  }).filter(([k, n]) => MATERIALS[k] && n > 0),
+  consumables: Object.entries(a.consumables || {}).filter(([k, n]) => k !== "relic" && CONSUMABLES[k] && n > 0),
   keyItems: Object.keys(a.keyItems || {}).filter((k) => KEY_ITEMS[k]),
-  gear: asList(a.gear).filter((g) => GEAR_SLOT_TYPES.includes(g.slot) && g.count > 0),
+  gear: asList(a.gear)
+    .filter((g) => GEAR_SLOT_TYPES.includes(g.slot) && Number(g.count) > 0)
+    .map((g) => {
+      const minTier = Math.max(0, Math.min(10, Math.floor(Number(g.minTier) || 0)));
+      return {
+        slot: g.slot,
+        minRarity: Math.max(0, Math.min(RARITY_NAMES.length - 1, Math.floor(Number(g.minRarity) || 0))),
+        ...(minTier ? { minTier } : {}),
+        count: Math.floor(Number(g.count)),
+        ...(g.holofoil !== undefined ? { holofoil: g.holofoil } : {}),
+      };
+    }),
   uniques: asList(a.uniques)
     .filter((u) => UNIQUES[u.id] && Math.floor(Number(u.count)) > 0)
     .map((u) => ({ id: u.id, count: Math.floor(Number(u.count)), ...(u.holofoil !== undefined ? { holofoil: u.holofoil } : {}) })),
@@ -76,7 +92,7 @@ export const describeAttachments = (a) => {
     ...n.materials.map(([k, c]) => `${c}× ${MATERIALS[k].name}`),
     ...n.consumables.map(([k, c]) => `${c}× ${CONSUMABLES[k].name}`),
     ...n.keyItems.map((k) => `Key item: ${KEY_ITEMS[k].name}`),
-    ...n.gear.map((g) => `${g.count}× random ${g.holofoil ? "Holofoil " : ""}${RARITY_NAMES[g.minRarity || 0]}+ ${g.slot}`),
+    ...n.gear.map((g) => `${g.count}× random ${g.holofoil ? "Holofoil " : ""}${RARITY_NAMES[g.minRarity || 0]}+${g.minTier ? ` T${g.minTier}+` : ""} ${g.slot}`),
     ...n.uniques.map((u) => `${u.count}× ${u.holofoil ? "Holofoil " : ""}Unique: ${UNIQUES[u.id].name}`),
     ...n.gemstones.map((g) => `${g.count}× random ${RARITY_NAMES[g.minRarity]}+ gemstone${g.count === 1 ? "" : "s"}`),
     ...n.gemstoneItems.map((g) => `${g.rarity} ${g.name}`),
@@ -85,7 +101,7 @@ export const describeAttachments = (a) => {
   ];
 };
 
-const compute = (inbox, broadcasts, states) => {
+const compute = (inbox, broadcasts, worldBossMail, states) => {
   const build = (id, m, source) => {
     const st = states[id] || {};
     return st.deleted
@@ -95,6 +111,7 @@ const compute = (inbox, broadcasts, states) => {
   state.messages = [
     ...Object.entries(inbox).map(([id, m]) => build(id, m, "inbox")),
     ...Object.entries(broadcasts).map(([id, m]) => build(id, m, "broadcast")),
+    ...Object.entries(worldBossMail).map(([id, m]) => build(`world-boss-${id}`, m, "worldBossMail")),
   ]
     .filter(Boolean)
     .sort((a, b) => b.sentAt - a.sentAt);
@@ -105,14 +122,16 @@ const compute = (inbox, broadcasts, states) => {
 export const startInbox = (uid, onChange, accountId = uid) => {
   let inbox = {};
   let broadcasts = {};
+  let worldBossMail = {};
   let states = {};
-  const refresh = () => compute(inbox, broadcasts, states);
+  const refresh = () => compute(inbox, broadcasts, worldBossMail, states);
   const warn = (e) => console.warn("Inbox unavailable", e);
   state = { uid, accountId, admin: false, messages: [] };
   listeners.add(onChange);
   const stops = [
     onValue(ref(db, `inbox/${uid}`), (s) => { inbox = s.val() || {}; refresh(); }, warn),
     onValue(ref(db, "broadcasts"), (s) => { broadcasts = s.val() || {}; refresh(); }, warn),
+    onValue(ref(db, `worldBossMail/${uid}`), (s) => { worldBossMail = s.val() || {}; refresh(); }, warn),
     onValue(ref(db, `inboxState/${uid}`), (s) => { states = s.val() || {}; refresh(); }, warn),
   ];
   get(ref(db, `admins/${accountId}`))
@@ -171,7 +190,7 @@ function grant(a) {
   });
   n.gear.forEach((g) => {
     for (let i = 0; i < g.count; i++) {
-      const item = generateRandomItem(g.slot, g.minRarity || 0, g.holofoil);
+      const item = generateRandomItem(g.slot, g.minRarity || 0, g.holofoil, g.minTier || 0);
       if (item) {
         addItem(item);
         lines.push(item.name);
@@ -294,7 +313,7 @@ export async function sendMessage({ to, subject, body, attachments }) {
     ...(n.materials.length ? { materials: Object.fromEntries(n.materials) } : {}),
     ...(n.consumables.length ? { consumables: Object.fromEntries(n.consumables) } : {}),
     ...(n.keyItems.length ? { keyItems: Object.fromEntries(n.keyItems.map((k) => [k, true])) } : {}),
-    ...(n.gear.length ? { gear: n.gear.map((g) => ({ slot: g.slot, minRarity: g.minRarity || 0, count: g.count, ...(g.holofoil !== undefined ? { holofoil: g.holofoil } : {}) })) } : {}),
+    ...(n.gear.length ? { gear: n.gear.map((g) => ({ slot: g.slot, minRarity: g.minRarity || 0, ...(g.minTier ? { minTier: g.minTier } : {}), count: g.count, ...(g.holofoil !== undefined ? { holofoil: g.holofoil } : {}) })) } : {}),
     ...(n.uniques.length ? { uniques: n.uniques } : {}),
     ...(n.gemstones.length ? { gemstones: n.gemstones } : {}),
     ...(n.titles.length ? { titles: n.titles } : {}),

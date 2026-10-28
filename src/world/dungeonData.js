@@ -137,6 +137,14 @@ export const UNIQUES = {
     ability: "Unwritten Path",
     subStats: ["attackMin", "attackMax", "magicAttackMin", "magicAttackMax", "attackPercent", "magicAttackPercent"],
   },
+  astralColossusHeart: {
+    id: "astralColossusHeart",
+    name: "Heart of the Astral Colossus",
+    slot: "necklace",
+    stat: "dexterity",
+    ability: "Colossus Breaker",
+    subStats: ["maxPower", "defense", "speed", "criticalDamage", "attackPercent", "magicAttackPercent"],
+  },
 };
 
 const stun = (chance) => ({ id: "stun", chance });

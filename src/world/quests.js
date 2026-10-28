@@ -49,6 +49,46 @@ const BOARD_SIZE = 8;
 const HISTORY_LIMIT = 30;
 const RARITY_NAMES = ["Common", "Uncommon", "Rare", "Epic", "Legendary"];
 const DUNGEON_MATERIALS = new Set(Object.values(DUNGEON_TYPES).flatMap((type) => Object.values(type.materials)));
+const MATERIAL_SOURCE_GROUPS = {
+  "Suncleft Expanse": ["suncleft_scourge_fang", "glassback_chitin", "buried_wyrm_scale"],
+  "Tempest Reach": ["bilge_raider_insignia", "abyssal_scale", "leviathan_heart"],
+  "Frostfall Range": ["frostfang_pelt", "rimebound_plate", "glacier_core"],
+  "Shattered Front": ["salvaged_dog_tag", "war_hardened_insignia", "commanders_crest"],
+  "Verdant Overgrowth": ["overgrowth_spore_fiber", "overgrowth_blight_resin", "overgrowth_heartseed"],
+  "Void Observatory": ["observatory_void_dust", "observatory_rift_thread", "observatory_star_core"],
+  Labyrinth: [
+    "relicFragments",
+    "labyrinth_etched_fang",
+    "labyrinth_echo_silk",
+    "labyrinth_rune_shard",
+    "labyrinth_thorned_horn",
+    "labyrinth_void_ichor",
+    "labyrinth_etched_stone",
+    "labyrinth_crown_fragment",
+  ],
+};
+const MATERIAL_SOURCES = new Map(
+  Object.entries(MATERIAL_SOURCE_GROUPS).flatMap(([source, materials]) => materials.map((material) => [material, source])),
+);
+const S_TIER_SPECIAL_MATERIALS = [
+  "buried_wyrm_scale",
+  "leviathan_heart",
+  "glacier_core",
+  "commanders_crest",
+  "overgrowth_heartseed",
+  "observatory_star_core",
+  "relicFragments",
+  "labyrinth_crown_fragment",
+];
+const SINGLE_DROP_MATERIALS = new Set([
+  "buried_wyrm_scale",
+  "leviathan_heart",
+  "glacier_core",
+  "commanders_crest",
+  "overgrowth_heartseed",
+  "observatory_star_core",
+  "labyrinth_crown_fragment",
+]);
 
 const randInt = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
@@ -86,10 +126,18 @@ const generateQuest = (tier, playerLevel) => {
     const dungeon = tier.dungeonMaterialTier && Math.random() < 0.5 ? pick(Object.values(DUNGEON_TYPES)) : null;
     const material = dungeon
       ? dungeon.materials[tier.dungeonMaterialTier]
-      : pick(Object.keys(MATERIALS).filter((k) => !DUNGEON_MATERIALS.has(k) && tiers.includes(MATERIALS[k].tier)));
+      : pick([
+        ...Object.keys(MATERIALS).filter((k) => !DUNGEON_MATERIALS.has(k) && tiers.includes(MATERIALS[k].tier)),
+        ...(tier.key === "S" ? S_TIER_SPECIAL_MATERIALS : []),
+      ]);
     target = { material };
-    count = Math.max(1, Math.round(baseCount * (0.8 + Math.random() * 0.4)));
-    description = `Hand in ${count} ${MATERIALS[material].name}${dungeon ? ` from the ${dungeon.name}` : ""}.`;
+    count = SINGLE_DROP_MATERIALS.has(material)
+      ? 1
+      : material === "relicFragments"
+        ? 5
+        : Math.max(1, Math.round(baseCount * (0.8 + Math.random() * 0.4)));
+    const source = dungeon ? dungeon.name : MATERIAL_SOURCES.get(material);
+    description = `Hand in ${count} ${MATERIALS[material].name}${source ? ` from the ${source}` : ""}.`;
   }
   return {
     id: questId(),

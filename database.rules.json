@@ -103,6 +103,72 @@
         ".read": "auth != null && auth.uid === $uid"
       }
     },
+    "worldBoss": {
+      "forcedSpawnAt": {
+        ".read": "auth != null",
+        ".write": "auth != null && root.child('admins').child(auth.uid).val() === true",
+        ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= now + 60000"
+      },
+      "titleAwards": {
+        "$identity": {
+          ".read": "auth != null && ($identity === auth.uid || root.child('characterOwners').child($identity).child('accountId').val() === auth.uid)",
+          ".write": "auth != null && ($identity === auth.uid || root.child('characterOwners').child($identity).child('accountId').val() === auth.uid)",
+          ".validate": "newData.isBoolean() && newData.val() === true"
+        }
+      },
+      "cycles": {
+        "$cycleId": {
+          ".read": "auth != null",
+          "totalDamage": {
+            ".write": "auth != null",
+            ".validate": "newData.isNumber() && newData.val() >= (data.exists() ? data.val() : 0) && newData.val() <= 1000000"
+          },
+          "players": {
+            "$identity": {
+              ".write": "auth != null && ($identity === auth.uid || root.child('characterOwners').child($identity).child('accountId').val() === auth.uid)",
+              ".validate": "newData.hasChildren(['name', 'damage', 'attemptsDay', 'attemptsUsed', 'attemptsTotal', 'activeUntil'])",
+              "name": {
+                ".validate": "newData.isString() && newData.val() === root.child('directory').child($identity).child('name').val()"
+              },
+              "damage": {
+                ".validate": "newData.isNumber() && newData.val() >= (data.exists() ? data.val() : 0) && newData.val() <= 1000000"
+              },
+              "attemptsDay": {
+                ".validate": "newData.isNumber() && newData.val() === now - (now % 86400000)"
+              },
+              "attemptsUsed": {
+                ".validate": "newData.isNumber() && newData.val() >= (newData.parent().child('attemptsDay').val() === data.parent().child('attemptsDay').val() ? data.val() : 0) && newData.val() <= (newData.parent().child('attemptsDay').val() === data.parent().child('attemptsDay').val() ? data.val() + 1 : 1) && newData.val() <= 3"
+              },
+              "attemptsTotal": {
+                ".validate": "newData.isNumber() && newData.val() >= (data.exists() ? data.val() : 0) && newData.val() <= (data.exists() ? data.val() + 1 : 1)"
+              },
+              "activeUntil": {
+                ".validate": "newData.isNumber() && (newData.val() === 0 || (newData.val() >= now && newData.val() <= now + 120000))"
+              },
+              "$other": {
+                ".validate": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "worldBossMail": {
+      "$uid": {
+        ".read": "auth != null && ($uid === auth.uid || root.child('characterOwners').child($uid).child('accountId').val() === auth.uid || root.child('admins').child(auth.uid).val() === true)",
+        "$cycleId": {
+          ".write": "auth != null && ($uid === auth.uid || root.child('characterOwners').child($uid).child('accountId').val() === auth.uid) && !data.exists() && root.child('worldBoss').child('cycles').child($cycleId).child('players').child($uid).child('damage').isNumber() && root.child('worldBoss').child('cycles').child($cycleId).child('players').child($uid).child('damage').val() > 0",
+          ".validate": "newData.hasChildren(['subject', 'body', 'from', 'sentAt', 'attachments', 'cycle']) && newData.child('from').val() === 'World Boss' && newData.child('cycle').val() === $cycleId",
+          "subject": { ".validate": "newData.isString() && newData.val().length > 0" },
+          "body": { ".validate": "newData.isString()" },
+          "from": { ".validate": "newData.val() === 'World Boss'" },
+          "sentAt": { ".validate": "newData.isNumber() && newData.val() <= now + 60000" },
+          "attachments": { ".validate": "newData.hasChildren()" },
+          "cycle": { ".validate": "newData.val() === $cycleId" },
+          "$other": { ".validate": false }
+        }
+      }
+    },
     "bugReports": {
       ".read": "auth != null && root.child('admins').child(auth.uid).val() === true",
       "$reportId": {

@@ -9,6 +9,7 @@ jest.mock("../../ui/InboxScreen", () => () => null);
 jest.mock("../../ui/MarketplaceScreen", () => () => null);
 jest.mock("../../ui/AdminScreen", () => () => null);
 jest.mock("../../ui/BugReportScreen", () => () => null);
+jest.mock("../../ui/WorldBossScreen", () => () => <div data-testid="world-boss-content">World Boss content</div>);
 jest.mock("../../world/dungeons", () => ({
   ...jest.requireActual("../../world/dungeons"),
   getBoard: jest.fn(),
@@ -30,6 +31,7 @@ test("screen registry keeps permanent navigation grouped before contextual scree
     ["admin", "combat", "dungeonRun", "crafting", "gearTrader", "marketplace", "questBoard", "forge"],
   ]);
   expect(Object.keys(SCREENS)).toEqual(groups.flat());
+  expect(SCREENS.worldBoss).toBeUndefined();
   expect(SCREENS.arena.link).toBe(true);
 });
 
@@ -50,12 +52,17 @@ beforeEach(() => {
 test("available dungeons are playable and navigate into the run", () => {
   const goToScene = jest.fn();
   render(<DungeonsScreen player={{ level: 20 }} goToScene={goToScene} />);
+  expect(document.querySelector(".dungeons").classList.contains("dungeons-solo")).toBe(true);
+  expect(document.querySelector(".dungeons").classList.contains("adventures-theme-solo")).toBe(true);
   expect(screen.getByRole("heading", { name: "Adventures" })).toBeTruthy();
   const adventureTabs = screen.getAllByRole("button").filter((button) =>
-    ["Solo Dungeons", "Labyrinth", "Group Dungeons"].includes(button.textContent)
+    ["Solo Dungeons", "Labyrinth", "World Boss", "Group Dungeons", "Raids"].includes(button.textContent)
   );
-  expect(adventureTabs.map((button) => button.textContent)).toEqual(["Solo Dungeons", "Labyrinth", "Group Dungeons"]);
+  expect(adventureTabs.map((button) => button.textContent)).toEqual(["Solo Dungeons", "Labyrinth", "World Boss", "Group Dungeons", "Raids"]);
+  expect(screen.getByRole("button", { name: "World Boss" }).classList.contains("dungeon-tab-world-boss")).toBe(true);
   expect(screen.getByRole("button", { name: "Labyrinth" }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "World Boss" }).disabled).toBe(false);
+  expect(screen.getByRole("button", { name: "Group Dungeons" }).disabled).toBe(true);
   expect(screen.getByRole("button", { name: "Raids" }).disabled).toBe(true);
   expect(screen.queryByText(/under construction/i)).toBeNull();
   const button = screen.getByRole("button", { name: "Enter Dungeon" });
@@ -65,12 +72,21 @@ test("available dungeons are playable and navigate into the run", () => {
   expect(goToScene).toHaveBeenCalledWith("dungeon");
 });
 
+test("World Boss is opened from its tab inside Adventures rather than a sidebar screen", () => {
+  render(<DungeonsScreen player={{ level: 35 }} goToScene={jest.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "World Boss" }));
+  expect(screen.getByTestId("world-boss-content")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Adventures" })).toBeTruthy();
+});
+
 test("level 22 characters can open the Labyrinth expedition", () => {
   render(<DungeonsScreen player={{ level: 22 }} goToScene={jest.fn()} />);
   const labyrinthTab = screen.getByRole("button", { name: "Labyrinth" });
   expect(labyrinthTab.disabled).toBe(false);
   fireEvent.click(labyrinthTab);
   expect(screen.getByRole("heading", { name: "The Labyrinth" })).toBeTruthy();
+  expect(document.querySelector(".dungeons").classList.contains("dungeons-solo")).toBe(false);
+  expect(document.querySelector(".dungeons").classList.contains("adventures-theme-labyrinth")).toBe(true);
   expect(screen.getByRole("button", { name: "Enter the Labyrinth" })).toBeTruthy();
 });
 

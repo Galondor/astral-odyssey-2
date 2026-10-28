@@ -102,13 +102,13 @@ export const UNIQUE_ABILITIES = [
   },
   {
     name: "Fortune's Spark",
-    description: "Critical hits release a spark that deals 10% of the enemy's maximum health and restores 25% of your maximum power.",
+    description: "Critical hits have a 25% chance to deal 100% to 300% more damage.",
     uniqueEffect: "fortunesSpark",
     effects: {},
   },
   {
     name: "Molten Grip",
-    description: "Hitting a burning enemy detonates it for 6% of its maximum health.",
+    description: "Hitting a burning enemy detonates the burn damage for 100% more damage.",
     uniqueEffect: "moltenGrip",
     effects: {},
   },
@@ -159,6 +159,11 @@ export const UNIQUE_ABILITIES = [
     description: "Every third attack discovers an impossible shortcut, ignoring the enemy's defense and dealing double damage.",
     uniqueEffect: "unwrittenPath",
     effects: {},
+  },
+  {
+    name: "Colossus Breaker",
+    description: "Your attacks deal 20% more damage.",
+    effects: { damageBonus: 0.2 },
   },
 ];
 

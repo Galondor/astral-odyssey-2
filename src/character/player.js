@@ -408,14 +408,33 @@ const loadPlayerData = async (accountId, characterId) => {
     notice = "Loaded newer cloud progress. An older unsynced save was kept on this device for recovery.";
   }
   const loadedPlayer = recover || legacy ? cached : cloud.player || null;
+  const legacyRelics = Math.max(0, Math.floor(Number(loadedPlayer?.consumables?.relic) || 0));
+  const needsSealedRelicMigration = Object.prototype.hasOwnProperty.call(loadedPlayer?.consumables || {}, "relic");
   if (loadedPlayer) {
+    let migratedPlayer = loadedPlayer;
+    if (needsSealedRelicMigration) {
+      const consumables = { ...(loadedPlayer.consumables || {}) };
+      delete consumables.relic;
+      migratedPlayer = {
+        ...loadedPlayer,
+        consumables,
+        ...(legacyRelics > 0
+          ? {
+              materials: {
+                ...(loadedPlayer.materials || {}),
+                sealedRelic: (Number(loadedPlayer.materials?.sealedRelic) || 0) + legacyRelics,
+              },
+            }
+          : {}),
+      };
+    }
     const accountWideTitles = Object.keys(account.accountWideTitles || {})
       .filter((id) => account.accountWideTitles[id] && TITLES[id]?.accountWide);
     const unrecordedAccountWideTitles = (loadedPlayer.titles || [])
       .filter((id) => TITLES[id]?.accountWide && !account.accountWideTitles?.[id]);
     currentPlayer = accountWideTitles.length
-      ? { ...loadedPlayer, titles: [...new Set([...(loadedPlayer.titles || []), ...accountWideTitles])] }
-      : loadedPlayer;
+      ? { ...migratedPlayer, titles: [...new Set([...(migratedPlayer.titles || []), ...accountWideTitles])] }
+      : migratedPlayer;
     if (unrecordedAccountWideTitles.length) {
       currentPlayer.titles = [...new Set([...(currentPlayer.titles || []), ...unrecordedAccountWideTitles])];
     }
@@ -428,7 +447,7 @@ const loadPlayerData = async (accountId, characterId) => {
   const needsAccountWideTitleMigration = loadedPlayer?.titles?.some(
     (id) => TITLES[id]?.accountWide && !account.accountWideTitles?.[id],
   );
-  if (recover || legacy || (cloud.player && !revision) || needsAccountWideTitleMigration) {
+  if (recover || legacy || (cloud.player && !revision) || needsAccountWideTitleMigration || needsSealedRelicMigration) {
     markDirty();
     await flushPlayer();
   }

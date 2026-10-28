@@ -99,7 +99,7 @@ const compute = (player) => {
   const attackPercent = define("attackPercent", [...gearLines("attackPercent"), ...bonusLines("attackPercent")], "percent");
   const attackMinLines = [line("Base", 1), ...physical, ...gearLines("attack"), ...gearLines("attackMin"), ...bonusLines("attack", "attackMin")];
   const attackMaxLines = [line("Base", 5), ...physical, ...gearLines("attack"), ...gearLines("attackMax"), ...bonusLines("attack", "attackMax")];
-  const magical = [line(`Intelligence ${intelligence} × 2`, intelligence * 2)];
+  const magical = [line(`Intelligence ${intelligence} × 1`, intelligence)];
   const magicAttackPercent = define("magicAttackPercent", [...gearLines("magicAttackPercent"), ...bonusLines("magicAttackPercent")], "percent");
   const magicMinLines = [line("Base", 1), ...magical, ...gearLines("magicAttack"), ...gearLines("magicAttackMin"), ...bonusLines("magicAttack", "magicAttackMin")];
   const magicMaxLines = [line("Base", 5), ...magical, ...gearLines("magicAttack"), ...gearLines("magicAttackMax"), ...bonusLines("magicAttack", "magicAttackMax")];
@@ -128,7 +128,11 @@ const compute = (player) => {
   define("criticalHitChance", capChanceLines([line("Base", 0.05), line(`Luck ${luck} ÷ 5 × 1% (rounded down)`, Math.floor(luck / 5) * 0.01), ...gearLines("criticalHitChance"), ...bonusLines("criticalHitChance")]), "percent");
   define("criticalDamageBonus", [line("Base", 1.5), ...gearLines("criticalDamage"), ...bonusLines("criticalDamage", "criticalDamageBonus")], "percent");
 
-  define("maxHealth", [line("Base", 90), line(`Vitality ${vitality} × 5`, vitality * 5), ...bonusLines("maxHealth")]);
+  define("maxHealth", [
+    line("Base", 90),
+    line(`Vitality ${vitality} ÷ 3 (rounded down) × 5`, Math.floor(vitality / 3) * 5),
+    ...bonusLines("maxHealth"),
+  ]);
   define("maxStamina", [line("Base", 8), ...bonusLines("maxStamina")]);
   const levelPower = Math.max(0, (player.level || 1) - 1);
   define("maxPower", [
@@ -212,8 +216,8 @@ export const getStatBreakdown = (player) => compute(player).breakdown;
 export const STAT_INFO = {
   strength: { title: "Strength", description: "Increases melee damage and health.", formula: "+1 Attack per point, +1 Vitality per 2 points." },
   dexterity: { title: "Dexterity", description: "Increases melee damage and agility.", formula: "+1 Attack per point, +1 Agility per 2 points." },
-  intelligence: { title: "Intelligence", description: "Increases magic damage.", formula: "+2 Magic Attack per point." },
-  vitality: { title: "Vitality", description: "Increases maximum health.", formula: "+1 Health per 2 points of Vitality. Each point: +5 Max Health." },
+  intelligence: { title: "Intelligence", description: "Increases magic damage.", formula: "+1 Magic Attack per point." },
+  vitality: { title: "Vitality", description: "Increases maximum health.", formula: "+5 health per 3 points of Vitality." },
   resilience: { title: "Resilience", description: "Increases defense.", formula: "+1 Defense per 3 points of Resilience." },
   agility: { title: "Agility", description: "Increases speed and evasion.", formula: "+1 Speed per 3 points, +1% Evasion per 8 points." },
   luck: { title: "Luck", description: "Increases critical hit chance and item drop rates.", formula: "+1% Critical Hit Chance per 5 points, +1% Item Drop Chance per 3 points." },
@@ -221,14 +225,14 @@ export const STAT_INFO = {
   magicAttackPercent: { title: "Increased magic attack", description: "Increases magic attack damage.", formula: "Added to the magic attack damage multiplier." },
   attackMin: { title: "Minimum attack", description: "The lowest damage of a physical attack.", formula: "(1 + Strength + Dexterity + equipment min attack) × (1 + increased attack %)." },
   attackMax: { title: "Maximum attack", description: "The highest damage of a physical attack.", formula: "(5 + Strength + Dexterity + equipment max attack) × (1 + increased attack %)." },
-  magicAttackMin: { title: "Minimum magic attack", description: "The lowest damage of a magical attack.", formula: "(1 + Intelligence × 2 + equipment min magic attack) × (1 + increased magic attack %)." },
-  magicAttackMax: { title: "Maximum magic attack", description: "The highest damage of a magical attack.", formula: "(5 + Intelligence × 2 + equipment max magic attack) × (1 + increased magic attack %)." },
+  magicAttackMin: { title: "Minimum magic attack", description: "The lowest damage of a magical attack.", formula: "(1 + Intelligence + equipment min magic attack) × (1 + increased magic attack %)." },
+  magicAttackMax: { title: "Maximum magic attack", description: "The highest damage of a magical attack.", formula: "(5 + Intelligence + equipment max magic attack) × (1 + increased magic attack %)." },
   defense: { title: "Defense", description: "Reduces the damage taken from each hit.", formula: "1 per 3 Resilience + equipment defense." },
   evasion: { title: "Evasion", description: "Chance to avoid an incoming attack.", formula: "Base + 1% per 8 Agility + equipment, capped at 60%." },
   speed: { title: "Speed", description: "How quickly you act.", formula: "Agility ÷ 3 + equipment." },
   criticalHitChance: { title: "Critical chance", description: "Chance for an attack to be a critical hit.", formula: "Base + 1% per 5 Luck + equipment, capped at 60%." },
   criticalDamageBonus: { title: "Critical damage", description: "Damage multiplier applied on a critical hit.", formula: "Base + equipment critical damage." },
-  maxHealth: { title: "Maximum health", description: "How much damage you can take before collapsing.", formula: "Base + Vitality × 5." },
+  maxHealth: { title: "Maximum health", description: "How much damage you can take before collapsing.", formula: "Base + 5 per 3 Vitality (rounded down)." },
   maxStamina: { title: "Maximum stamina", description: "Your energy reserve for actions.", formula: "Base + 1 per level." },
   gearScore: { title: "Gear score", description: "The overall power of all equipped gear.", formula: "Per item: stats × weights × 1.5 if two-handed, +25 with an ability." },
   maxPower: { title: "Maximum power", description: "Your reserve for magical abilities.", formula: "Base + 1 per level gained + equipment and permanent bonuses." },

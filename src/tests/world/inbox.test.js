@@ -1,6 +1,6 @@
 import { get, onValue, set } from "firebase/database";
 import { commitPlayerChange, getPlayer, setPlayer } from "../../character/player";
-import { claimMessage, hasAttachments, normalizeAttachments, sendMessage, startInbox } from "../../world/inbox";
+import { claimMessage, describeAttachments, getMessages, hasAttachments, normalizeAttachments, sendMessage, startInbox } from "../../world/inbox";
 import { UNIQUES } from "../../world/dungeonData";
 import { createCustomItem } from "../../items/items";
 
@@ -127,22 +127,28 @@ test("marketplace material stacks and exact gemstones can be claimed", async () 
 
 test("Labyrinth materials and consumables can be mailed and claimed", async () => {
   const attachments = {
-    materials: { relicFragments: 7, labyrinth_etched_fang: 2 },
+    materials: { relicFragments: 7, labyrinth_etched_fang: 2, sealedRelic: 1 },
     consumables: { relic: 1, healthPotion: 2 },
     uniques: [{ id: "unwrittenPath", count: 1 }],
   };
   expect(normalizeAttachments(attachments).materials).toEqual([
     ["relicFragments", 7],
     ["labyrinth_etched_fang", 2],
+    ["sealedRelic", 2],
   ]);
   expect(normalizeAttachments(attachments).consumables).toEqual([
-    ["relic", 1],
     ["healthPotion", 2],
   ]);
   await sendMessage({ to: "alice", subject: "Labyrinth supplies", body: "A reward.", attachments });
   expect(set).toHaveBeenCalledWith(
     "inbox/alice/sent",
-    expect.objectContaining({ attachments }),
+    expect.objectContaining({
+      attachments: {
+        materials: { relicFragments: 7, labyrinth_etched_fang: 2, sealedRelic: 2 },
+        consumables: { healthPotion: 2 },
+        uniques: [{ id: "unwrittenPath", count: 1 }],
+      },
+    }),
   );
 
   stop();
@@ -156,15 +162,22 @@ test("Labyrinth materials and consumables can be mailed and claimed", async () =
 
   expect(await claimMessage("labyrinth")).toEqual({
     ok: true,
-    lines: ["7× Relic Fragments", "2× Maze-Etched Fang", "1× Sealed Relic", "2× Health Potion", "The Unwritten Path"],
+    lines: ["7× Relic Fragments", "2× Maze-Etched Fang", "2× Sealed Relic", "2× Health Potion", "The Unwritten Path"],
   });
-  expect(player.materials).toEqual({ relicFragments: 7, labyrinth_etched_fang: 2 });
-  expect(player.consumables).toEqual({ relic: 1, healthPotion: 2 });
+  expect(player.materials).toEqual({ relicFragments: 7, labyrinth_etched_fang: 2, sealedRelic: 2 });
+  expect(player.consumables).toEqual({ healthPotion: 2 });
   expect(player.inventory[0]).toMatchObject({
     name: "The Unwritten Path",
     rarity: "Unique",
     slot: "weapon",
     ability: { name: "Unwritten Path" },
+  });
+});
+
+test("legacy sealed relic mail is converted to the unique material", () => {
+  expect(normalizeAttachments({ consumables: { relic: 3 } })).toMatchObject({
+    materials: [["sealedRelic", 3]],
+    consumables: [],
   });
 });
 
@@ -211,6 +224,35 @@ test("Architect's Rune attachments are recognized and claimed", async () => {
   expect(writes).toEqual({
     "inboxState/alice/rune/claimed": true,
     "inboxState/alice/rune/read": true,
+  });
+});
+
+test("mailed gear can enforce a minimum stat tier", () => {
+  const gear = { gear: [{ slot: "weapon", minRarity: 3, minTier: 3, count: 1 }] };
+  expect(normalizeAttachments(gear).gear).toEqual(gear.gear);
+  expect(describeAttachments(gear)).toEqual(["1× random Epic+ T3+ weapon"]);
+});
+
+test("World Boss rewards appear as claimable mail", async () => {
+  const cycle = "123456789";
+  stop();
+  onValue.mockImplementation((path, callback) => {
+    callback({ val: () => path === "worldBossMail/alice"
+      ? { [cycle]: { subject: "The Colossus has fallen!", body: "Rank #1", from: "World Boss", sentAt: 1, attachments: { astra: 500 } } }
+      : {} });
+    return () => {};
+  });
+  stop = startInbox("alice", () => {});
+
+  expect(getMessages()).toContainEqual(expect.objectContaining({
+    id: `world-boss-${cycle}`,
+    source: "worldBossMail",
+    from: "World Boss",
+  }));
+  expect(await claimMessage(`world-boss-${cycle}`)).toEqual({ ok: true, lines: ["500 astra"] });
+  expect(writes).toEqual({
+    [`inboxState/alice/world-boss-${cycle}/claimed`]: true,
+    [`inboxState/alice/world-boss-${cycle}/read`]: true,
   });
 });
 

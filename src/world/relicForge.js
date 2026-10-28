@@ -9,7 +9,7 @@ import {
   MAIN_STAT_NAMES,
   STAT_TIERS,
 } from "../items/items";
-import { spendMaterials } from "../items/materials";
+import { getMaterialCount, spendMaterials } from "../items/materials";
 
 export const RELIC_CRAFT_RARITIES = ["Common", "Uncommon", "Rare", "Epic", "Legendary"];
 export const RELIC_RARITY_COSTS = {
@@ -20,6 +20,12 @@ export const RELIC_RARITY_COSTS = {
   Legendary: 45,
 };
 export const RELIC_CONDITION_COST = 10;
+export const RELIC_CONDITION_COSTS = Object.fromEntries(
+  CONDITION_NAMES.map((condition, index) => [
+    condition,
+    Math.max(0, index - 1) * RELIC_CONDITION_COST,
+  ]),
+);
 
 const SUBSTAT_COUNTS = {
   Common: 1,
@@ -45,13 +51,15 @@ export function getRelicCraftCost(rarity, subStats = [], ability = "", condition
       0,
     ) +
     (ability ? 18 : 0) +
-    (condition && condition !== "random" ? RELIC_CONDITION_COST : 0)
+    (condition && condition !== "random"
+      ? RELIC_CONDITION_COSTS[condition] ?? RELIC_CONDITION_COST
+      : 0)
   );
 }
 
 export function craftRelicItem(player = getPlayer(), selection = {}) {
   if (!player) return { ok: false, message: "No character loaded." };
-  if ((player.consumables?.relic || 0) < 1)
+  if (getMaterialCount(player, "sealedRelic") < 1)
     return { ok: false, message: "You need a Sealed Relic to craft an item." };
   const { slot, rarity } = selection;
   if (!GEAR_SLOT_TYPES.includes(slot) || !RELIC_CRAFT_RARITIES.includes(rarity))
@@ -98,21 +106,24 @@ export function craftRelicItem(player = getPlayer(), selection = {}) {
     chosen.push({ stat, tier: randomItem(tiers) });
   }
   const ability = requestedAbility || randomItem(abilityPool)?.name || "";
-  const item = createCustomItem({
-    name: selection.name?.trim() || randomName(),
-    slot,
-    rarity,
-    condition: condition === "random" ? randomItem(CONDITION_NAMES) : condition,
-    iLevel,
-    price: Math.max(0, Math.round(iLevel * (RELIC_RARITY_COSTS[rarity] + 20))),
-    mainStat: {
-      stat: randomItem(MAIN_STAT_NAMES),
-      tier: randomItem(STAT_TIERS),
-    },
-    subStats: Object.fromEntries(chosen.map(({ stat, tier }) => [stat, tier])),
-    ability,
-    twoHanded,
-  });
+  const item = {
+    ...createCustomItem({
+      name: selection.name?.trim() || randomName(),
+      slot,
+      rarity,
+      condition: condition === "random" ? randomItem(CONDITION_NAMES) : condition,
+      iLevel,
+      price: Math.max(0, Math.round(iLevel * (RELIC_RARITY_COSTS[rarity] + 20))),
+      mainStat: {
+        stat: randomItem(MAIN_STAT_NAMES),
+        tier: randomItem(STAT_TIERS),
+      },
+      subStats: Object.fromEntries(chosen.map(({ stat, tier }) => [stat, tier])),
+      ability,
+      twoHanded,
+    }),
+    crafted: true,
+  };
   return {
     ok: true,
     item,
@@ -120,11 +131,7 @@ export function craftRelicItem(player = getPlayer(), selection = {}) {
     message: `${item.name} was forged for ${cost} Relic Fragments.`,
     patch: {
       inventory: [...(player.inventory || []), item],
-      consumables: {
-        ...(player.consumables || {}),
-        relic: player.consumables.relic - 1,
-      },
-      materials: spendMaterials(player, { relicFragments: cost }),
+      materials: spendMaterials(player, { sealedRelic: 1, relicFragments: cost }),
     },
   };
 }

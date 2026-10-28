@@ -7,6 +7,8 @@ test("Arena defaults to PvP and shows a coming-soon panel for every tab", () => 
   expect(screen.getByRole("heading", { name: "Arena" })).toBeTruthy();
   expect(within(screen.getByRole("tablist", { name: "Arena" })).getAllByRole("tab").map((tab) => tab.textContent))
     .toEqual(["PvP", "PvE", "Boss Rush"]);
+  expect(screen.getByRole("tablist", { name: "Arena" }).classList.contains("arena-tabs")).toBe(true);
+  expect(screen.getByRole("tab", { name: "PvP" }).classList.contains("arena-tab-pvp")).toBe(true);
   expect(screen.getByRole("tab", { name: "PvP" }).getAttribute("aria-selected")).toBe("true");
 
   for (const name of ["PvE", "Boss Rush", "PvP"]) {

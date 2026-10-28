@@ -1,6 +1,12 @@
 import { getPlayer, setPlayer } from "../character/player";
 import { generateRandomGemstone, generateRandomSlotItem } from "../items/items";
-import { applyConsumable, getKeyItemEffect, ITEM_CERTIFICATE_DROP_CHANCE, PRISMATIC_ALLOY_DROP_CHANCE } from "../items/consumables";
+import {
+  applyConsumable,
+  getKeyItemEffect,
+  ITEM_CERTIFICATE_DROP_CHANCE,
+  PRISMATIC_ALLOY_DROP_CHANCE,
+  RUNE_OF_UNPREDICTABILITY_DROP_CHANCE,
+} from "../items/consumables";
 import {
   SKILLS,
   getSkillLevel,
@@ -35,6 +41,7 @@ const HEX_CHANCE = 0.2;
 const ADAPTABLE_PER_KIND = 0.05;
 const ADAPTABLE_MAX = 0.2;
 const DAMAGE_REDUCTION_CAP = 0.6;
+const FORTUNES_SPARK_CHANCE = 0.25;
 
 // Simple turn-based combat state, shown by the "combat" game screen.
 let enemy = null;
@@ -44,8 +51,11 @@ let fight = null;
 let openingReplies = [];
 
 export const getEnemy = () => enemy;
+export const getCombatRound = () => fight?.round ?? null;
 export const isPlayerDefending = () => playerDefending;
 export const getPlayerStatuses = () => playerStatuses;
+export const getMarrowWard = () =>
+  fight?.wardMax > 0 ? { current: fight.ward, max: fight.wardMax } : null;
 export const endCombat = () => {
   enemy = null;
   playerDefending = false;
@@ -84,6 +94,7 @@ export const startCombat = (template, { enemyFirst = false } = {}) => {
     cooldowns: {},
     phasesDone: [],
     stunGrace: false,
+    ...(template.worldBossCycle ? { worldBossDamageDealt: 0 } : {}),
   };
   playerDefending = false;
   playerStatuses = [];
@@ -94,6 +105,7 @@ export const startCombat = (template, { enemyFirst = false } = {}) => {
   fight = {
     ab,
     cls: p.class,
+    round: 1,
     secondWindUsed: false,
     combo: 0,
     kinds: new Set(),
@@ -103,14 +115,17 @@ export const startCombat = (template, { enemyFirst = false } = {}) => {
       (p.stats?.speed || 0) * (1 + (ab.speedMult || 0)),
     ),
     ward: 0,
+    wardMax: 0,
     temperedStrikes: 0,
     starKinds: new Set(),
     starReady: false,
     rootstrideReady: true,
     unwrittenPathStrikes: 0,
   };
-  if (fight.ab.uniqueEffects.includes("marrowWard"))
-    fight.ward = Math.round((p.stats?.maxHealth || 0) * 0.2);
+  if (fight.ab.uniqueEffects.includes("marrowWard")) {
+    fight.wardMax = Math.round((p.stats?.maxHealth || 0) * 0.2);
+    fight.ward = fight.wardMax;
+  }
 
   // The faster combatant acts first; ties go to the player.
   const speed = Math.round(
@@ -175,6 +190,13 @@ function healEnemy(amount, replies) {
   return healed;
 }
 
+function dealEnemyDamage(amount) {
+  const before = enemy.hp;
+  enemy.hp = Math.max(0, enemy.hp - amount);
+  if (enemy.worldBossCycle)
+    enemy.worldBossDamageDealt += before - enemy.hp;
+}
+
 function healPlayer(s, amount, replies, source) {
   const healed = Math.min(
     Math.floor(amount * healMult(playerStatuses)),
@@ -202,7 +224,7 @@ function damagePlayer(s, amount, replies) {
 }
 
 function hurtEnemy(amount, replies, source, calculation) {
-  enemy.hp = Math.max(0, enemy.hp - amount);
+  dealEnemyDamage(amount);
   replies.push(
     `${source} hits the ${enemy.name} for ${damageNumber(amount, calculation || [`Damage dealt: ${amount}.`])} damage.`,
   );
@@ -242,7 +264,7 @@ function endOfRound(s, replies) {
         healEnemy(-amount, replies);
         return;
       }
-      enemy.hp = Math.max(0, enemy.hp - amount);
+      dealEnemyDamage(amount);
       replies.push(
         `The ${enemy.name} takes ${damageNumber(amount, calculation)} ${label} damage.`,
       );
@@ -522,6 +544,13 @@ export function applyDeathPenalties(p, s, replies, patch) {
 }
 
 function winCombat(p, s, replies, patch) {
+  if (enemy.worldBossCycle) {
+    replies.push(`The ${enemy.name} falls! Its contribution is recorded for the world.`);
+    enemy.onDefeat?.(p, s, patch, replies);
+    setPlayer({ ...patch, stats: s });
+    endCombat();
+    return;
+  }
   const plunderBonus = fight.ab.uniqueEffects.includes("plunder")
     ? Math.min(
         0.3,
@@ -579,6 +608,12 @@ function winCombat(p, s, replies, patch) {
     patch.consumables = consumables;
     replies.push(`The ${enemy.name} dropped a {{Prismatic Alloy|consumable:prismaticAlloy}}!`);
   }
+  if (!enemy.dungeon && Math.random() < RUNE_OF_UNPREDICTABILITY_DROP_CHANCE) {
+    const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
+    consumables.runeOfUnpredictability = (consumables.runeOfUnpredictability || 0) + 1;
+    patch.consumables = consumables;
+    replies.push(`The ${enemy.name} dropped a {{Rune of Unpredictability|consumable:runeOfUnpredictability}}!`);
+  }
   if (Math.random() < 0.08 + luckBonus) {
     const gemstone = generateRandomGemstone();
     patch.gemstones = [...(p.gemstones || []), gemstone];
@@ -616,7 +651,16 @@ function settle(outcome, p, s, replies, patch) {
 function finishRound(p, s, replies, patch) {
   const outcome = enemyTurn(s, replies) || endOfRound(s, replies);
   playerDefending = false;
-  return settle(outcome, p, s, replies, patch);
+  const result = settle(outcome, p, s, replies, patch);
+  if (!result.over) {
+    fight.round += 1;
+    if (Number.isFinite(enemy.maxRounds) && enemy.maxRounds > 0 && fight.round > enemy.maxRounds) {
+      replies.push(`The ${enemy.name} forces you from the fight after ${enemy.maxRounds} rounds. Your damage contribution is recorded.`);
+      endCombat();
+      result.over = true;
+    }
+  }
+  return result;
 }
 
 // If the player is stunned their action is forfeited. Returns true if so.
@@ -723,6 +767,18 @@ export function attackRound(type, skillKey) {
     );
     replies.push("Critical hit!");
   }
+  if (
+    ctx.crit &&
+    ab.uniqueEffects.includes("fortunesSpark") &&
+    Math.random() < FORTUNES_SPARK_CHANCE
+  ) {
+    const bonusPercent = roll(100, 300);
+    hit *= 1 + bonusPercent / 100;
+    calculation.push(
+      `Fortune's Spark bonus: +${bonusPercent}% (×${1 + bonusPercent / 100}) = ${hit}.`,
+    );
+    replies.push(`Fortune's Spark activates for +${bonusPercent}% damage!`);
+  }
 
   const abilityBonus = ab.damageBonus || 0;
   const skillBonus = skill?.bonus?.(ctx) || 0;
@@ -781,7 +837,7 @@ export function attackRound(type, skillKey) {
     );
   }
   ctx.dealt = dealt;
-  enemy.hp = Math.max(0, enemy.hp - dealt);
+  dealEnemyDamage(dealt);
   if (ab.uniqueEffects.includes("unwrittenPath")) {
     if (unwrittenPathReady) {
       fight.unwrittenPathStrikes = 0;
@@ -815,9 +871,20 @@ export function attackRound(type, skillKey) {
   }
   if (ab.uniqueEffects.includes("moltenGrip") && dealt > 0 && enemy.hp > 0 &&
       enemy.statuses.some((status) => status.id === "burn")) {
-    const burst = Math.max(1, Math.round(enemy.maxHp * 0.06));
-    enemy.hp = Math.max(0, enemy.hp - burst);
-    replies.push(`Molten Grip detonates the flames for ${damageNumber(burst, [`Maximum health: ${enemy.maxHp}.`, `Flame detonation: ${enemy.maxHp} × 6% = ${burst}.`])} damage.`);
+    const burn = enemy.statuses.find((status) => status.id === "burn");
+    const burnTick = Math.max(
+      1,
+      Math.round(enemy.maxHp * burn.power * burn.stacks),
+    );
+    const burst = burnTick * 2;
+    dealEnemyDamage(burst);
+    enemy.statuses = enemy.statuses.filter((status) => status.id !== "burn");
+    replies.push(
+      `Molten Grip detonates the burn for ${damageNumber(burst, [
+        `Burn tick: ${enemy.maxHp} × ${burn.power} × ${burn.stacks} = ${burnTick}.`,
+        `Detonation: ${burnTick} × 2 = ${burst}.`,
+      ])} damage.`,
+    );
   }
   if (ab.lifesteal)
     healPlayer(
@@ -833,27 +900,10 @@ export function attackRound(type, skillKey) {
     );
     replies.push("Arcane Surge: you recover power!");
   }
-  if (ctx.crit && ab.uniqueEffects.includes("fortunesSpark")) {
-    if (enemy.hp > 0) {
-      const spark = Math.max(1, Math.round(enemy.maxHp * 0.1));
-      enemy.hp = Math.max(0, enemy.hp - spark);
-      replies.push(`Fortune's Spark deals ${damageNumber(spark, [`Maximum health: ${enemy.maxHp}.`, `Spark: ${enemy.maxHp} × 10% = ${spark}.`])} bonus damage.`);
-    }
-    const restored = Math.max(
-      0,
-      Math.min(Math.round(s.maxPower * 0.25), s.maxPower - s.power),
-    );
-    s.power += restored;
-    replies.push(
-      restored
-        ? `Fortune's Spark restores ${restored} power.`
-        : "Fortune's Spark has no power to restore.",
-    );
-  }
   if (ctx.crit && ab.uniqueEffects.includes("orbitalFocus")) {
     if (enemy.hp > 0) {
       const shard = Math.max(1, Math.round(dealt * 0.35));
-      enemy.hp = Math.max(0, enemy.hp - shard);
+      dealEnemyDamage(shard);
       replies.push(`Orbital Focus launches a shard for ${damageNumber(shard, [`Strike damage: ${dealt}.`, `Orbiting shard: ${dealt} × 35% = ${shard}.`])} bonus damage.`);
     }
   }

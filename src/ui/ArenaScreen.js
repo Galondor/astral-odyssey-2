@@ -8,7 +8,7 @@ export default function ArenaScreen() {
   return (
     <section className='panel arena'>
       <h2>Arena</h2>
-      <div className='inventory-tabs' role='tablist' aria-label='Arena'>
+      <div className='arena-tabs' role='tablist' aria-label='Arena'>
         {TABS.map(([key, label]) => (
           <button
             key={key}
@@ -17,7 +17,7 @@ export default function ArenaScreen() {
             role='tab'
             aria-selected={tab === key}
             aria-controls='arena-panel'
-            className={`inventory-tab ${tab === key ? "active" : ""}`}
+            className={`buttons arena-tab-${key} ${tab === key ? "active" : ""}`}
             onClick={() => setTab(key)}
           >
             {label}

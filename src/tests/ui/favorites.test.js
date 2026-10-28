@@ -77,6 +77,54 @@ test("Titles inventory equips an owned title and clicking it again unequips it",
   expect(title).toHaveAttribute("aria-pressed", "false");
 });
 
+test("Gemstone selection opens a gear popup and equipped gemstones can be removed", () => {
+  player.inventory.push({ ...sword, id: "offhand", name: "Offhand Placeholder", twoHandedOf: "sword" });
+  player.equipment = { mainHand: { ...helmet, id: "equipped-helmet" } };
+  renderCharacter();
+  fireEvent.click(screen.getByRole("tab", { name: /Gemstones/ }));
+
+  const rubyCard = screen.getByRole("button", { name: /Rare Ruby/ });
+  expect(rubyCard).toHaveTextContent("Strength +3");
+  expect(screen.queryByText("Offhand Placeholder")).not.toBeInTheDocument();
+  expect(screen.getByText("No equipped gear has a gemstone socketed.")).toBeInTheDocument();
+
+  fireEvent.click(rubyCard);
+  const popup = screen.getByRole("dialog", { name: "Socket Rare Ruby" });
+  expect(within(popup).getByRole("button", { name: "Socket Rare Ruby into Zeta Helmet (Main Hand)" })).toBeInTheDocument();
+  expect(within(popup).queryByRole("button", { name: /Offhand Placeholder/ })).not.toBeInTheDocument();
+
+  fireEvent.click(within(popup).getByRole("button", { name: "Socket Rare Ruby into Zeta Helmet (Main Hand)" }));
+
+  expect(player.gemstones).toEqual([sapphire]);
+  expect(player.equipment.mainHand.gemstone).toEqual(ruby);
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.getByText(/Socketed: Rare Ruby · Strength \+3/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Remove Rare Ruby from Zeta Helmet for 300 astra" }));
+  expect(player.gemstones).toEqual([sapphire, ruby]);
+  expect(player.equipment.mainHand.gemstone).toBeUndefined();
+  expect(player.astra).toBe(700);
+});
+
+test("Gemstones can be filtered and sorted without favorite filtering", () => {
+  const emerald = { id: "emerald", name: "Epic Emerald", type: "emerald", stat: "dexterity", value: 5, rarity: "Epic" };
+  player.gemstones = [ruby, sapphire, emerald];
+  player.favoriteInventoryItems = { gemstones: [sapphire.id] };
+  renderCharacter();
+  fireEvent.click(screen.getByRole("tab", { name: /Gemstones/ }));
+
+  const gemCards = () => Array.from(document.querySelectorAll(".gemstone-inventory .gemstone-item"));
+  expect(screen.queryByRole("combobox", { name: "Filter gemstones by favorite" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: "Stat bonus: high to low" })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole("combobox", { name: "Sort gemstones" }), { target: { value: "rarityDesc" } });
+  expect(gemCards()[0]).toHaveTextContent("Epic Emerald");
+  fireEvent.change(screen.getByRole("combobox", { name: "Filter gemstones by stat" }), { target: { value: "strength" } });
+  expect(gemCards()).toHaveLength(2);
+  expect(gemCards().map((card) => card.textContent)).toEqual([
+    expect.stringContaining("Rare Ruby"),
+    expect.stringContaining("Rare Sapphire"),
+  ]);
+});
+
 test.each(["gear", "consumables", "gemstones"])(
   "Character tab notification is set for unread %s",
   (category) => {

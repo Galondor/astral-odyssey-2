@@ -86,6 +86,56 @@ test("Crafted protection is shared by future runes", () => {
   }
 });
 
+test("the unpredictability rune can do nothing while consuming the rune", () => {
+  player.consumables.runeOfUnpredictability = 1;
+  jest.spyOn(Math, "random").mockReturnValue(0.01);
+
+  const result = applyRune("runeOfUnpredictability", item.id);
+
+  expect(result).toMatchObject({ ok: true, message: expect.stringContaining("nothing happened") });
+  expect(player.inventory[0]).toMatchObject({ ...item, crafted: true });
+  expect(player.consumables.runeOfUnpredictability).toBeUndefined();
+});
+
+test("the unpredictability rune changes a substat by one tier", () => {
+  player.consumables.runeOfUnpredictability = 1;
+  jest.spyOn(Math, "random").mockReturnValue(0.26);
+
+  const result = applyRune("runeOfUnpredictability", item.id);
+
+  expect(result.ok).toBe(true);
+  expect(player.inventory[0].subTiers.vitality).toBe(0);
+  expect(player.inventory[0].subStats.vitality).toBeLessThan(item.subStats.vitality);
+});
+
+test("the unpredictability rune changes a substat to a different stat at the same tier", () => {
+  player.consumables.runeOfUnpredictability = 1;
+  jest.spyOn(Math, "random").mockReturnValue(0.51);
+
+  const result = applyRune("runeOfUnpredictability", item.id);
+
+  expect(result.ok).toBe(true);
+  expect(player.inventory[0].subStats.vitality).toBeUndefined();
+  const [newStat] = Object.keys(player.inventory[0].subStats);
+  expect(player.inventory[0].subTiers[newStat]).toBe(1);
+});
+
+test("the unpredictability rune adds substats outside the item's usual pool", () => {
+  player.consumables.runeOfUnpredictability = 1;
+  jest.spyOn(Math, "random")
+    .mockReturnValueOnce(0.76)
+    .mockReturnValueOnce(0)
+    .mockReturnValueOnce(0.01)
+    .mockReturnValueOnce(0.5);
+
+  const result = applyRune("runeOfUnpredictability", item.id);
+
+  expect(result.ok).toBe(true);
+  expect(player.inventory[0].subStats.defense).toBeDefined();
+  expect(player.inventory[0].subTiers.defense).toBeDefined();
+  expect(Object.keys(player.inventory[0].subStats)).toHaveLength(2);
+});
+
 test("opening rune selection and combat consumable use do not consume runes", () => {
   expect(drinkConsumable("architectsRune")).toMatchObject({ ok: true, requiresRune: true });
   const stats = { ...player.stats };

@@ -44,7 +44,7 @@ const TIER = {
   boss: { label: "Boss", color: "#ff2a2a", hp: 10, atk: 7.2, def: 10.5, spd: 1.15, crit: 0.35, exp: 0.14, astra: 70, dropChance: 1, minRarity: 4, stunResist: 1, dotResist: 0.5 },
 };
 const PUZZLE_ASTRA = 15;
-const MISTAKE_DAMAGE = [0.2, 0.25, 0.35, 0.45];
+const MISTAKE_DAMAGE = [0.3, 0.4, 0.55, 0.7];
 const LOCK_GUESSES = 6;
 const LOCK_DIGITS = [1, 2, 3, 4, 5, 6];
 
@@ -704,8 +704,8 @@ function puzzleOptions(run) {
             return solved(fresh, `The ${def.lock} clicks open.`, { perfect: fresh.pz.guesses.length < 3 });
           const partial = cur.filter((x, i) => x !== code[i] && code.includes(x)).length;
           const guesses = [...fresh.pz.guesses, { g: cur, exact, partial }];
-          const frac = 0.04 + 0.01 * guesses.length;
-          const { lost, died } = hurt(guesses.length >= LOCK_GUESSES ? 0.25 : frac);
+          const frac = 0.12 + 0.04 * guesses.length;
+          const { lost, died } = hurt(guesses.length >= LOCK_GUESSES ? 0.6 : frac);
           if (died) return failRun(`${cur.join("-")} is wrong and the ${def.lock} electrocutes you. You fall.`);
           if (guesses.length >= LOCK_GUESSES) {
             const reset = updatePuzzle({ ...makeLock(), mistakes: fresh.pz.mistakes + 1 });
@@ -732,7 +732,7 @@ function puzzleOptions(run) {
           if (ok) note = `You ${approach.toLowerCase()} through it unharmed.`;
           else {
             hits += 1;
-            const { lost, died } = hurt(0.15 + 0.05 * fresh.pz.round);
+            const { lost, died } = hurt(0.3 + 0.1 * fresh.pz.round);
             if (died) return failRun(`You try to ${approach.toLowerCase()} but the trap catches you for ${lost} damage. You fall.`);
             note = `You try to ${approach.toLowerCase()} but the trap catches you for [red]${lost}[/red] damage.`;
           }
@@ -752,7 +752,7 @@ function puzzleOptions(run) {
           const result = fresh.pz.contents[n - 1];
           if (result === "treasure")
             return solved(fresh, `The ${def.chest} holds a hoard!`, { perfect: true, heal: 0.3, power: 0.5 });
-          const { lost, died } = hurt(result === "snare" ? 0.22 : 0.14);
+          const { lost, died } = hurt(result === "snare" ? 0.4 : 0.14);
           if (died) return failRun(`The ${def.chest} was ${result === "snare" ? "a snare" : "a mimic"} and it kills you.`);
           const next = prepareStep({ ...fresh, index: fresh.index + 1 });
           setPlayer({ dungeon: next });

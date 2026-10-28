@@ -203,8 +203,8 @@ const SUBSTAT_CAPS = { // DO NOT CHANGE
   luck: 0.34, // Maximum Roll: 35.7
   attackMin: 1.2, // Maximum Roll: 126
   attackMax: 2.4, // Maximum Roll: 252
-  magicAttackMin: 1.2, // Maximum Roll: 126
-  magicAttackMax: 2.4, // Maximum Roll: 252
+  magicAttackMin: 2.2, // Maximum Roll: 231.0
+  magicAttackMax: 3.4, // Maximum Roll: 357.0
   maxPower: 0.15, // Maximum Roll: 15.75
   criticalDamage: 0.006, // Maximum Roll: 0.63
   attackPercent: 0.001, // Maximum Roll: 0.105
@@ -362,7 +362,7 @@ export const restrictItemSubStats = (item) => {
 };
 
 // Two-handed weapons occupy the main hand and off hand, so they roll this multiple of the normal stats.
-const TWO_HANDED_MULT = 1.5;
+const TWO_HANDED_MULT = 2.0;
 
 /*
  Each base item has the main stat it rolls, so the name always matches the stats:
@@ -744,8 +744,8 @@ const generateItem = (
   };
 };
 
-export const generateRandomItem = (slot, minRarity = 0, holofoil) =>
-  generateItem(slot, minRarity, { holofoil });
+export const generateRandomItem = (slot, minRarity = 0, holofoil, minTier = 0) =>
+  generateItem(slot, minRarity, { holofoil, minTier });
 
 // Unique gear: a tier above Legendary with a fixed ability. Every main stat and substat rolls at T4 or better.
 const UNIQUE_MAIN_BONUS = 6;
@@ -863,6 +863,30 @@ export const getCustomSubStatTiers = (stat, iLevel, twoHanded = false) => {
     return [];
   return STAT_TIERS.filter((tier) =>
     getCustomSubStatRange(stat, iLevel, tier, twoHanded ? TWO_HANDED_MULT : 1),
+  );
+};
+
+export const getSubStatTier = (stat, value, iLevel, twoHanded = false) => {
+  if (
+    !SUBSTAT_NAMES.includes(stat) ||
+    !Number.isFinite(value) ||
+    !Number.isSafeInteger(iLevel) ||
+    iLevel < 1
+  )
+    return null;
+  const scale = twoHanded ? TWO_HANDED_MULT : 1;
+  return rollTier(stat, value / scale, iLevel, scale);
+};
+
+export const rollSubStatAtTier = (stat, iLevel, tier, twoHanded = false) => {
+  if (!STAT_TIERS.includes(tier) || !getCustomSubStatTiers(stat, iLevel, twoHanded).includes(tier))
+    return null;
+  const scale = twoHanded ? TWO_HANDED_MULT : 1;
+  const range = getCustomSubStatRange(stat, iLevel, tier, scale);
+  return scaleValue(
+    stat,
+    (range.min + randInt(range.max - range.min + 1) - 1) / range.precision,
+    scale,
   );
 };
 

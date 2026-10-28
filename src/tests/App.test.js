@@ -37,6 +37,11 @@ jest.mock("../world/events", () => ({ getRegion: () => "test", REGIONS: { test: 
 jest.mock("../combat/combat", () => ({ getEnemy: jest.fn(() => null), endCombat: jest.fn() }));
 jest.mock("../world/dungeons", () => ({ expireIfNeeded: () => false, isInDungeon: () => false }));
 jest.mock("../world/inbox", () => ({ isAdmin: jest.fn(() => false), startInbox: () => () => {} }));
+jest.mock("../world/worldBoss", () => ({
+  finishWorldBossAttempt: jest.fn(() => Promise.resolve()),
+  reportWorldBossError: jest.fn(),
+  subscribeWorldBoss: () => () => {},
+}));
 jest.mock("../ui/screens", () => ({
   DEFAULT_SCREEN: "adventure",
   SCREENS: {

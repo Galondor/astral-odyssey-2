@@ -13,14 +13,28 @@ const makePlayer = (overrides = {}) => ({
   ...overrides,
 });
 
-test("intelligence adds two magic attack per point and does not increase max power", () => {
+test("intelligence adds one magic attack per point and does not increase max power", () => {
   const stats = calculateStats(makePlayer({
     baseStats: { strength: 1, dexterity: 1, intelligence: 10 },
   }));
 
-  expect(stats.magicAttackMin).toBe(21);
-  expect(stats.magicAttackMax).toBe(25);
+  expect(stats.magicAttackMin).toBe(11);
+  expect(stats.magicAttackMax).toBe(15);
   expect(stats.maxPower).toBe(5);
+});
+
+test("vitality adds five max health for every three points", () => {
+  const belowThreshold = calculateStats(makePlayer({
+    bonusStats: { vitality: 1 },
+  }));
+  const atThreshold = calculateStats(makePlayer({
+    bonusStats: { vitality: 2 },
+  }));
+
+  expect(belowThreshold.vitality).toBe(2);
+  expect(belowThreshold.maxHealth).toBe(90);
+  expect(atThreshold.vitality).toBe(3);
+  expect(atThreshold.maxHealth).toBe(95);
 });
 
 test("percent attack substats increase only their matching attack damage", () => {
@@ -33,8 +47,8 @@ test("percent attack substats increase only their matching attack damage", () =>
 
   expect(stats.attackMin).toBe(8);
   expect(stats.attackMax).toBe(13);
-  expect(stats.magicAttackMin).toBe(14);
-  expect(stats.magicAttackMax).toBe(20);
+  expect(stats.magicAttackMin).toBe(8);
+  expect(stats.magicAttackMax).toBe(14);
   expect(stats.attackPercent).toBe(0.25);
   expect(stats.magicAttackPercent).toBe(0.5);
 });

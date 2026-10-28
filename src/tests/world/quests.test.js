@@ -1,5 +1,7 @@
 import { getPlayer, setPlayer } from "../../character/player";
+import { ENEMIES } from "../../combat/enemies";
 import { RARITY_NAMES } from "../../items/items";
+import { MATERIALS } from "../../items/materials";
 import { DUNGEON_TYPES } from "../../world/dungeonData";
 import {
   acceptQuest, getObjective, getQuestBoard, QUEST_TIERS,
@@ -65,6 +67,53 @@ test("B through S gather offers include all appropriate dungeon materials and re
   const lowGathers = quests.filter((q) => ["D", "C"].includes(q.tier) && q.kind === "gather");
   expect(lowGathers.length).toBeGreaterThan(0);
   lowGathers.forEach((q) => expect(dungeonKeys).not.toContain(q.target.material));
+});
+
+test("gather offers cover new-zone and Labyrinth materials, including boss rewards", () => {
+  const zoneMaterials = [
+    "suncleft_scourge_fang", "glassback_chitin", "buried_wyrm_scale",
+    "bilge_raider_insignia", "abyssal_scale", "leviathan_heart",
+    "frostfang_pelt", "rimebound_plate", "glacier_core",
+    "salvaged_dog_tag", "war_hardened_insignia", "commanders_crest",
+    "overgrowth_spore_fiber", "overgrowth_blight_resin", "overgrowth_heartseed",
+    "observatory_void_dust", "observatory_rift_thread", "observatory_star_core",
+  ];
+  const labyrinthMaterials = [
+    "relicFragments", "labyrinth_etched_fang", "labyrinth_echo_silk", "labyrinth_rune_shard",
+    "labyrinth_thorned_horn", "labyrinth_void_ichor", "labyrinth_etched_stone", "labyrinth_crown_fragment",
+  ];
+  const quests = Array.from({ length: 1500 }, () => getQuestBoard({ level: 100 })).flat()
+    .filter((quest) => quest.kind === "gather");
+  const byMaterial = new Map(quests.map((quest) => [quest.target.material, quest]));
+
+  for (const material of [...zoneMaterials, ...labyrinthMaterials]) {
+    expect(byMaterial.has(material)).toBe(true);
+    expect(byMaterial.get(material).description).toContain(MATERIALS[material].name);
+  }
+  for (const material of ["buried_wyrm_scale", "leviathan_heart", "glacier_core", "commanders_crest", "overgrowth_heartseed", "observatory_star_core", "labyrinth_crown_fragment"]) {
+    expect(byMaterial.get(material).tier).toBe("S");
+    expect(byMaterial.get(material).count).toBe(1);
+  }
+  expect(byMaterial.get("relicFragments").tier).toBe("S");
+  expect(byMaterial.get("relicFragments").count).toBe(5);
+  expect(byMaterial.get("labyrinth_crown_fragment").description).toContain("Labyrinth");
+  expect(byMaterial.get("observatory_star_core").description).toContain("Void Observatory");
+});
+
+test("hunt offers include enemies from every newer overworld zone", () => {
+  const newerRegions = ["SuncleftExpanse", "TempestReach", "FrostfallRange", "ShatteredFront"];
+  const hunts = sampleQuests().filter((quest) => quest.kind === "hunt" && newerRegions.includes(quest.target.region));
+
+  for (const region of newerRegions) {
+    const regionHunts = hunts.filter((quest) => quest.target.region === region);
+    expect(regionHunts.length).toBeGreaterThan(0);
+    for (const quest of regionHunts) {
+      expect(quest.description).toContain(region.replace(/([a-z])([A-Z])/g, "$1 $2"));
+      const enemy = ENEMIES.find((candidate) => candidate.tier === quest.target.tier && candidate.regions.includes(region));
+      expect(enemy).toBeDefined();
+      expect(recordQuestKill([quest], { ...enemy, region }).quests[0].progress).toBe(1);
+    }
+  }
 });
 
 test("only matching boss kills advance a named hunt; legacy hunts still work", () => {

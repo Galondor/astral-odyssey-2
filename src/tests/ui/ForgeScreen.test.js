@@ -18,17 +18,27 @@ jest.mock("../../ui/BugReportScreen", () => () => null);
 test("Forge accepts a free custom name and charges for a fixed condition", () => {
   getPlayer.mockReturnValue({
     level: 30,
-    materials: { relicFragments: 50 },
-    consumables: { relic: 1 },
+    materials: { relicFragments: 100, sealedRelic: 1 },
+    consumables: {},
     inventory: [],
   });
   const onChange = jest.fn();
   const ForgeScreen = SCREENS.forge.component;
   render(<ForgeScreen onChange={onChange} />);
   const rarityOptions = Array.from(screen.getByLabelText("Rarity").options).map((option) => option.value);
+  const conditionOptions = Array.from(screen.getByLabelText("Condition").options).map((option) => option.textContent);
   expect(rarityOptions).not.toContain("Unique");
   expect(rarityOptions).not.toContain("Mythic");
   expect(rarityOptions).toEqual(["Common", "Uncommon", "Rare", "Epic", "Legendary"]);
+  expect(conditionOptions).toEqual([
+    "Random · Free",
+    "Broken · Free",
+    "Poor · Free",
+    "Average · +10 fragments",
+    "Pristine · +20 fragments",
+    "Flawless · +30 fragments",
+    "Perfect · +40 fragments",
+  ]);
 
   fireEvent.change(screen.getByPlaceholderText("Random name"), {
     target: { value: "The Chosen Path" },
@@ -39,12 +49,11 @@ test("Forge accepts a free custom name and charges for a fixed condition", () =>
   fireEvent.change(screen.getByLabelText("Condition"), {
     target: { value: "Perfect" },
   });
-  expect(screen.getByText("10 / 50 fragments")).toBeTruthy();
+  expect(screen.getByText("40 / 100 fragments")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Forge Custom Item" }));
 
   expect(setPlayer).toHaveBeenCalledWith(expect.objectContaining({
-    materials: { relicFragments: 40 },
-    consumables: { relic: 0 },
+    materials: { relicFragments: 60 },
     inventory: [expect.objectContaining({
       name: "The Chosen Path",
       condition: "Perfect",

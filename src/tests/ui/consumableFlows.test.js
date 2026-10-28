@@ -85,8 +85,8 @@ test("using Prismatic Alloy opens an item picker and applies a new foil", async 
   render(<Character player={player} />);
   fireEvent.click(screen.getByRole("tab", { name: /Consumables/ }));
   fireEvent.click(screen.getByRole("button", { name: /Prismatic Alloy/ }));
-  expect(screen.getByLabelText("Item to apply the alloy to")).toBeTruthy();
-  fireEvent.change(screen.getByLabelText("Item to apply the alloy to"), { target: { value: "sword" } });
+  expect(screen.getByRole("dialog", { name: "Use Prismatic Alloy" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /Iron Sword/ }));
   jest.spyOn(Math, "random").mockReturnValue(0.5);
   fireEvent.click(screen.getByRole("button", { name: "Apply alloy" }));
   await screen.findByText(/Holofoil was applied/);

@@ -37,10 +37,6 @@ export const CONSUMABLES = {
     power: 1,
     price: 260,
   },
-  relic: {
-    name: "Sealed Relic",
-    description: "A powerful relic recovered from a completed Labyrinth. Spend it at the Forge to craft a custom item.",
-  },
   elixirOfNameChanging: {
     name: "Elixir of Name Changing",
     description: "Allows you to change your character's name.",
@@ -58,9 +54,15 @@ export const CONSUMABLES = {
     name: "Prismatic Alloy",
     description: "Adds a Holofoil to an owned item or rerolls an existing Holofoil.",
   },
+  runeOfUnpredictability: {
+    name: "Rune of Unpredictability",
+    description: "Randomly does nothing, changes a substat tier or type, or adds a substat to an owned item. Crafted items cannot receive runes.",
+    rune: true,
+  }
 };
 
 export const PRISMATIC_ALLOY_DROP_CHANCE = 0.005;
+export const RUNE_OF_UNPREDICTABILITY_DROP_CHANCE = 0.01;
 
 export const ITEM_CERTIFICATE_DROP_CHANCE = {
   overworld: { elite: 0.1, boss: 0.25 },
@@ -210,7 +212,9 @@ export function drinkConsumable(key) {
   }
   if (CONSUMABLES[key]?.rune) {
     return p?.consumables?.[key] > 0
-      ? { ok: true, requiresRune: true, message: "Choose an item and a different main stat. The rune is used only when applied." }
+      ? { ok: true, requiresRune: true, message: key === "architectsRune"
+        ? "Choose an item and a different main stat. The rune is used only when applied."
+        : "Choose an item for a random substat effect. The rune is used only when applied." }
       : { ok: false, message: "You don't have that item." };
   }
   if (key === "elixirOfNameChanging") {

@@ -30,6 +30,10 @@ export const REGIONS = {
   Meadowlands: { name: "Meadowlands" },
   Darkwood: { name: "Darkwood" },
   AshenPeaks: { name: "Ashen Peaks" },
+  SuncleftExpanse: { name: "Suncleft Expanse" },
+  TempestReach: { name: "Tempest Reach" },
+  FrostfallRange: { name: "Frostfall Range" },
+  ShatteredFront: { name: "Shattered Front" },
 };
 export const DEFAULT_REGION = "Meadowlands";
 
@@ -245,10 +249,13 @@ const regionalEvents = [
     id: "scarecrowPrank",
     regions: ["Meadowlands"],
     weight: 1.5,
-    when: ({ player, region }) => hasEnemy("basic", region, playerLevel(player)),
+    when: ({ player, region }) => hasEnemy("elite", region, playerLevel(player)),
     run: (ctx) => ({
-      reply: "A scarecrow stands in the middle of a field. As you pass, it twitches... and lunges at you!",
-      options: [fightOption("basic", ctx), fleeOption("basic", ctx, "Sneak away")],
+      reply: "A scarecrow stands in the middle of a field. As you pass, it twitches, tears free of its post, and lunges at you!",
+      options: [
+        fightOption("elite", ctx, "Fight", 1, { enemyId: "livingScarecrow" }),
+        fleeOption("elite", ctx, "Sneak away", 2, { enemyId: "livingScarecrow" }),
+      ],
     }),
   },
 
@@ -267,11 +274,11 @@ const regionalEvents = [
       return {
         reply: "A hollow stump holds something glinting inside. It could be trapped.",
         options: [
-          choice("Reach in", 1, () => search(0.4, 0.1), { tooltip: { title: "Reach in", description: "40% chance of a trap." } }),
+          choice("Reach in", 1, () => search(0.4, 0.3), { tooltip: { title: "Reach in", description: "40% chance of a trap that deals 30% of your max health." } }),
           choice("Pry carefully", 2, () => {
             spendStamina(1);
-            return search(0.15, 0.1);
-          }, { when: () => hasStamina(1), tooltip: { title: "Pry carefully", description: "15% chance of a trap.", footer: "Cost 1 Stamina" } }),
+            return search(0.15, 0.3);
+          }, { when: () => hasStamina(1), tooltip: { title: "Pry carefully", description: "15% chance of a trap that deals 30% of your max health.", footer: "Cost 1 Stamina" } }),
           leave("Leave", 3, "You decide it isn't worth the risk."),
         ],
       };
@@ -478,6 +485,334 @@ const globalEvents = [
           spendStamina(1);
           return { reply: "You quicken your pace and lose your pursuer, but the effort tires you. (-1 Stamina)", next: "menu" };
         }, { tooltip: { title: "Hurry on", description: "Lose your pursuer without a fight.", footer: "Cost 1 Stamina" } }),
+      ],
+    }),
+  },
+  {
+    id: "unstableRift",
+    regions: "all",
+    minLevel: 5,
+    weight: 0.75,
+    run: ({ player }) => {
+      const reward = playerLevel(player) * 20;
+      return {
+        reply: "A volatile rift tears open beside the trail. Its unstable core could be worth a fortune—or blast you apart.",
+        options: [
+          choice("Reach into the rift", 1, () => {
+            if (chance(0.5)) {
+              gainAstra(reward);
+              return {
+                reply: `You seize the stable core and gain ${reward} {{astra|astra}}!`,
+                next: "menu",
+              };
+            }
+            return {
+              reply: `The rift detonates! ${hurt(0.4).text}`,
+              next: "menu",
+            };
+          }, {
+            tooltip: {
+              title: "Reach into the rift",
+              description: `50% chance to gain ${reward} Astra; otherwise lose 40% of your max health. This can cause a collapse.`,
+            },
+          }),
+          leave("Seal the rift", 2, "You seal the rift and continue on safely."),
+        ],
+      };
+    },
+  },
+  {
+    id: "sealedWardenVault",
+    regions: "all",
+    minLevel: 12,
+    weight: 0.5,
+    when: ({ player, region }) => hasEnemy("boss", region, playerLevel(player)),
+    run: (ctx) => {
+      const reward = playerLevel(ctx.player) * 10;
+      return {
+        reply: "An ancient vault cracks open, and a battle-scarred boss rises to defend its hoard. Only the strongest should challenge it.",
+        options: [
+          choice("Break the seal", 1, () => {
+            gainAstra(reward);
+            return {
+              reply: `The vault's hoard grants you ${reward} {{astra|astra}}, but its guardian strikes first!`,
+              ...startFight("boss", ctx, { enemyFirst: true }),
+            };
+          }, {
+            tooltip: {
+              title: "Break the seal",
+              description: `Gain ${reward} Astra, then face a boss that attacks first. There is no chance to flee once combat begins.`,
+            },
+          }),
+          leave("Back away", 2, "You leave the vault sealed and avoid the guardian."),
+        ],
+      };
+    },
+  },
+
+  // ---- Suncleft Expanse: heat, mirages, and buried ruins ----
+  {
+    id: "mirageOasis",
+    regions: ["SuncleftExpanse"],
+    weight: 1.5,
+    run: () => ({
+      reply: "A wavering oasis appears ahead. The heat makes it impossible to tell which pool is real.",
+      options: [1, 2, 3].map((n) =>
+        choice(`Approach the ${["left", "middle", "right"][n - 1]} pool`, n, () => {
+          if (rnd(1, 3) === n) {
+            const recovered = restore({ stamina: 0.35 });
+            return { reply: `The pool is real. Cool water restores ${restoreText(recovered)}.`, next: "menu" };
+          }
+          return { reply: `The pool vanishes into a mirage. ${hurt(0.1).text}`, next: "menu" };
+        }, { tooltip: { title: "Choose an oasis", description: "1-in-3 chance to restore stamina; otherwise lose 10% of your max health." } }),
+      ),
+    }),
+  },
+  {
+    id: "quicksandSnare",
+    regions: ["SuncleftExpanse"],
+    weight: 1.5,
+    run: () => ({
+      reply: "The sand shifts beneath your feet and starts pulling you under.",
+      options: [
+        choice("Brace and climb", 1, () => {
+          spendStamina(1);
+          return { reply: "You brace against a buried stone and climb free.", next: "menu" };
+        }, { when: () => hasStamina(1), tooltip: { title: "Brace and climb", description: "Escape without injury.", footer: "Cost 1 Stamina" } }),
+        choice("Dig for a foothold", 2, () => {
+          if (chance(0.5)) return { reply: "You find a solid foothold and pull yourself free.", next: "menu" };
+          return { reply: `The sand gives way and you wrench yourself free at the last moment. ${hurt(0.1).text}`, next: "menu" };
+        }, { tooltip: { title: "Dig for a foothold", description: "50% chance to escape cleanly; otherwise lose 10% of your max health." } }),
+      ],
+    }),
+  },
+  {
+    id: "sealedPyramid",
+    regions: ["SuncleftExpanse"],
+    weight: 1.5,
+    run: ({ player }) => ({
+      reply: "A buried pyramid has cracked open, revealing a chamber glittering beneath the sand.",
+      options: [
+        choice("Search the chamber", 1, () => {
+          const reward = Math.max(5, playerLevel(player) * 8);
+          gainAstra(reward);
+          if (hasEnemy("elite", "SuncleftExpanse", playerLevel(player)) && chance(0.4)) {
+            return {
+              reply: `You claim ${reward} {{astra|astra}}, but something stirs beneath the sarcophagus.`,
+              options: [fightOption("elite", { player, region: "SuncleftExpanse" }), fleeOption("elite", { player, region: "SuncleftExpanse" })],
+            };
+          }
+          return { reply: `You uncover an old offering worth ${reward} {{astra|astra}}.`, next: "menu" };
+        }, { tooltip: { title: "Search the chamber", description: "Find Astra, but an elite guardian may awaken." } }),
+        leave("Leave the ruins", 2, "You leave the pyramid undisturbed."),
+      ],
+    }),
+  },
+
+  // ---- Tempest Reach: open water and dangerous salvage ----
+  {
+    id: "pirateSails",
+    regions: ["TempestReach"],
+    weight: 1.5,
+    run: (ctx) => {
+      const toll = Math.max(5, playerLevel(ctx.player) * 5);
+      return {
+        reply: "A pirate vessel cuts across your route. Its crew signals for you to surrender your cargo.",
+        options: [
+          fightOption("basic", ctx, "Fight the pirates", 1, { enemyId: "bilgeRaider" }),
+          choice("Pay the toll", 2, () => {
+            gainAstra(-toll);
+            return { reply: `The pirates take ${toll} {{astra|astra}} and let you pass.`, next: "menu" };
+          }, {
+            when: () => (getPlayer()?.astra || 0) >= toll,
+            tooltip: { title: "Pay the toll", description: "Avoid a fight by paying the pirates.", footer: `Cost ${toll} Astra` },
+          }),
+          fleeOption("basic", ctx, "Flee", 3, { enemyId: "bilgeRaider" }),
+        ],
+      };
+    },
+  },
+  {
+    id: "whirlpool",
+    regions: ["TempestReach"],
+    weight: 1.5,
+    run: ({ player }) => ({
+      reply: "A whirlpool opens across the sea lane, pulling your vessel toward its center.",
+      options: [
+        choice("Steer wide", 1, () => {
+          spendStamina(1);
+          return { reply: "You fight the current and steer around the whirlpool.", next: "menu" };
+        }, { when: () => hasStamina(1), tooltip: { title: "Steer wide", description: "Avoid the whirlpool safely.", footer: "Cost 1 Stamina" } }),
+        choice("Ride the current", 2, () => {
+          if (chance(0.5)) {
+            const reward = Math.max(5, playerLevel(player) * 5);
+            gainAstra(reward);
+            return { reply: `The current carries you past a wreck. You salvage ${reward} {{astra|astra}}.`, next: "menu" };
+          }
+          return { reply: `A wave throws you against the deck. ${hurt(0.1).text}`, next: "menu" };
+        }, { tooltip: { title: "Ride the current", description: "50% chance to salvage Astra; otherwise lose 10% of your max health." } }),
+      ],
+    }),
+  },
+  {
+    id: "wreckageCache",
+    regions: ["TempestReach"],
+    weight: 1.5,
+    run: (ctx) => ({
+      reply: "A broken ship's cargo bobs among the waves. Something moves beneath it.",
+      options: [
+        choice("Grab nearby cargo", 1, () => {
+          const reward = Math.max(5, playerLevel(ctx.player) * 4);
+          gainAstra(reward);
+          return { reply: `You snatch a floating strongbox containing ${reward} {{astra|astra}}.`, next: "menu" };
+        }),
+        choice("Search the wreck", 2, () => {
+          const reward = Math.max(10, playerLevel(ctx.player) * 8);
+          gainAstra(reward);
+          const elite = hasEnemy("elite", ctx.region, playerLevel(ctx.player));
+          const tier = elite ? "elite" : "basic";
+          const enemyId = elite ? "reefStalker" : "bilgeRaider";
+          const enemyName = elite ? "reef stalker" : "bilge raider";
+          return {
+            reply: `You find ${reward} {{astra|astra}} in the hold, but a ${enemyName} rises from the wreck!`,
+            options: [fightOption(tier, ctx, "Fight", 1, { enemyId }), fleeOption(tier, ctx, "Flee", 2, { enemyId })],
+          };
+        }, { tooltip: { title: "Search the wreck", description: "Find a larger haul, then face a regional enemy. The encounter grows with your level." } }),
+      ],
+    }),
+  },
+
+  // ---- Frostfall Range: whiteouts, rockfall, and shelter ----
+  {
+    id: "avalanchePass",
+    regions: ["FrostfallRange"],
+    weight: 1.5,
+    run: ({ player }) => ({
+      reply: "Snow cracks high above the trail. An avalanche is beginning to spill down the pass.",
+      options: [
+        choice("Take the sheltered path", 1, () => {
+          spendStamina(1);
+          return { reply: "You push through the sheltered cut and avoid the worst of the slide.", next: "menu" };
+        }, { when: () => hasStamina(1), tooltip: { title: "Take the sheltered path", description: "Avoid injury by taking the longer route.", footer: "Cost 1 Stamina" } }),
+        choice("Sprint across the slope", 2, () => {
+          if (chance(0.5)) {
+            const reward = Math.max(5, playerLevel(player) * 5);
+            gainAstra(reward);
+            return { reply: `You outrun the slide and find ${reward} {{astra|astra}} in a lost pack.`, next: "menu" };
+          }
+          return { reply: `The snow knocks you off your feet. ${hurt(0.1).text}`, next: "menu" };
+        }, { tooltip: { title: "Sprint across the slope", description: "50% chance to find a lost pack; otherwise lose 10% of your max health." } }),
+      ],
+    }),
+  },
+  {
+    id: "strandedExpedition",
+    regions: ["FrostfallRange"],
+    weight: 1.5,
+    run: (ctx) => ({
+      reply: "You find a stranded expedition shelter, half-buried in snow. The supplies are intact, but tracks circle the camp.",
+      options: [
+        choice("Take a field ration", 1, () => {
+          addConsumable("minorPotion", 1);
+          return { reply: "You salvage a Minor Health Potion from the supply chest.", next: "menu" };
+        }),
+        choice("Search the supply cache", 2, () => {
+          const reward = Math.max(10, playerLevel(ctx.player) * 7);
+          gainAstra(reward);
+          const elite = hasEnemy("elite", ctx.region, playerLevel(ctx.player));
+          const tier = elite ? "elite" : "basic";
+          const enemyId = elite ? "rimeSentinel" : "frostfang";
+          const enemyName = elite ? "Rime Sentinel" : "Frostfang";
+          return {
+            reply: `You take ${reward} {{astra|astra}} from the cache. A ${enemyName} emerges from the whiteout!`,
+            options: [fightOption(tier, ctx, "Fight", 1, { enemyId }), fleeOption(tier, ctx, "Flee", 2, { enemyId })],
+          };
+        }, { tooltip: { title: "Search the supply cache", description: "Find a larger reward, then face a regional enemy. The encounter grows with your level." } }),
+      ],
+    }),
+  },
+  {
+    id: "thermalSpring",
+    regions: ["FrostfallRange"],
+    weight: 1.5,
+    run: () => ({
+      reply: "Steam curls from a sheltered hot spring beneath the ice.",
+      options: [
+        choice("Rest and recover", 1, () => ({
+          reply: `The warmth restores ${restoreText(restore({ health: 0.2, stamina: 0.2 }))}.`,
+          next: "menu",
+        })),
+        leave("Keep moving", 2, "You leave the spring and continue through the snow."),
+      ],
+    }),
+  },
+
+  // ---- Shattered Front: crossfire and contested supplies ----
+  {
+    id: "crossfire",
+    regions: ["ShatteredFront"],
+    weight: 1.5,
+    run: (ctx) => ({
+      reply: "Crossfire erupts between ruined barricades, cutting off the road.",
+      options: [
+        choice("Crawl through the trench", 1, () => {
+          spendStamina(1);
+          return { reply: "You keep low and crawl through the trench unseen.", next: "menu" };
+        }, { when: () => hasStamina(1), tooltip: { title: "Crawl through the trench", description: "Avoid combat by taking cover.", footer: "Cost 1 Stamina" } }),
+        choice("Charge the barricade", 2, () => ({
+          reply: "You sprint through the smoke as a trench scavenger moves to intercept you.",
+          options: [fightOption("basic", ctx, "Fight", 1, { enemyId: "trenchScavenger" }), fleeOption("basic", ctx, "Flee", 2, { enemyId: "trenchScavenger" })],
+        })),
+      ],
+    }),
+  },
+  {
+    id: "fieldMedic",
+    regions: ["ShatteredFront"],
+    weight: 1.5,
+    run: ({ player }) => {
+      const cost = Math.max(5, playerLevel(player) * 4);
+      return {
+        reply: `A field medic offers treatment for ${cost} {{astra|astra}}.`,
+        options: [
+          choice("Accept treatment", 1, () => {
+            gainAstra(-cost);
+            const healed = restore({ health: 0.3 });
+            return { reply: `You pay the medic and recover ${restoreText(healed)}.`, next: "menu" };
+          }, {
+            when: () => (getPlayer()?.astra || 0) >= cost,
+            tooltip: { title: "Accept treatment", description: "Recover up to 30% of your max health.", footer: `Cost ${cost} Astra` },
+          }),
+          leave("Decline", 2, "You thank the medic and continue on."),
+        ],
+      };
+    },
+  },
+  {
+    id: "supplyCache",
+    regions: ["ShatteredFront"],
+    weight: 1.5,
+    run: (ctx) => ({
+      reply: "A supply cache sits exposed in the ruins between the front lines.",
+      options: [
+        choice("Take a small bundle", 1, () => {
+          const reward = Math.max(5, playerLevel(ctx.player) * 4);
+          gainAstra(reward);
+          return { reply: `You take ${reward} {{astra|astra}} worth of supplies and retreat.`, next: "menu" };
+        }),
+        choice("Search the entire cache", 2, () => {
+          const reward = Math.max(10, playerLevel(ctx.player) * 8);
+          gainAstra(reward);
+          const boss = hasEnemy("boss", ctx.region, playerLevel(ctx.player));
+          const elite = !boss && hasEnemy("elite", ctx.region, playerLevel(ctx.player));
+          const tier = boss ? "boss" : elite ? "elite" : "basic";
+          const enemyId = boss ? "siegeCaptain" : elite ? "frontlineVeteran" : "trenchScavenger";
+          const enemyName = boss ? "Siege Captain" : elite ? "Frontline Veteran" : "Trench Scavenger";
+          return {
+            reply: `You uncover ${reward} {{astra|astra}} in military pay. A ${enemyName} spots you and advances!`,
+            options: [fightOption(tier, ctx, "Stand and fight", 1, { enemyId }), fleeOption(tier, ctx, "Retreat", 2, { enemyId })],
+          };
+        }, { tooltip: { title: "Search the entire cache", description: "Find a larger reward, then face a regional enemy. The encounter grows with your level." } }),
       ],
     }),
   },

@@ -194,6 +194,20 @@ test("returning browsers always replace a clean local cache with cloud progress"
   expect(get).toHaveBeenCalledWith("users/alice");
 });
 
+test("loading migrates legacy sealed relic consumables into unique materials", async () => {
+  const player = existingPlayer();
+  player.consumables.relic = 2;
+  player.materials = { sealedRelic: 3 };
+  records["users/alice"].player = player;
+
+  await loadPlayer("alice");
+
+  expect(getPlayer().materials.sealedRelic).toBe(5);
+  expect(getPlayer().consumables).not.toHaveProperty("relic");
+  expect(records["users/alice"].player.materials.sealedRelic).toBe(5);
+  expect(records["users/alice"].player.consumables).not.toHaveProperty("relic");
+});
+
 test("loading an existing character migrates level power and recalculates max power", async () => {
   const player = {
     ...existingPlayer(),
