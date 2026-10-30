@@ -75,6 +75,17 @@ test("a new name is reserved and saved immediately before allocating stats", asy
   expect(JSON.parse(localStorage.getItem("PlayerMeta")).dirty).toBe(false);
 });
 
+test("player saves track Astra gained without counting spending or bank transfers", () => {
+  existingPlayer();
+
+  setPlayer({ astra: 500 });
+  expect(getPlayer().records.totalAstraGained).toBe(200);
+
+  setPlayer({ astra: 350 });
+  setPlayer({ astra: 450 }, { countAstraGain: false });
+  expect(getPlayer().records.totalAstraGained).toBe(200);
+});
+
 test("renaming preserves progress, spends exactly one elixir, and releases the old name", async () => {
   const player = existingPlayer();
   records["leaderboardEntries/alice/name"] = "Alice";
@@ -224,12 +235,12 @@ test("loading an existing character migrates level power and recalculates max po
   expect(getPlayer()).toMatchObject({
     powerLevelVersion: 1,
     bonusStats: { maxPower: 3 },
-    stats: { maxPower: 15, power: 15 },
+    stats: { maxPower: 12, power: 12 },
   });
   expect(records["users/alice"].player).toMatchObject({
     powerLevelVersion: 1,
     bonusStats: { maxPower: 3 },
-    stats: { maxPower: 15 },
+    stats: { maxPower: 12 },
   });
 });
 
@@ -409,6 +420,60 @@ test("existing account-wide titles are recorded on the account during load", asy
   expect(update.mock.calls.some(([, writes]) =>
     writes["users/alice/accountWideTitles/monarchOfTheOdyssey"] === true,
   )).toBe(true);
+});
+
+test("reset characters do not inherit pre-reset account-wide titles again", async () => {
+  records["users/alice"] = {
+    saveRevision: 8,
+    accountWideTitles: { monarchOfTheOdyssey: true },
+    characters: {
+      "123": { externalId: "123", player: {
+        name: "Nova", publicProfile: true, level: 1, astra: 0,
+        resetPending: true, ignoredAccountWideTitles: ["monarchOfTheOdyssey"],
+      } },
+    },
+  };
+  await loadPlayer("alice", "123");
+  expect(getPlayer().titles).toBeUndefined();
+  expect(getPlayer().stats).toBeUndefined();
+  expect(getPlayer().resetPending).toBe(true);
+});
+
+test("a stale dirty cache cannot resurrect progress after an admin reset", async () => {
+  const first = "1".repeat(40);
+  localStorage.setItem("Player", JSON.stringify({
+    name: "Nova", level: 99, astra: 50000, inventory: [{ name: "Sword" }],
+  }));
+  localStorage.setItem("PlayerMeta", JSON.stringify({
+    uid: first, accountId: "alice", characterId: first, revision: 7, dirty: true,
+  }));
+  records["users/alice"] = {
+    saveRevision: 8,
+    characters: {
+      [first]: { externalId: first, player: {
+        name: "Nova", publicProfile: true, level: 1, astra: 0, resetPending: true,
+      } },
+    },
+  };
+  await loadPlayer("alice", first);
+  expect(getPlayer()).toMatchObject({ name: "Nova", level: 1, astra: 0, resetPending: true });
+  expect(getPlayer().inventory).toBeUndefined();
+  expect(getSaveStatus().dirty).toBe(false);
+  expect(JSON.parse(localStorage.getItem(`PlayerRecovery/alice/${first}`)).player.astra).toBe(50000);
+  expect(update.mock.calls.some(([, writes]) => writes[`users/alice/characters/${first}/player`])).toBe(false);
+});
+
+test("an admin reset revision pauses an open character before it can save old progress", async () => {
+  records["users/alice"] = {
+    saveRevision: 7, player: { name: "Nova", publicProfile: true, level: 50, astra: 5000 },
+  };
+  await loadPlayer("alice");
+  const { onValue } = require("firebase/database");
+  const listener = onValue.mock.calls.find(([path]) => path === "users/alice/saveRevision")[1];
+  listener(snapshot(8));
+  expect(getSaveStatus().error).toMatch(/Reload the cloud save/);
+  expect(() => setPlayer({ astra: 9999 })).toThrow(/Reload the cloud save/);
+  await expect(flushPlayer()).rejects.toThrow(/Reload the cloud save/);
 });
 
 test("another character's dirty cache is never recovered into the selected slot", async () => {

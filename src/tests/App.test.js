@@ -6,6 +6,9 @@ import { getEnemy } from "../combat/combat";
 import { createCharacter, deleteCharacter, loadCharacters } from "../character/characters";
 import { isAdmin } from "../world/inbox";
 import { getInputMode, getVisibleOptions, processButton, scenes } from "../world/gameLogic";
+import { getContestStatus, subscribeContest } from "../world/contest";
+import { getGroupStatus, subscribeGroup } from "../world/groupParty";
+import { isInGroupDungeon } from "../world/groupState";
 
 jest.mock("firebase/auth", () => ({
   onAuthStateChanged: (_, callback) => {
@@ -32,11 +35,25 @@ jest.mock("../character/characters", () => ({
   loadCharacters: jest.fn(),
 }));
 jest.mock("../world/blackjack", () => ({ clearBlackjack: jest.fn() }));
+jest.mock("../world/contest", () => ({
+  getContestStatus: jest.fn(() => ({})),
+  sendContestCommand: jest.fn(),
+  startContest: () => () => {},
+  subscribeContest: jest.fn(() => () => {}),
+}));
 jest.mock("../world/quests", () => ({ getRep: () => 0, getRepRank: () => "Neutral" }));
+jest.mock("../world/groupParty", () => ({
+  getGroupStatus: jest.fn(),
+  startGroupSession: () => () => {},
+  subscribeGroup: jest.fn(),
+}));
+jest.mock("../world/groupState", () => ({ isInGroupDungeon: jest.fn() }));
+jest.mock("../ui/GroupDungeonScreen", () => ({ GroupRunActions: () => <div>Group run actions</div> }));
 jest.mock("../world/events", () => ({ getRegion: () => "test", REGIONS: { test: { name: "Test region" } } }));
 jest.mock("../combat/combat", () => ({ getEnemy: jest.fn(() => null), endCombat: jest.fn() }));
 jest.mock("../world/dungeons", () => ({ expireIfNeeded: () => false, isInDungeon: () => false }));
 jest.mock("../world/inbox", () => ({ isAdmin: jest.fn(() => false), startInbox: () => () => {} }));
+jest.mock("../world/social", () => ({ startSocial: () => () => {} }));
 jest.mock("../world/worldBoss", () => ({
   finishWorldBossAttempt: jest.fn(() => Promise.resolve()),
   reportWorldBossError: jest.fn(),
@@ -46,8 +63,8 @@ jest.mock("../ui/screens", () => ({
   DEFAULT_SCREEN: "adventure",
   SCREENS: {
     adventure: { label: "Game", sidebarGroup: "adventure", link: true, component: () => <h1>Adventure screen</h1> },
-    dungeons: { label: "Adventures", sidebarGroup: "adventure", link: true, component: () => null },
-    arena: { label: "Arena", sidebarGroup: "adventure", link: true, component: () => <h1>Arena screen</h1> },
+    dungeons: { label: "Adventures", sidebarGroup: "adventure", link: true, minLevel: 12, component: () => null },
+    arena: { label: "Arena", sidebarGroup: "adventure", link: true, minLevel: 5, component: () => <h1>Arena screen</h1> },
     character: {
       label: "Character", sidebarGroup: "character", link: true, badge: () => 2,
       notification: (p) => ["gear", "consumables", "gemstones"].some((category) => p.unseenInventoryItems?.[category]?.length),
@@ -56,8 +73,9 @@ jest.mock("../ui/screens", () => ({
     locked: { label: "Locked", sidebarGroup: "character", link: true, minLevel: 10, component: () => null },
     leaderboards: { label: "Leaderboards", sidebarGroup: "community", link: true, component: () => null },
     admin: { label: "Admin", adminOnly: true, component: () => null },
-    combat: { label: "Combat", hideUnlessActive: true, component: () => null },
+    combat: { label: "Combat", hideUnlessActive: true, component: ({ data }) => <h1>Combat screen: {data?.enemy?.name}</h1> },
     gearTrader: { label: "Gear Trader", hideUnlessActive: true, component: () => <h1>Gear Trader screen</h1> },
+    groupRun: { label: "Group Dungeon", hideUnlessActive: true, component: () => <h1>Group run screen</h1> },
   },
 }));
 jest.mock("../world/gameLogic", () => ({
@@ -71,6 +89,9 @@ jest.mock("../world/gameLogic", () => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
+  localStorage.removeItem("astralOdyssey2QuickGuideSeen:test-player");
   window.matchMedia = jest.fn(() => ({
     matches: false,
     addEventListener: jest.fn(),
@@ -82,6 +103,11 @@ beforeEach(() => {
   });
   loadPlayer.mockResolvedValue();
   getSaveStatus.mockReturnValue({});
+  getContestStatus.mockReturnValue({});
+  subscribeContest.mockReturnValue(() => {});
+  getGroupStatus.mockReturnValue({});
+  subscribeGroup.mockReturnValue(() => {});
+  isInGroupDungeon.mockReturnValue(false);
   getEnemy.mockReturnValue(null);
   getInputMode.mockReturnValue("none");
   getVisibleOptions.mockReturnValue([]);
@@ -101,7 +127,115 @@ beforeEach(() => {
 
 const enterGame = async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Play as Nova" }));
+  await waitFor(() => {
+    if (!screen.queryByRole("navigation") && !screen.queryByRole("alert")) throw new Error("Gameplay has not loaded");
+  });
+  const guide = screen.queryByRole("dialog", { name: "Welcome, adventurer!" });
+  if (guide) fireEvent.click(within(guide).getByRole("button", { name: "Start exploring" }));
 };
+
+test("the first visit opens a quick guide that can be reopened from the game menu", async () => {
+  localStorage.removeItem("astralOdyssey2QuickGuideSeen:test-player");
+  getInputMode.mockReturnValue("buttons");
+  getVisibleOptions.mockReturnValue([{ label: "Travel" }]);
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "Play as Nova" }));
+
+  const guide = await screen.findByRole("dialog", { name: "Welcome, adventurer!" });
+  fireEvent.keyDown(window, { key: "1" });
+  expect(processButton).not.toHaveBeenCalled();
+  ["Travel", "Loot & gear", "Town", "Adventures"].forEach((heading) => {
+    expect(within(guide).getByRole("heading", { name: heading })).toBeTruthy();
+  });
+  fireEvent.click(within(guide).getByRole("button", { name: "Start exploring" }));
+  expect(screen.queryByRole("dialog", { name: "Welcome, adventurer!" })).toBeNull();
+  expect(localStorage.getItem("astralOdyssey2QuickGuideSeen:test-player")).toBe("true");
+
+  fireEvent.click(screen.getByRole("button", { name: "Menu: Game" }));
+  fireEvent.click(screen.getByRole("button", { name: "Quick guide" }));
+  expect(await screen.findByRole("dialog", { name: "Welcome, adventurer!" })).toBeTruthy();
+});
+
+test("an active group dungeon run takes over the screen, controls and navigation until it ends", async () => {
+  let listener;
+  let status = { active: true, inRun: true, run: { id: "run-1" } };
+  getGroupStatus.mockImplementation(() => status);
+  subscribeGroup.mockImplementation((next) => {
+    listener = next;
+    return () => {};
+  });
+  isInGroupDungeon.mockReturnValue(true);
+  getInputMode.mockReturnValue("buttons");
+  getVisibleOptions.mockReturnValue([{ label: "Explore" }]);
+  render(<App />);
+  await enterGame();
+  expect(await screen.findByRole("heading", { name: "Group run screen" })).toBeTruthy();
+  expect(screen.getByText("Group run actions")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "1. Explore" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Character 2" }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Group Dungeon" }).disabled).toBe(false);
+  fireEvent.keyDown(window, { key: "1" });
+  expect(processButton).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Character profile" }));
+  expect(screen.getByRole("button", { name: "Main menu" }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Log out" }).disabled).toBe(true);
+
+  status = { active: false, inRun: true, run: { id: "run-1", status: "cleared" } };
+  isInGroupDungeon.mockReturnValue(false);
+  act(() => listener());
+  expect(await screen.findByRole("button", { name: "1. Explore" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Group run screen" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Group Dungeon" })).toBeNull();
+});
+
+test("queued Contest forces the Arena and blocks adventure controls and character switching", async () => {
+  getContestStatus.mockReturnValue({ locked: true, waiting: true });
+  getInputMode.mockReturnValue("buttons");
+  getVisibleOptions.mockReturnValue([{ label: "Explore" }]);
+  render(<App />);
+  await enterGame();
+  expect(await screen.findByRole("heading", { name: "Arena screen" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "1. Explore" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Character 2" }).disabled).toBe(true);
+  fireEvent.keyDown(window, { key: "1" });
+  expect(processButton).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Character profile" }));
+  expect(screen.getByRole("button", { name: "Main menu" }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Log out" }).disabled).toBe(true);
+});
+
+test("matched Contest opens the normal combat screen with live Skills and retains the result until leaving", async () => {
+  const fighter = (name) => ({
+    player: { name, stats: { health: 100, maxHealth: 100, power: 10, maxPower: 10 },
+      skills: { fireball: 1 }, equippedSkills: ["fireball"] },
+  });
+  let status = { locked: true, waiting: true };
+  getContestStatus.mockImplementation(() => status);
+  getInputMode.mockReturnValue("buttons");
+  getVisibleOptions.mockReturnValue([{ label: "Explore" }]);
+  render(<App />);
+  await enterGame();
+  expect(await screen.findByRole("heading", { name: "Arena screen" })).toBeTruthy();
+  const listener = subscribeContest.mock.calls[0][0];
+  status = {
+    locked: true, playing: true, ready: true, yourTurn: true, remainingMs: 45000, uid: "alice",
+    entry: { matchId: "test-match" },
+    match: { host: "alice", guest: "bob", fighters: { alice: fighter("Alice"), bob: fighter("Bob") } },
+  };
+  act(() => listener());
+  expect(screen.getByRole("heading", { name: "Combat screen: Bob" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Combat" }).disabled).toBe(false);
+  expect(screen.getByRole("button", { name: "Arena" }).disabled).toBe(true);
+  fireEvent.keyDown(window, { key: "5" });
+  expect(screen.getByRole("button", { name: "2. Fireball" })).toBeTruthy();
+  expect(processButton).not.toHaveBeenCalled();
+  status = { ...status, locked: false, playing: false, yourTurn: false,
+    match: { ...status.match, winner: "alice" } };
+  act(() => listener());
+  expect(screen.getByRole("heading", { name: "Combat screen: Bob" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "1. Return to Arena" }));
+  expect(screen.getByRole("heading", { name: "Arena screen" })).toBeTruthy();
+});
 
 test("numbers each gameplay control button in its displayed order", async () => {
   getInputMode.mockReturnValue("buttons");
@@ -136,7 +270,7 @@ test("mobile menu overlays the screen, makes the background inert and traps focu
   expect(document.activeElement).toBe(toggle);
 
   fireEvent.keyDown(toggle, { key: "Tab", shiftKey: true });
-  const last = within(dialog).getByRole("button", { name: "Leaderboards" });
+  const last = within(dialog).getByRole("button", { name: "Quick guide" });
   expect(document.activeElement).toBe(last);
   fireEvent.keyDown(last, { key: "Tab" });
   expect(document.activeElement).toBe(toggle);
@@ -216,7 +350,8 @@ test("Arena follows Adventures in the sidebar", async () => {
   const navigation = await screen.findByRole("navigation", { name: "Game navigation" });
   const links = document.getElementById("sidebar-links");
   expect(within(navigation).getAllByRole("button").slice(1).map((button) => button.textContent))
-    .toEqual(["Game", "Adventures", "Arena", "Character2", "Locked", "Leaderboards"]);
+    .toEqual(["Game", "Level 12+", "Arena", "Character2", "Level 10+", "Leaderboards", "Quick guide"]);
+  expect(within(navigation).getByRole("button", { name: "Level 12+" }).disabled).toBe(true);
   expect(links.querySelectorAll(".sidebar-divider")).toHaveLength(2);
   expect(Array.from(links.querySelectorAll(".sidebar-divider")).map((divider) => divider.nextElementSibling.textContent))
     .toEqual(["Character2", "Leaderboards"]);
@@ -238,7 +373,8 @@ test.each([false, true])("temporary screens occupy the final group with admin ac
   const lastDivider = dividers[2];
   expect(lastDivider.nextElementSibling.textContent).toBe(admin ? "Admin" : "Gear Trader");
   const buttons = within(navigation).getAllByRole("button");
-  expect(buttons[buttons.length - 1].textContent).toBe("Gear Trader");
+  expect(buttons[buttons.length - 2].textContent).toBe("Gear Trader");
+  expect(buttons[buttons.length - 1].textContent).toBe("Quick guide");
   expect(within(navigation).getByRole("button", { name: "Gear Trader" }).classList.contains("highlight")).toBe(true);
 
   fireEvent.click(within(navigation).getByRole("button", { name: "Game" }));
@@ -253,11 +389,12 @@ test("navigation toggles, preserves restrictions and badges, and closes after se
   const links = document.getElementById(toggle.getAttribute("aria-controls"));
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   expect(links.classList.contains("open")).toBe(false);
+  expect(within(navigation).getByRole("button", { name: "Level 12+" }).disabled).toBe(true);
 
   fireEvent.click(toggle);
   expect(toggle.getAttribute("aria-expanded")).toBe("true");
   expect(links.classList.contains("open")).toBe(true);
-  expect(within(navigation).getByRole("button", { name: "Locked" }).disabled).toBe(true);
+  expect(within(navigation).getByRole("button", { name: "Level 10+" }).disabled).toBe(true);
   expect(within(navigation).queryByRole("button", { name: "Admin" })).toBeNull();
   expect(within(navigation).queryByRole("button", { name: "Combat" })).toBeNull();
   fireEvent.click(within(navigation).getByRole("button", { name: "Character 2" }));
@@ -272,6 +409,62 @@ test("navigation toggles, preserves restrictions and badges, and closes after se
   fireEvent.click(within(navigation).getByRole("button", { name: "Game" }));
   expect(screen.getByRole("heading", { name: "Adventure screen" })).toBeTruthy();
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("Arena and Adventures navigation labels change at levels 5 and 12", async () => {
+  const player = { name: "Nova", class: "Warrior", level: 4, stats: {} };
+  getPlayer.mockReturnValue(player);
+  render(<App />);
+  await enterGame();
+  const navigation = await screen.findByRole("navigation", { name: "Game navigation" });
+  fireEvent.click(screen.getByRole("button", { name: "Menu: Game" }));
+
+  expect(within(navigation).getByRole("button", { name: "Level 5+" }).disabled).toBe(true);
+  expect(within(navigation).getByRole("button", { name: "Level 12+" }).disabled).toBe(true);
+  fireEvent.click(within(navigation).getByRole("button", { name: "Level 5+" }));
+  expect(screen.getByRole("heading", { name: "Adventure screen" })).toBeTruthy();
+
+  player.level = 5;
+  fireEvent.click(within(navigation).getByRole("button", { name: "Character 2" }));
+  fireEvent.click(screen.getByRole("button", { name: "Menu: Character" }));
+  expect(within(navigation).getByRole("button", { name: "Arena" }).disabled).toBe(false);
+  expect(within(navigation).getByRole("button", { name: "Level 12+" }).disabled).toBe(true);
+
+  player.level = 12;
+  fireEvent.click(screen.getByRole("button", { name: "Menu: Character" }));
+  fireEvent.click(within(navigation).getByRole("button", { name: "Arena" }));
+  fireEvent.click(screen.getByRole("button", { name: "Menu: Arena" }));
+  expect(within(navigation).getByRole("button", { name: "Adventures" }).disabled).toBe(false);
+});
+
+test("level-locked navigation shows its proper name after the player reaches the requirement", async () => {
+  render(<App />);
+  await enterGame();
+  const toggle = await screen.findByRole("button", { name: "Menu: Game" });
+  fireEvent.click(toggle);
+
+  const player = getPlayer.mock.results.find(({ type }) => type === "return").value;
+  player.level = 10;
+  fireEvent.click(toggle);
+
+  const navigation = screen.getByRole("navigation", { name: "Game navigation" });
+  expect(within(navigation).getByRole("button", { name: "Locked" }).disabled).toBe(false);
+});
+
+test("level-locked scene option shows the requirement and then its name", async () => {
+  const player = { name: "Nova", class: "Warrior", level: 4, stats: {} };
+  getPlayer.mockReturnValue(player);
+  getInputMode.mockReturnValue("buttons");
+  getVisibleOptions.mockReturnValue([{ label: "Marketplace", minLevel: 5 }]);
+  render(<App />);
+  await enterGame();
+
+  const lockedButton = await screen.findByRole("button", { name: "1. Level 5+" });
+  expect(lockedButton.disabled).toBe(true);
+
+  player.level = 5;
+  fireEvent.keyDown(window, { key: "1" });
+  expect(screen.getByRole("button", { name: "1. Marketplace" }).disabled).toBe(false);
 });
 
 test("Character navigation displays a notification dot for unread inventory", async () => {

@@ -17,6 +17,7 @@ import {
 import { resolveBugReport, subscribeBugReports } from "../world/bugReports";
 import { TITLES } from "../character/titles";
 import PlayerName from "./PlayerName";
+import AdminDataPanel from "./AdminDataPanel";
 
 const KINDS = {
   astra: { label: "Astra" },
@@ -207,7 +208,7 @@ const AdminScreen = () => {
         setMaintenanceNote("A fresh Labyrinth attempt has been granted.");
       } else {
         await administerPlayerTimer(to, timer);
-        setMaintenanceNote(`${timer === "dungeons" ? "Dungeons" : "Labyrinth"} timer refreshed.`);
+        setMaintenanceNote(`${{ dungeons: "Dungeons", labyrinth: "Labyrinth", colosseum: "Colosseum" }[timer]} timer refreshed.`);
       }
     } catch (err) {
       console.error("Couldn't update player timers", err);
@@ -252,7 +253,7 @@ const AdminScreen = () => {
           className={`inventory-tab ${activeTab === "bugs" ? "active" : ""}`}
           onClick={() => setActiveTab("bugs")}
         >
-          Bugs
+          Player Messages
         </button>
         <button
           id='admin-tab-maintenance'
@@ -265,22 +266,40 @@ const AdminScreen = () => {
         >
           Timers & Attempts
         </button>
+        <button
+          id='admin-tab-data'
+          type='button'
+          role='tab'
+          aria-selected={activeTab === "data"}
+          aria-controls='admin-panel-data'
+          className={`inventory-tab ${activeTab === "data" ? "active" : ""}`}
+          onClick={() => setActiveTab("data")}
+        >
+          Data
+        </button>
       </div>
-      {activeTab === "bugs" ? (
+      {activeTab === "data" ? (
+        <AdminDataPanel players={players} onReset={load} />
+      ) : activeTab === "bugs" ? (
         <section
           id='admin-panel-bugs'
           role='tabpanel'
           aria-labelledby='admin-tab-bugs'
         >
-          <h3>Player bug reports</h3>
+          <h3>Player Messages</h3>
           {bugsNote && <div className='recipe-note' role='status'>{bugsNote}</div>}
-          {!bugReports.length && <div className='equip-empty'>No bug reports.</div>}
+          {!bugReports.length && <div className='equip-empty'>No player messages.</div>}
           <ul className='bug-report-list'>
             {bugReports.map((report) => (
               <li key={report.id} className={`bug-report-entry ${report.status}`}>
                 <div className='bug-report-entry-header'>
                   <h4>{report.title}</h4>
-                  <span className={`bug-report-status ${report.status}`}>{report.status}</span>
+                  <div className='bug-report-labels'>
+                    <span className='bug-report-type'>
+                      {report.type === "feedback" ? "Game feedback" : "Bug"}
+                    </span>
+                    <span className={`bug-report-status ${report.status}`}>{report.status}</span>
+                  </div>
                 </div>
                 <p className='bug-report-description'>{report.description}</p>
                 <div className='bug-report-meta'>
@@ -308,6 +327,7 @@ const AdminScreen = () => {
         >
           <h3>Refresh a player's timer or grant an attempt</h3>
           <p>Refreshing the Labyrinth or granting another attempt replaces the current maze with a fresh one.</p>
+          <p>Refreshing the Colosseum clears the player's 15-minute entry cooldown without changing their wave record.</p>
           <p>Players with an open game session must reload to receive the change.</p>
           <div className='admin-form'>
             <div className='player-combobox' onBlur={() => setListOpen(false)}>
@@ -354,6 +374,7 @@ const AdminScreen = () => {
               >
                 <option value='dungeons'>Dungeons</option>
                 <option value='labyrinth'>Labyrinth</option>
+                <option value='colosseum'>Colosseum</option>
               </select>
             </label>
             <button

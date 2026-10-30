@@ -68,6 +68,57 @@ test("the character popup opens settings and saves the Public Profile option", a
   await waitFor(() => expect(onSetPublicProfile).toHaveBeenCalledWith(false));
 });
 
+test("the character popup shows lifetime character stats and returns to the profile", () => {
+  render(
+    <ProfileMenu
+      player={{
+        name: "Nova",
+        level: 3,
+        astra: 0,
+        records: {
+          basicEnemiesKilled: 12,
+          eliteEnemiesKilled: 3,
+          bossEnemiesKilled: 2,
+          playerKills: 7,
+          playerDeaths: 5,
+          totalAstraGained: 2400,
+          totalAstraLostInBlackjack: 150,
+          mostDamageDealt: 850,
+          dungeonsCleared: 4,
+          labyrinthsCleared: 1,
+        },
+      }}
+      sending={false}
+      inCombat={false}
+      onMainMenu={jest.fn()}
+      onLogout={jest.fn()}
+      onSetPublicProfile={jest.fn()}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Character profile" }));
+  fireEvent.click(screen.getByRole("button", { name: "Stats" }));
+
+  expect(screen.getByRole("heading", { name: "Character stats" })).toBeTruthy();
+  for (const [label, value] of [
+    ["Basic enemies killed", "12"],
+    ["Elites killed", "3"],
+    ["Bosses killed", "2"],
+    ["Player kills", "7"],
+    ["Player deaths", "5"],
+    ["Total Astra gained", "2,400"],
+    ["Astra lost in Blackjack", "150"],
+    ["Most damage dealt in one hit", "850"],
+    ["Dungeons cleared", "4"],
+    ["Labyrinths cleared", "1"],
+  ]) {
+    expect(screen.getByText(label).nextElementSibling.textContent).toBe(value);
+  }
+
+  fireEvent.click(screen.getByRole("button", { name: "Back to profile" }));
+  expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
+});
+
 test("profiles without an explicit privacy setting are treated as public", async () => {
   searchCharacters.mockResolvedValue([
     { id: "legacy-id", name: "Legacy", level: 7, class: "Tactician", gearScore: 100 },

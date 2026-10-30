@@ -3,6 +3,11 @@ import { runTravelEvent } from "./events";
 import { expireIfNeeded, getDungeonOptions, getDungeonText, isInDungeon } from "./dungeons";
 import { isLabyrinthActive } from "./labyrinth";
 import {
+  advanceColosseumRun,
+  awaitColosseumBossDecision,
+  endColosseumRun,
+} from "./colosseum";
+import {
   attackRound,
   getCombatRound,
   defendRound,
@@ -12,6 +17,7 @@ import {
   isPlayerDefending,
   getPlayerStatuses,
   takeOpeningReplies,
+  startCombat,
   consumeItemRound,
   passRound,
   isPlayerStunned,
@@ -120,7 +126,8 @@ export const scenes = {
               crafted: {},
               baseStats: { strength, dexterity, intelligence },
               bonusStats: {},
-              inventory: createStarterInventory({
+              resetPending: false,
+              inventory: getPlayer()?.resetPending ? [] : createStarterInventory({
                 strength,
                 dexterity,
                 intelligence,
@@ -414,7 +421,7 @@ export const scenes = {
     ],
   },
   town: {
-    input: INPUT_MODES[0],
+    input: INPUT_MODES[1],
     clearLog: true,
     text: () => {
       const p = getPlayer();
@@ -488,7 +495,7 @@ export const scenes = {
         label: "Bank",
         tooltip: {
           title: "Bank",
-          description: "Deposit or withdraw astra. Your bank balance earns 2% interest every hour.",
+          description: "Deposit or withdraw astra. Your bank balance earns 1% interest every hour.",
         },
         keywords: ["bank", "8"],
         next: "bank",
@@ -504,10 +511,11 @@ export const scenes = {
       },
       {
         label: "Marketplace",
+        minLevel: MARKETPLACE_MIN_LEVEL,
         keywords: ["marketplace", "10"],
         tooltip: () => ({
           title: "Marketplace",
-          description: `Buy and sell gear with other players. 10% tax on sales.${isMarketUnlocked() ? "" : `\nRequires level ${MARKETPLACE_MIN_LEVEL}.`}`,
+          description: "Buy and sell gear with other players. 10% tax on sales.",
         }),
         onSelect: () =>
           isMarketUnlocked()
@@ -558,7 +566,7 @@ export const scenes = {
     text: () =>
       `A dealer waves you to the blackjack table. You have ${getPlayer()?.astra || 0} {{astra|astra}}.` +
       `\nBlackjack pays 3:2 and the dealer stands on 17.` +
-      `\nType "bet <amount>" or "bet all" (shorthand: "b 50", "b50", "b a").`,
+      `\nType "bet <amount>", "bet half", or "bet all" (shorthand: "b 50", "b50", "b a", "b half").`,
     options: [
       { label: "Leave Table", keywords: ["leave"], next: "tavern" },
       {
@@ -566,7 +574,7 @@ export const scenes = {
         keywords: ["bet", "b"],
         tooltip: {
           title: "Bet",
-          description: 'Type "bet <amount>" or "bet all".',
+          description: 'Type "bet <amount>", "bet half", or "bet all".',
         },
         onSelect: ({ input }) => {
           const result = startBlackjack(input);
@@ -603,7 +611,7 @@ export const scenes = {
     match: INPUT_MATCHING[0],
     clearLog: true,
     text: () =>
-      `Welcome to the Bank. Your account holds ${getBank().balance} {{astra|astra}}, earning 2% interest every hour.` +
+      `Welcome to the Bank. Your account holds ${getBank().balance} {{astra|astra}}, earning 1% interest every hour.` +
       `\nType "deposit <amount>" or "withdraw <amount>" ("all" works too). Shorthand: "d 100", "d100", "w a".`,
     options: [
       { label: "Leave", keywords: ["leave", "1"], next: "town" },
@@ -780,8 +788,7 @@ export const scenes = {
         onSelect: () => {
           const enemy = getEnemy();
           if (!enemy) return { next: "menu" };
-          const { replies, over } = settleWorldBossAttempt(enemy, attackRound("melee"));
-          return over ? { reply: replies, next: "menu" } : { reply: replies };
+          return combatNavigation(settleCombatAttempt(enemy, attackRound("melee")));
         },
       },
       {
@@ -798,8 +805,7 @@ export const scenes = {
         onSelect: () => {
           const enemy = getEnemy();
           if (!enemy) return { next: "menu" };
-          const { replies, over } = settleWorldBossAttempt(enemy, attackRound("magic"));
-          return over ? { reply: replies, next: "menu" } : { reply: replies };
+          return combatNavigation(settleCombatAttempt(enemy, attackRound("magic")));
         },
       },
       {
@@ -814,8 +820,7 @@ export const scenes = {
         onSelect: () => {
           const enemy = getEnemy();
           if (!enemy) return { next: "menu" };
-          const { replies, over } = settleWorldBossAttempt(enemy, defendRound());
-          return over ? { reply: replies, next: "menu" } : { reply: replies };
+          return combatNavigation(settleCombatAttempt(enemy, defendRound()));
         },
       },
       {
@@ -856,8 +861,7 @@ export const scenes = {
         onSelect: () => {
           const enemy = getEnemy();
           if (!enemy) return { next: "menu" };
-          const { replies, over } = settleWorldBossAttempt(enemy, passRound());
-          return over ? { reply: replies, next: "menu" } : { reply: replies };
+          return combatNavigation(settleCombatAttempt(enemy, passRound()));
         },
       },
       {
@@ -871,9 +875,21 @@ export const scenes = {
           return { reply: ["You withdraw from the attempt. Your damage contribution is recorded."], next: "menu" };
         },
       },
+      {
+        label: "Leave Colosseum",
+        keywords: ["leave"],
+        onSelect: () => {
+          if (!getEnemy()?.colosseum) return { next: "menu" };
+          endColosseumRun();
+          endCombat();
+          return { reply: "You leave the Colosseum and end your run.", next: "menu" };
+        },
+      },
     ].map((o) => {
       if (o.label === "Pass") return o;
       if (o.label === "Withdraw") return { ...o, when: () => !!getEnemy()?.worldBossCycle };
+      if (o.label === "Leave Colosseum")
+        return { ...o, when: () => !!getEnemy()?.colosseum };
       return { ...o, when: () => !isPlayerStunned() };
     }),
   },
@@ -908,11 +924,9 @@ export const scenes = {
           onSelect: () => {
             const enemy = getEnemy();
             if (!enemy) return { next: "menu" };
-            const { replies, over, used } = settleWorldBossAttempt(enemy, attackRound(null, key));
-            if (!used) return { reply: replies };
-            return over
-              ? { reply: replies, next: "menu" }
-              : { reply: replies, next: "combat", keepLog: true };
+            const result = settleCombatAttempt(enemy, attackRound(null, key));
+            if (!result.used) return { reply: result.replies };
+            return combatNavigation(result, { next: "combat", keepLog: true });
           },
         })),
       ];
@@ -943,11 +957,9 @@ export const scenes = {
           onSelect: () => {
             const enemy = getEnemy();
             if (!enemy) return { next: "menu" };
-            const { replies, over, used } = settleWorldBossAttempt(enemy, consumeItemRound(c.key));
-            if (!used) return { reply: replies };
-            return over
-              ? { reply: replies, next: "menu" }
-              : { reply: replies, next: "combat", keepLog: true };
+            const result = settleCombatAttempt(enemy, consumeItemRound(c.key));
+            if (!result.used) return { reply: result.replies };
+            return combatNavigation(result, { next: "combat", keepLog: true });
           },
         })),
       ];
@@ -961,7 +973,72 @@ const sceneText = (id) => {
   return typeof t === "function" ? t() : t;
 };
 
-const settleWorldBossAttempt = (enemy, result) => {
+const combatNavigation = (result, fallback = {}) => {
+  if (result.options)
+    return { reply: result.replies, options: result.options, clearLog: true };
+  if (result.next)
+    return {
+      reply: result.replies,
+      next: result.next,
+      ...(result.clearLog ? { clearLog: true } : {}),
+      ...(result.keepLog ? { keepLog: true } : {}),
+    };
+  if (result.over) return { reply: result.replies, next: "menu" };
+  return { reply: result.replies, ...fallback };
+};
+
+const settleCombatAttempt = (enemy, result) => {
+  if (enemy?.colosseum && result.over) {
+    if (result.outcome === "collapse") {
+      endColosseumRun();
+      return { ...result, next: "menu" };
+    }
+    if (result.outcome === "victory") {
+      if (enemy.colosseumWaveType === "boss") {
+        awaitColosseumBossDecision();
+        return {
+          ...result,
+          options: [
+            {
+              label: "Continue",
+              keywords: ["continue", "1"],
+              onSelect: () => {
+                const nextEnemy = advanceColosseumRun();
+                if (!nextEnemy) {
+                  endColosseumRun();
+                  return { next: "menu" };
+                }
+                startCombat(nextEnemy);
+                return {
+                  next: "combat",
+                  clearLog: true,
+                  reply: `You press on to wave ${nextEnemy.colosseumWave}.`,
+                };
+              },
+            },
+            {
+              label: "Quit",
+              keywords: ["quit", "leave", "2"],
+              onSelect: () => {
+                endColosseumRun();
+                return {
+                  next: "menu",
+                  reply: "You leave the Colosseum as the reigning survivor.",
+                };
+              },
+            },
+          ],
+        };
+      }
+      const nextEnemy = advanceColosseumRun();
+      if (nextEnemy) {
+        startCombat(nextEnemy);
+        return { ...result, next: "combat", clearLog: true };
+      }
+      endColosseumRun();
+      return { ...result, next: "menu" };
+    }
+  }
   if (result.over && enemy?.worldBossCycle)
     finishWorldBossAttempt(enemy).catch(reportWorldBossError);
   return result;

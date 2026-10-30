@@ -8,13 +8,21 @@ import CharacterMenu from "./ui/CharacterMenu";
 import ProfileMenu from "./ui/ProfileMenu";
 import CharacterSearch from "./ui/CharacterSearch";
 import Tooltip from "./ui/Tooltip";
+import QuickGuide from "./ui/QuickGuide";
 import { commitPlayerChange, getCharacterIdentity, getPlayer, getSaveStatus, loadPlayer, setPlayer, subscribeSaveStatus, unloadPlayer } from "./character/player";
 import { createCharacter, deleteCharacter, loadCharacters } from "./character/characters";
 import { endCombat, getEnemy } from "./combat/combat";
+import { endColosseumRun } from "./world/colosseum";
 import { clearBlackjack } from "./world/blackjack";
+import { getContestStatus, startContest, subscribeContest } from "./world/contest";
+import ContestCombat, { getContestCombatView } from "./ui/ContestCombat";
+import { getGroupStatus, startGroupSession, subscribeGroup } from "./world/groupParty";
+import { isInGroupDungeon } from "./world/groupState";
+import { GroupRunActions } from "./ui/GroupDungeonScreen";
 import { expireIfNeeded, isInDungeon } from "./world/dungeons";
 import { isLabyrinthActive } from "./world/labyrinth";
 import { isAdmin, startInbox } from "./world/inbox";
+import { startSocial } from "./world/social";
 import { finishWorldBossAttempt, reportWorldBossError, subscribeWorldBoss } from "./world/worldBoss";
 import { DEFAULT_SCREEN, SCREENS } from "./ui/screens";
 import {
@@ -74,6 +82,7 @@ function App() {
       await loadPlayer(uid, id);
       if (version === session.current) {
         endCombat();
+        endColosseumRun();
         clearBlackjack();
         setCharacterId(id);
       }
@@ -121,9 +130,11 @@ function App() {
   };
 
   const mainMenu = async () => {
+    if (getContestStatus().locked || isInGroupDungeon()) return;
     setBusy(true);
     try {
       await unloadPlayer();
+      endColosseumRun();
       setCharacterId(null);
       setRoster(await loadCharacters(uid));
     } catch (error) {
@@ -135,9 +146,11 @@ function App() {
   };
 
   const logout = async () => {
+    if (getContestStatus().locked || isInGroupDungeon()) return;
     setBusy(true);
     try {
       if (characterId) await unloadPlayer();
+      endColosseumRun();
       await signOut(auth);
     } catch (error) {
       console.error("Couldn't save before signing out", error);
@@ -159,6 +172,8 @@ function App() {
 }
 
 function Game({ uid, onLogout, onMainMenu }) {
+  const tutorialStorageKey = `astralOdyssey2QuickGuideSeen:${uid}`;
+  const [tutorialOpen, setTutorialOpen] = useState(() => localStorage.getItem(tutorialStorageKey) !== "true");
   const [sceneId, setSceneId] = useState(() => {
     if (!getPlayer() || getPlayer().needsNameChange) return "start";
     if (!getPlayer().stats) return "createCharacter";
@@ -200,6 +215,29 @@ function Game({ uid, onLogout, onMainMenu }) {
 
   useEffect(() => startInbox(getCharacterIdentity(), () => setTick((t) => t + 1), uid), [uid]);
   useEffect(() => subscribeWorldBoss(() => {}, reportWorldBossError), []);
+  useEffect(() => {
+    const stopStatus = subscribeContest(() => {
+      const contest = getContestStatus();
+      if (contest.playing || (contest.saving && contest.match)) setViewOverride("combat");
+      else if (contest.waiting) setViewOverride("arena");
+      setTick((tick) => tick + 1);
+    });
+    const stopContest = startContest();
+    return () => { stopStatus(); stopContest(); };
+  }, []);
+  useEffect(() => {
+    let wasLocked = false;
+    const stopStatus = subscribeGroup(() => {
+      const group = getGroupStatus();
+      const locked = group.active && group.inRun;
+      if (wasLocked && !locked) setViewOverride("dungeons");
+      wasLocked = locked;
+      setTick((tick) => tick + 1);
+    });
+    const stopGroup = startGroupSession();
+    const stopSocial = startSocial(() => setTick((tick) => tick + 1));
+    return () => { stopStatus(); stopGroup(); stopSocial(); };
+  }, []);
   useEffect(() => () => {
     const enemy = getEnemy();
     if (enemy?.worldBossCycle) finishWorldBossAttempt(enemy).catch(reportWorldBossError);
@@ -226,7 +264,7 @@ function Game({ uid, onLogout, onMainMenu }) {
   });
 
   const send = async (text) => {
-    if (!text.trim() || sending) return;
+    if (!text.trim() || sending || getContestStatus().locked || isInGroupDungeon()) return;
     setSending(true);
     try {
       apply(await processInput(sceneId, text));
@@ -235,9 +273,12 @@ function Game({ uid, onLogout, onMainMenu }) {
     }
   };
 
-  const pressButton = useCallback((label) => apply(processButton(sceneId, label)), [sceneId, apply]);
+  const pressButton = useCallback((label) => {
+    if (!getContestStatus().locked && !isInGroupDungeon()) apply(processButton(sceneId, label));
+  }, [sceneId, apply]);
 
   const submitForm = (values) => {
+    if (getContestStatus().locked || isInGroupDungeon()) return;
     const result = processForm(sceneId, values);
     if (result.error) {
       setMessages((prev) => [...prev, { sender: "game", text: result.replies[0] }]);
@@ -256,7 +297,8 @@ function Game({ uid, onLogout, onMainMenu }) {
   const showText = mode === INPUT_MODES[1] || mode === INPUT_MODES[2];
 
   useEffect(() => {
-    if (!showButtons || sending || navigationModal) return undefined;
+    if (!showButtons || sending || navigationModal || tutorialOpen || getContestStatus().playing || isInGroupDungeon() ||
+      (getContestStatus().match && viewOverride === "combat")) return undefined;
 
     const selectOptionByNumber = (event) => {
       if (!/^[1-9]$/.test(event.key) || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
@@ -271,17 +313,27 @@ function Game({ uid, onLogout, onMainMenu }) {
 
     window.addEventListener("keydown", selectOptionByNumber);
     return () => window.removeEventListener("keydown", selectOptionByNumber);
-  }, [sceneId, showButtons, sending, navigationModal, pressButton]);
+  }, [sceneId, showButtons, sending, navigationModal, tutorialOpen, pressButton, viewOverride]);
 
   const scene = scenes[sceneId];
   const player = getPlayer();
-  const sceneScreen = SCREENS[scene.screen] ? scene.screen : DEFAULT_SCREEN;
-  const activeScreen = SCREENS[viewOverride] ? viewOverride : sceneScreen;
+  const contest = getContestStatus();
+  const contestLocked = contest.locked;
+  const contestView = (contest.playing || (contest.match && viewOverride === "combat"))
+    ? getContestCombatView(contest) : null;
+  const group = getGroupStatus();
+  const groupLocked = group.active && group.inRun;
+  const sceneScreen = contestView ? "combat" : groupLocked ? "groupRun" : SCREENS[scene.screen] ? scene.screen : DEFAULT_SCREEN;
+  const activeScreen = contestView ? "combat" : contestLocked ? "arena" : groupLocked ? "groupRun" : SCREENS[viewOverride] ? viewOverride : sceneScreen;
   const Screen = SCREENS[activeScreen].component;
-  const screenData = activeScreen === sceneScreen && scene.screenData ? scene.screenData() : undefined;
+  const screenData = contestView?.data || (activeScreen === sceneScreen && scene.screenData ? scene.screenData() : undefined);
   const closeSidebar = () => {
     setSidebarOpen(false);
     if (sidebarToggle.current?.getClientRects().length) sidebarToggle.current.focus();
+  };
+  const closeTutorial = () => {
+    localStorage.setItem(tutorialStorageKey, "true");
+    setTutorialOpen(false);
   };
   const updatePublicProfile = async (isPublic) => {
     await commitPlayerChange(() => setPlayer({ publicProfile: isPublic }));
@@ -293,7 +345,7 @@ function Game({ uid, onLogout, onMainMenu }) {
       <header className='navbar' inert={navigationModal}>
         <span className='nav-title'>Astral Odyssey 2</span>
         <CharacterSearch excludeIdentity={getCharacterIdentity()} />
-        <ProfileMenu player={player} sending={sending} inCombat={!!getEnemy()} onMainMenu={onMainMenu} onLogout={onLogout} onSetPublicProfile={updatePublicProfile} />
+        <ProfileMenu player={player} sending={sending} inCombat={!!getEnemy() || contestLocked || groupLocked} contestLocked={contestLocked || groupLocked} onMainMenu={onMainMenu} onLogout={onLogout} onSetPublicProfile={updatePublicProfile} />
       </header>
       <div className='App-body'>
         {navigationModal && <div className='sidebar-backdrop' aria-hidden='true' onClick={closeSidebar} />}
@@ -329,7 +381,9 @@ function Game({ uid, onLogout, onMainMenu }) {
           </button>
           <div id='sidebar-links' className={`sidebar-links ${sidebarOpen ? "open" : ""}`}>
             {Object.entries(SCREENS).filter(([key, s]) => (!s.hideUnlessActive || key === sceneScreen) && (!s.adminOnly || isAdmin())).map(([key, s], index, visibleScreens) => {
-              const enabled = !!player?.stats && !player.needsNameChange && (s.link || key === sceneScreen) &&
+              const levelLocked = !!s.minLevel && (player.level || 1) < s.minLevel && !(s.adminAccess && isAdmin());
+              const enabled = (!contestLocked || key === (contestView ? "combat" : "arena")) && (!groupLocked || key === "groupRun") &&
+                !!player?.stats && !player.needsNameChange && (s.link || key === sceneScreen) &&
                 ((player.level || 1) >= (s.minLevel || 0) || (s.adminAccess && isAdmin()));
               const badge = player && s.badge ? s.badge(player) : 0;
               const notification = player && s.notification?.(player);
@@ -347,22 +401,30 @@ function Game({ uid, onLogout, onMainMenu }) {
                       closeSidebar();
                     }}
                   >
-                    {s.label}
-                    {notification && <span className='sidebar-notification-dot' role='img' aria-label='Unread inventory items' />}
+                    {levelLocked ? `Level ${s.minLevel}+` : s.label}
+                    {notification && <span className='sidebar-notification-dot' role='img' aria-label={s.notificationLabel || "Unread inventory items"} />}
                     {badge > 0 && <span className='sidebar-badge'>{badge}</span>}
                   </button>
                 </Fragment>
               );
             })}
+            <button type='button' className='sidebar-link' onClick={() => {
+              closeSidebar();
+              setTutorialOpen(true);
+            }}>
+              Quick guide
+            </button>
             <span className='sidebar-version' aria-label='Game version'>v0.3.0.0</span>
           </div>
         </nav>
         </div>
         <div className='game-content' inert={navigationModal}>
           <div className='game-screen'>
-            <Screen messages={messages} data={screenData} player={player} sceneId={sceneId} goToScene={goToScene} inCombat={sceneScreen === "combat" || !!getEnemy()} onChange={() => setTick((t) => t + 1)} />
+            <Screen messages={contestView?.messages || messages} data={screenData} player={contestView?.player || player} sceneId={sceneId} goToScene={goToScene} onNavigate={(key) => setViewOverride(key === sceneScreen ? null : key)} inCombat={sceneScreen === "combat" || !!getEnemy()} onChange={() => setTick((t) => t + 1)} />
           </div>
-        <div className='game-controls'>
+        {contestView ? <ContestCombat key={contest.entry?.matchId} navigationModal={navigationModal} onLeave={() => setViewOverride("arena")} />
+          : groupLocked ? <GroupRunActions key={group.run?.id} navigationModal={navigationModal} />
+          : !contestLocked && <div className='game-controls'>
           {mode === INPUT_MODES[3] && (
             <GameForm key={sceneId} form={scenes[sceneId].form} onSubmit={submitForm} />
           )}
@@ -370,8 +432,13 @@ function Game({ uid, onLogout, onMainMenu }) {
             <div className='input-buttons'>
               {getVisibleOptions(scenes[sceneId]).map((o, index) => (
                 <Tooltip key={o.label} content={o.tooltip}>
-                  <button className='buttons input-button' type='button' onClick={() => pressButton(o.label)}>
-                    {index + 1}. {o.label}
+                  <button
+                    className='buttons input-button'
+                    type='button'
+                    disabled={!!o.minLevel && (player?.level || 1) < o.minLevel}
+                    onClick={() => pressButton(o.label)}
+                  >
+                    {index + 1}. {!!o.minLevel && (player?.level || 1) < o.minLevel ? `Level ${o.minLevel}+` : o.label}
                   </button>
                 </Tooltip>
               ))}
@@ -389,9 +456,10 @@ function Game({ uid, onLogout, onMainMenu }) {
               <button className='buttons input-button' type='submit' disabled={sending}>Send</button>
             </form>
           )}
-        </div>
+        </div>}
         </div>
       </div>
+      <QuickGuide open={tutorialOpen} onClose={closeTutorial} />
     </div>
   );
 }

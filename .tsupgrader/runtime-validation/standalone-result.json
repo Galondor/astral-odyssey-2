@@ -1,0 +1,108 @@
+{
+  "planHash": "5083146c516276b4fe82ec0146c1045c232f18f65a132010d3e5f212123fa593",
+  "phase": "standalone",
+  "recordedAtUtc": "2026-10-29T17:21:03.9721621Z",
+  "retryCount": 1,
+  "resetBaseline": false,
+  "complete": true,
+  "result": {
+    "setupSucceeded": true,
+    "setupDurationMs": 0,
+    "setupFailureOutput": null,
+    "assertions": [
+      {
+        "name": "production-build",
+        "kind": "process",
+        "verificationMethod": "exit-code",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": 0,
+        "outputSample": "\r\n\u003E astral-odyssey-2@0.1.0 build\r\n\u003E react-scripts build\r\n\r\nCreating an optimized production build...\r\nCompiled with warnings.\r\n\r\n[eslint] \r\nsrc\\ui\\WorldBossScreen.js\r\n  Line 10:3:  \u0027getWorldBossUniqueDropChance\u0027 is defined but never used  no-unused-vars\r\n\r\nsrc\\world\\gameLogic.js\r\n  Line 1:10:    \u0027Player\u0027 is defined but never used      no-unused-vars\r\n  Line 184:17:  \u0027p\u0027 is assigned a value but never used  no-unused-vars\r\n  Line 213:13:  \u0027p\u0027 is assigned a value but never used  no-unused-vars\r\n  Line 410:13:  \u0027p\u0027 is assigned a value but never used  no-unused-vars\r\n  Line 426:13:  \u0027p\u0027 is assigned a value but never used  no-unused-vars\r\n  Line 691:13:  \u0027p\u0027 is assigned a value but never used  no-unused-vars\r\n\r\nSearch for the keywords to learn more about each warning.\r\nTo ignore, add // eslint-disable-next-line to the line before.\r\n\r\nFile sizes after gzip:\r\n\r\n  310.54 kB (-8 B)  build\\static\\js\\main.db7b8cd2.js\r\n  13.33 kB          build\\static\\css\\main.32430b1d.css\r\n  1.77 kB           build\\static\\js\\453.7914bca0.chunk.js\r\n\r\nThe project was built assuming it is hosted at /.\r\nYou can control this with the homepage field in your package.json.\r\n\r\nThe build folder is ready to be deployed.\r\nYou may serve it with a static server:\r\n\r\n  serve -s build\r\n\r\nFind out more about deployment here:\r\n\r\n  https://cra.link/deployment\r\n\r\n",
+        "durationMs": 21713
+      },
+      {
+        "name": "home-route-200",
+        "kind": "http-probe",
+        "verificationMethod": "http-status",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": null,
+        "outputSample": "HTTP 200\n\u003C!DOCTYPE html\u003E\r\n\u003Chtml lang=\u0022en\u0022\u003E\r\n  \u003Chead\u003E\r\n    \u003Cmeta charset=\u0022utf-8\u0022 /\u003E\r\n    \u003Cmeta name=\u0022viewport\u0022 content=\u0022width=device-width, initial-scale=1, viewport-fit=cover\u0022 /\u003E\r\n    \u003Cmeta name=\u0022theme-color\u0022 content=\u0022#0b0b12\u0022 /\u003E\r\n    \u003Cmeta name=\u0022color-scheme\u0022 content=\u0022dark\u0022 /\u003E\r\n    \u003Clink rel=\u0022manifest\u0022 href=\u0022/manifest.json\u0022 /\u003E\r\n    \u003Ctitle\u003EAstral Odyssey 2\u003C/title\u003E\r\n  \u003Cscript defer src=\u0022/static/js/bundle.js\u0022\u003E\u003C/script\u003E\u003C/head\u003E\r\n  \u003Cbody\u003E\r\n    \u003Cnoscript\u003EYou need to enable JavaScript to run this app.\u003C/noscript\u003E\r\n    \u003Cdiv id=\u0022root\u0022\u003E\u003C/div\u003E\r\n  \u003C/body\u003E\r\n\u003C/html\u003E\r\n\n--- server output ---\n\r\n\u003E astral-odyssey-2@0.1.0 start\r\n\u003E react-scripts start\r\n\r\n(node:23844) [DEP_WEBPACK_DEV_SERVER_ON_AFTER_SETUP_MIDDLEWARE] DeprecationWarning: \u0027onAfterSetupMiddleware\u0027 option is deprecated. Please use the \u0027setupMiddlewares\u0027 option.\r\n(Use \u0060node --trace-deprecation ...\u0060 to show where the warning was created)\r\n(node:23844) [DEP_WEBPACK_DEV_SERVER_ON_BEFORE_SETUP_MIDDLEWARE] DeprecationWarning: \u0027onBeforeSetupMiddleware\u0027 option is deprecated. Please use the \u0027setupMiddlewares\u0027 option.\r\nStarting the development server...\r\n\r\nCompiled successfully!\r\n\r\nYou can now view astral-odyssey-2 in the browser.\r\n\r\n  Local:            http://localhost:3001\r\n  On Your Network:  http://192.168.50.81:3001\r\n\r\nNote that the development build is not optimized.\r\nTo create a production build, use npm run build.\r\n\r\nwebpack compiled \u001B[1m\u001B[32msuccessfully\u001B[39m\u001B[22m\r\n",
+        "durationMs": 9165
+      },
+      {
+        "name": "tests-pass",
+        "kind": "process",
+        "verificationMethod": "test-results",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": 0,
+        "outputSample": "\r\n\u003E astral-odyssey-2@0.1.0 test\r\n\u003E react-scripts test --watchAll=false --runInBand -t Arena and Adventures navigation labels change at levels 5 and 12|Arena follows Adventures in the sidebar|navigation toggles, preserves restrictions and badges|Arena locks Contest and Colosseum tabs|Contest and Colosseum tabs unlock at levels 25 and 5|Contest content and Boss Rush remain available after unlocking|Colosseum entry is disabled during an existing battle|Colosseum button shows its proper name once the player reaches level 5|Contest queue is locked until level 25|screen registry keeps permanent navigation grouped before contextual screens src/tests/App.test.js src/tests/ui/ArenaScreen.test.js src/tests/ui/ContestScreen.test.js src/tests/ui/DungeonsScreen.test.js\r\n\r\nPASS src/tests/App.test.js\r\nPASS src/tests/ui/DungeonsScreen.test.js\r\nPASS src/tests/ui/ArenaScreen.test.js\r\nPASS src/tests/ui/ContestScreen.test.js\r\n\r\nTest Suites: 4 passed, 4 total\r\nTests:       43 skipped, 10 passed, 53 total\r\nSnapshots:   0 total\r\nTime:        5.394 s\r\nRan all test suites matching /src\\\\tests\\\\App.test.js|src\\\\tests\\\\ui\\\\ArenaScreen.test.js|src\\\\tests\\\\ui\\\\ContestScreen.test.js|src\\\\tests\\\\ui\\\\DungeonsScreen.test.js/i with tests matching \u0022Arena and Adventures navigation labels change at levels 5 and 12|Arena follows Adventures in the sidebar|navigation toggles, preserves restrictions and badges|Arena locks Contest and Colosseum tabs|Contest and Colosseum tabs unlock at levels 25 and 5|Contest content and Boss Rush remain available after unlocking|Colosseum entry is disabled during an existing battle|Colosseum button shows its proper name once the player reaches level 5|Contest queue is locked until level 25|screen registry keeps permanent navigation grouped before contextual screens\u0022.\r\n",
+        "durationMs": 9147,
+        "testResults": {
+          "testFramework": "jest",
+          "runnerDetectedFrom": "output_banner",
+          "testsTotal": 53,
+          "testsPassed": 10,
+          "testsFailed": 0,
+          "testsSkipped": 43,
+          "parseFailed": false
+        }
+      }
+    ],
+    "executions": [
+      {
+        "source": "production-build",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npm.CMD",
+        "args": [
+          "run",
+          "build"
+        ],
+        "cwd": "D:\\Code\\astral-odyssey-2",
+        "env": {},
+        "prependPath": [],
+        "platform": "win32"
+      },
+      {
+        "source": "home-route-200",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npm.CMD",
+        "args": [
+          "start"
+        ],
+        "cwd": "D:\\Code\\astral-odyssey-2",
+        "env": {
+          "PORT": "3001",
+          "BROWSER": "none"
+        },
+        "prependPath": [],
+        "platform": "win32"
+      },
+      {
+        "source": "tests-pass",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npm.CMD",
+        "args": [
+          "test",
+          "--",
+          "--watchAll=false",
+          "--runInBand",
+          "-t",
+          "Arena and Adventures navigation labels change at levels 5 and 12|Arena follows Adventures in the sidebar|navigation toggles, preserves restrictions and badges|Arena locks Contest and Colosseum tabs|Contest and Colosseum tabs unlock at levels 25 and 5|Contest content and Boss Rush remain available after unlocking|Colosseum entry is disabled during an existing battle|Colosseum button shows its proper name once the player reaches level 5|Contest queue is locked until level 25|screen registry keeps permanent navigation grouped before contextual screens",
+          "src/tests/App.test.js",
+          "src/tests/ui/ArenaScreen.test.js",
+          "src/tests/ui/ContestScreen.test.js",
+          "src/tests/ui/DungeonsScreen.test.js"
+        ],
+        "cwd": "D:\\Code\\astral-odyssey-2",
+        "env": {},
+        "prependPath": [],
+        "platform": "win32"
+      }
+    ]
+  }
+}

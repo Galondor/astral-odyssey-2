@@ -79,7 +79,10 @@ function LabyrinthExpeditionScreen({ player, inCombat, goToScene, onChange }) {
   const leave = () => {
     const result = leaveLabyrinth();
     if (!result.ok) setNotice(result.message);
-    else setNotice("You return to the gate. Your checkpoint is saved.");
+    else {
+      setNotice("You return to the gate. Your checkpoint is saved.");
+      goToScene("menu");
+    }
     onChange?.();
   };
   const move = (tile) => {
@@ -98,7 +101,7 @@ function LabyrinthExpeditionScreen({ player, inCombat, goToScene, onChange }) {
     <div className="labyrinth panel">
       <header className="labyrinth-header">
         <div>
-          <p className="labyrinth-eyebrow">LEVEL 22+ · WEEKLY EXPEDITION</p>
+          <p className="labyrinth-eyebrow">WEEKLY EXPEDITION</p>
           <h2>The Labyrinth</h2>
           <p className="labyrinth-intro">Five shifting floors filled with ancient mechanisms, rival wardens, hidden relics, and paths that never stay still.</p>
         </div>
@@ -124,7 +127,7 @@ function LabyrinthExpeditionScreen({ player, inCombat, goToScene, onChange }) {
         <section className="labyrinth-outpost">
           <div className="labyrinth-outpost-copy">
             <span className="labyrinth-location">THE SHATTERED GATE</span>
-            <h3>{state.started ? "Your checkpoint awaits." : `The gate opens at level ${LABYRINTH_MIN_LEVEL}.`}</h3>
+            <h3>{state.started ? "Your checkpoint awaits." : "An expedition awaits."}</h3>
             <p>{state.started
               ? `Continue at Floor ${floor.number}'s checkpoint. Your relic finds and recovered fragments are saved for this weekly run.`
               : "Explore a five-floor maze each week. Recover resources, collect up to five sealed Relics, and survive the final guardian to claim them."}</p>
@@ -138,9 +141,8 @@ function LabyrinthExpeditionScreen({ player, inCombat, goToScene, onChange }) {
             </div>
             <div className="labyrinth-checkpoint-detail"><span>RETURN POINT</span><strong>{state.started ? `Floor ${floor.number} · Checkpoint` : "Not yet discovered"}</strong></div>
             <button type="button" className="buttons labyrinth-enter" disabled={!eligible || !!inCombat || state.completed} onClick={enter}>
-              {state.started ? "Resume Expedition" : eligible ? "Enter the Labyrinth" : `Unlocks at Level ${LABYRINTH_MIN_LEVEL}`}
+              {!eligible ? `Level ${LABYRINTH_MIN_LEVEL}+` : state.started ? "Resume Expedition" : "Enter the Labyrinth"}
             </button>
-            {!eligible && <small className="labyrinth-lock-note">Reach level {LABYRINTH_MIN_LEVEL} to enter.</small>}
             {inCombat && <small className="labyrinth-lock-note">Finish your current battle first.</small>}
           </div>
         </section>

@@ -5,8 +5,10 @@ import { RUNE_OF_UNPREDICTABILITY_DROP_CHANCE } from "../items/consumables";
 import { MATERIALS } from "../items/materials";
 import { TITLES } from "../character/titles";
 import { isAdmin } from "./inbox";
+import { getLeaderboardEligibility } from "./leaderboards";
 
 export const WORLD_BOSS_HEALTH = 1_000_000;
+export const WORLD_BOSS_MIN_LEVEL = 35;
 export const WORLD_BOSS_SPAWN_INTERVAL_MS = 72 * 60 * 60 * 1000;
 export const WORLD_BOSS_DAILY_ATTEMPTS = 3;
 export const WORLD_BOSS_MAX_ROUNDS = 10;
@@ -46,10 +48,11 @@ const cycleStartAt = (now, forcedSpawnAt) => {
 export const getWorldBossCycleId = (now = Date.now(), forcedSpawnAt = 0) =>
   String(cycleStartAt(now, forcedSpawnAt));
 
-export const summarizeWorldBoss = (participants = {}) => {
+export const summarizeWorldBoss = (participants = {}, excluded = []) => {
   const fighters = Object.entries(participants)
     .map(([uid, entry]) => ({ uid, ...entry, damage: Math.max(0, Number(entry?.damage) || 0) }))
-    .filter((entry) => entry.damage > 0 || entry.activeUntil > Date.now() || entry.attemptsTotal > 0)
+    .filter((entry) => !excluded.includes(entry.uid) &&
+      (entry.damage > 0 || entry.activeUntil > Date.now() || entry.attemptsTotal > 0))
     .sort((a, b) => b.damage - a.damage || (a.name || "").localeCompare(b.name || ""));
   const totalDamage = Object.values(participants).reduce(
     (total, entry) => total + Math.max(0, Number(entry?.damage) || 0),
@@ -70,19 +73,26 @@ export const subscribeWorldBoss = (onChange, onError = notifyError) => {
   let totalDamage = 0;
   let currentCycle = "";
   let forcedSpawnAt = 0;
+  let version = 0;
+  let stopped = false;
   const publish = () => {
-    const summary = summarizeWorldBoss(participants);
-    const currentDamage = Math.max(summary.totalDamage, totalDamage);
-    onChange({
-      cycle: currentCycle,
-      participants,
-      ...summary,
-      totalDamage: currentDamage,
-      health: Math.max(0, WORLD_BOSS_HEALTH - currentDamage),
-      defeated: currentDamage >= WORLD_BOSS_HEALTH,
-      nextSpawnAt: Number(currentCycle) + WORLD_BOSS_SPAWN_INTERVAL_MS,
-    });
-    if (summary.defeated) deliverWorldBossRewards(currentCycle, participants).catch(onError);
+    const requestVersion = ++version;
+    const currentParticipants = participants;
+    getLeaderboardEligibility(currentParticipants).then(({ excluded }) => {
+      if (stopped || version !== requestVersion) return;
+      const summary = summarizeWorldBoss(currentParticipants, excluded);
+      const currentDamage = Math.max(summary.totalDamage, totalDamage);
+      onChange({
+        cycle: currentCycle,
+        participants: currentParticipants,
+        ...summary,
+        totalDamage: currentDamage,
+        health: Math.max(0, WORLD_BOSS_HEALTH - currentDamage),
+        defeated: currentDamage >= WORLD_BOSS_HEALTH,
+        nextSpawnAt: Number(currentCycle) + WORLD_BOSS_SPAWN_INTERVAL_MS,
+      });
+      if (summary.defeated) deliverWorldBossRewards(currentCycle, currentParticipants).catch(onError);
+    }).catch(onError);
   };
   const refreshCycle = () => {
     const cycle = getWorldBossCycleId(Date.now(), forcedSpawnAt);
@@ -121,6 +131,7 @@ export const subscribeWorldBoss = (onChange, onError = notifyError) => {
   }, onError);
   const cycleTimer = setInterval(refreshCycle, 30_000);
   return () => {
+    stopped = true;
     clearInterval(cycleTimer);
     stopConfig();
     stopParticipants();
@@ -136,7 +147,8 @@ export const getWorldBossSnapshot = async () => {
     get(ref(db, `worldBoss/cycles/${cycle}/totalDamage`)),
   ]);
   const participants = playerSnapshot.val() || {};
-  const summary = summarizeWorldBoss(participants);
+  const { excluded } = await getLeaderboardEligibility(participants);
+  const summary = summarizeWorldBoss(participants, excluded);
   const totalDamage = Math.max(summary.totalDamage, Number(totalSnapshot.val()) || 0);
   return {
     cycle,
@@ -180,7 +192,7 @@ const updateParticipant = async (cycle, uid, player, updateRecord) => {
 
 export const startWorldBossAttempt = async (player = getPlayer()) => {
   if (!player?.name || !player.stats) return { ok: false, message: "Create a character before fighting the World Boss." };
-  if ((player.level || 1) < 35) return { ok: false, message: "The World Boss unlocks at level 35." };
+  if ((player.level || 1) < WORLD_BOSS_MIN_LEVEL) return { ok: false, message: `The World Boss unlocks at level ${WORLD_BOSS_MIN_LEVEL}.` };
   if (activeAttempt) return { ok: false, message: "You already have an active World Boss attempt." };
 
   const uid = getCharacterIdentity();
@@ -227,7 +239,7 @@ export const startWorldBossAttempt = async (player = getPlayer()) => {
     })).catch(notifyError);
   }, 30_000);
 
-  const level = Math.max(35, (player.level || 1) * 2);
+  const level = Math.max(WORLD_BOSS_MIN_LEVEL, (player.level || 1) * 2);
   const enemy = {
     id: "worldBossAstralColossus",
     name: "The Astral Colossus",
@@ -430,7 +442,8 @@ const buildRewardMail = (cycle, entry, rank, total, ownsGiantSlayer) => {
 };
 
 export const deliverWorldBossRewards = async (cycle, participants) => {
-  const summary = summarizeWorldBoss(participants);
+  const { excluded } = await getLeaderboardEligibility(participants);
+  const summary = summarizeWorldBoss(participants, excluded);
   if (!summary.defeated) return;
   const ranked = summary.fighters
     .filter((entry) => entry.damage > 0)

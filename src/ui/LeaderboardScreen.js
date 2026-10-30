@@ -8,10 +8,11 @@ const TABS = [
   ["level", "Highest level", "Level"],
   ["gearScore", "Highest gear score", "Gear score"],
   ["astra", "Most astra", "Total astra"],
+  ["highestClearedColosseumWave", "Highest Colosseum Wave", "Cleared wave"],
 ];
 
-export default function LeaderboardScreen() {
-  const [tab, setTab] = useState("level");
+export default function LeaderboardScreen({ arenaOnly = false }) {
+  const [tab, setTab] = useState(arenaOnly ? "highestClearedColosseumWave" : "level");
   const [snapshot, setSnapshot] = useState(null);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -28,7 +29,10 @@ export default function LeaderboardScreen() {
         timer = setTimeout(load, Math.max(1, next.fetchedAt + LEADERBOARD_REFRESH_MS - Date.now()));
       } catch (error) {
         console.warn("Leaderboards unavailable", error);
-        if (active) setError(true);
+        if (active) {
+          setSnapshot(null);
+          setError(true);
+        }
       }
     };
     load();
@@ -43,8 +47,9 @@ export default function LeaderboardScreen() {
   const label = TABS.find(([key]) => key === tab)[2];
   return (
     <section className='progression leaderboards'>
-      <h2>Leaderboards</h2>
+      <h2>{arenaOnly ? "Colosseum leaderboard" : "Leaderboards"}</h2>
       <p>Scores are published when players save.</p>
+      {!arenaOnly &&
       <div className='inventory-tabs' role='tablist' aria-label='Leaderboards'>
         {TABS.map(([key, title]) => (
           <button
@@ -60,10 +65,10 @@ export default function LeaderboardScreen() {
             {title}
           </button>
         ))}
-      </div>
+      </div>}
       {error && (
         <div role='alert'>
-          Couldn't load the leaderboards. {snapshot && "Showing the last cached rankings."}{" "}
+          Couldn't verify the leaderboard rankings.{" "}
           <button type='button' className='buttons' onClick={() => { setError(false); setAttempt((n) => n + 1); }}>Retry</button>
         </div>
       )}
@@ -71,7 +76,7 @@ export default function LeaderboardScreen() {
       {snapshot && (
         <>
           <p className='leaderboard-updated'>Rankings fetched: {new Date(snapshot.fetchedAt).toLocaleString()}</p>
-          <div id='leaderboard-panel' role='tabpanel' aria-labelledby={`leaderboard-tab-${tab}`} className='leaderboard-panel'>
+          <div id='leaderboard-panel' role={arenaOnly ? undefined : "tabpanel"} aria-labelledby={arenaOnly ? undefined : `leaderboard-tab-${tab}`} className='leaderboard-panel'>
             {rows.length === 0 ? <p>No ranked players yet. Characters appear after their next sign-in or save.</p> : (
               <table className='leaderboard-table'>
                 <caption>{TABS.find(([key]) => key === tab)[1]}</caption>

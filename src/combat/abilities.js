@@ -161,11 +161,47 @@ export const UNIQUE_ABILITIES = [
     effects: {},
   },
   {
+    name: "Saltblood Tide",
+    description: "Your hits make enemies bleed. Every 4th hit the tide breaks, dealing all of the remaining bleed damage at once and healing the most wounded ally (you when alone) for half of it, up to 15% of their max health.",
+    uniqueEffect: "saltbloodTide",
+    effects: {},
+  },
+  {
+    name: "Chronal Loop",
+    description: "Every 3rd attack or skill echoes through time and repeats at 30% power for free. Echoed support skills repeat their healing and shielding.",
+    uniqueEffect: "temporalEcho",
+    effects: {},
+  },
+  {
+    name: "Star-Eater's Hunger",
+    description: "Your hits devour one enemy buff (Enraged, Fortified, Regenerating, Empowered, Shielded or Warded), healing you for 10% of your max health and adding 15% damage for the rest of the fight, up to 45%. In group combat, defeating an enemy also feeds the hunger.",
+    uniqueEffect: "starEaterHunger",
+    effects: {},
+  },
+  {
     name: "Colossus Breaker",
     description: "Your attacks deal 20% more damage.",
     effects: { damageBonus: 0.2 },
   },
 ];
+
+// Tuning for the group dungeon boss uniques (shared by solo and group combat).
+export const SALTBLOOD_TIDE = { every: 4, bleed: { turns: 3, power: 0.03 }, healShare: 0.5, healCap: 0.15 };
+export const TEMPORAL_ECHO = { every: 3, power: 0.3 };
+export const STAR_EATER = { buffs: ["enrage", "fortify", "regen", "empower", "barrier", "warded"], heal: 0.1, bonus: 0.15, maxStacks: 3 };
+
+// Counts an action toward Chronal Loop; returns true when this action echoes. `state` holds echoCount.
+export const advanceEcho = (state, ab) => {
+  if (!ab?.uniqueEffects?.includes("temporalEcho")) return false;
+  state.echoCount = (state.echoCount || 0) + 1;
+  if (state.echoCount < TEMPORAL_ECHO.every) return false;
+  state.echoCount = 0;
+  return true;
+};
+
+// Total damage left on a bleed: every remaining tick at once.
+export const bleedRemaining = (bleed, maxHp) =>
+  Math.max(1, Math.round(maxHp * bleed.power * bleed.stacks * Math.max(1, bleed.turns)));
 
 export const findAbility = (ability) =>
   ABILITIES.find((a) => a.name === ability?.name) ||

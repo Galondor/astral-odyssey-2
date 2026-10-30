@@ -265,7 +265,7 @@ export const getDirectory = async () => {
 
 export async function administerPlayerTimer(uid, timer) {
   if (!state.admin) throw new Error("Admin access is required.");
-  if (typeof uid !== "string" || !uid || uid.includes("/") || !["dungeons", "labyrinth"].includes(timer))
+  if (typeof uid !== "string" || !uid || uid.includes("/") || !["dungeons", "labyrinth", "colosseum"].includes(timer))
     throw new Error("Choose a player and a valid timer.");
 
   const ownerSnapshot = await get(ref(db, `characterOwners/${uid}`));
@@ -288,7 +288,8 @@ export async function administerPlayerTimer(uid, timer) {
     [`users/${accountId}/saveRevision`]: revision + 1,
   };
   if (timer === "dungeons") updates[`${playerPath}/dungeonBoard/slot`] = -1;
-  else updates[`${playerPath}/labyrinth/weekId`] = null;
+  else if (timer === "labyrinth") updates[`${playerPath}/labyrinth/weekId`] = null;
+  else updates[`${playerPath}/lastColosseumRunAt`] = null;
   await update(ref(db), updates);
 }
 

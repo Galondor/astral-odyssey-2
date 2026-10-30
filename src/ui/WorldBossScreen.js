@@ -15,6 +15,7 @@ import {
   subscribeWorldBossError,
   WORLD_BOSS_DAILY_ATTEMPTS,
   WORLD_BOSS_HEALTH,
+  WORLD_BOSS_MIN_LEVEL,
   WORLD_BOSS_REWARD_THRESHOLD,
 } from "../world/worldBoss";
 import { isAdmin } from "../world/inbox";
@@ -52,7 +53,7 @@ const WorldBossScreen = ({ player, goToScene, onChange, inCombat }) => {
     : 0;
   const activeFighters = boss?.fighters?.filter((entry) => entry.activeUntil > now) || [];
   const ranked = boss?.fighters?.filter((entry) => entry.damage > 0) || [];
-  const canFight = (player?.level || 1) >= 35 && !inCombat && !boss?.defeated &&
+  const canFight = (player?.level || 1) >= WORLD_BOSS_MIN_LEVEL && !inCombat && !boss?.defeated &&
     attemptsUsed < WORLD_BOSS_DAILY_ATTEMPTS && !(participant?.activeUntil > now) && !busy;
 
   const beginAttempt = async () => {
@@ -103,11 +104,10 @@ const WorldBossScreen = ({ player, goToScene, onChange, inCombat }) => {
     }
   };
 
-  if ((player?.level || 1) < 35 && !isAdmin()) {
+  if ((player?.level || 1) < WORLD_BOSS_MIN_LEVEL && !isAdmin()) {
     return (
       <section className='panel world-boss'>
         <h2>World Boss</h2>
-        <p>The World Boss unlocks at level 35. Reach level 35 to join the shared battle.</p>
       </section>
     );
   }
@@ -144,14 +144,13 @@ const WorldBossScreen = ({ player, goToScene, onChange, inCombat }) => {
         Rewards require at least {(WORLD_BOSS_REWARD_THRESHOLD / WORLD_BOSS_HEALTH * 100).toFixed(0)}% damage ({WORLD_BOSS_REWARD_THRESHOLD.toLocaleString()} damage), except placement prizes for the top three.
       </p>
       <button type='button' className='buttons' onClick={beginAttempt} disabled={!canFight}>
-        {busy ? "Starting…" : participant?.activeUntil > now ? "Attempt in progress" : "Start Attempt"}
+        {(player?.level || 1) < WORLD_BOSS_MIN_LEVEL ? `Level ${WORLD_BOSS_MIN_LEVEL}+` : busy ? "Starting…" : participant?.activeUntil > now ? "Attempt in progress" : "Start Attempt"}
       </button>
       {hasPendingWorldBossAttempt() && (
         <button type='button' className='buttons' onClick={retryContribution} disabled={busy}>
           Retry saving contribution
         </button>
       )}
-      {player?.level < 35 && <p>Level 35 required.</p>}
       {boss.defeated && <p>The Colossus is defeated. A new boss spawns every 72 hours.</p>}
       {isAdmin() && (
         <button type='button' className='buttons' onClick={respawn} disabled={busy}>

@@ -130,14 +130,14 @@ const compute = (player) => {
 
   define("maxHealth", [
     line("Base", 90),
-    line(`Vitality ${vitality} ÷ 3 (rounded down) × 5`, Math.floor(vitality / 3) * 5),
+    line(`Vitality ${vitality} ÷ 2 (rounded down) × 5`, Math.floor(vitality / 2) * 5),
     ...bonusLines("maxHealth"),
   ]);
   define("maxStamina", [line("Base", 8), ...bonusLines("maxStamina")]);
-  const levelPower = Math.max(0, (player.level || 1) - 1);
+  const levelPower = Math.floor((player.level || 1) / 2);
   define("maxPower", [
     line("Base", 5),
-    line(`Level ${player.level || 1} (${levelPower} gained levels)`, levelPower),
+    line(`Level ${player.level || 1} (${levelPower} power gained)`, levelPower),
     ...gearLines("maxPower"),
     ...bonusLines("maxPower"),
   ]);
@@ -173,14 +173,20 @@ export function gainExp(player, amount) {
   const bonusStats = { ...player.bonusStats };
   const messages = [];
   let gained = 0;
+  let staminaGained = 0;
+  let powerGained = 0;
   while (level < MAX_LEVEL && exp >= expForLevel(level)) {
     exp -= expForLevel(level);
     level += 1;
     gained += 1;
     bonusStats.maxHealth = (bonusStats.maxHealth || 0) + LEVEL_UP.health;
-    bonusStats.maxStamina = (bonusStats.maxStamina || 0) + LEVEL_UP.stamina;
+    if (level % 2 === 0) {
+      bonusStats.maxStamina = (bonusStats.maxStamina || 0) + LEVEL_UP.stamina;
+      staminaGained += LEVEL_UP.stamina;
+      powerGained += LEVEL_UP.power;
+    }
     statPoints += LEVEL_UP.statPoints;
-    const skill = level % 2 === 0;
+    const skill = level % 3 === 0;
     if (skill) skillPoints += 1;
     messages.push(`[gold]Level up![/gold] You reached level ${level}. +${LEVEL_UP.statPoints} stat points${skill ? " and +1 skill point" : ""}.`);
   }
@@ -189,8 +195,8 @@ export function gainExp(player, amount) {
   const stats = calculateStats({ ...player, level, bonusStats, stats: { ...prev, exp } });
   if (gained) {
     stats.health = Math.min(stats.maxHealth, (prev.health ?? 0) + LEVEL_UP.health * gained);
-    stats.stamina = Math.min(stats.maxStamina, (prev.stamina ?? 0) + LEVEL_UP.stamina * gained);
-    stats.power = Math.min(stats.maxPower, (prev.power ?? 0) + LEVEL_UP.power * gained);
+    stats.stamina = Math.min(stats.maxStamina, (prev.stamina ?? 0) + staminaGained);
+    stats.power = Math.min(stats.maxPower, (prev.power ?? 0) + powerGained);
   }
   return { patch: { level, bonusStats, statPoints, skillPoints, stats }, messages };
 }
@@ -217,7 +223,7 @@ export const STAT_INFO = {
   strength: { title: "Strength", description: "Increases melee damage and health.", formula: "+1 Attack per point, +1 Vitality per 2 points." },
   dexterity: { title: "Dexterity", description: "Increases melee damage and agility.", formula: "+1 Attack per point, +1 Agility per 2 points." },
   intelligence: { title: "Intelligence", description: "Increases magic damage.", formula: "+1 Magic Attack per point." },
-  vitality: { title: "Vitality", description: "Increases maximum health.", formula: "+5 health per 3 points of Vitality." },
+  vitality: { title: "Vitality", description: "Increases maximum health.", formula: "+5 health per 2 points of Vitality." },
   resilience: { title: "Resilience", description: "Increases defense.", formula: "+1 Defense per 3 points of Resilience." },
   agility: { title: "Agility", description: "Increases speed and evasion.", formula: "+1 Speed per 3 points, +1% Evasion per 8 points." },
   luck: { title: "Luck", description: "Increases critical hit chance and item drop rates.", formula: "+1% Critical Hit Chance per 5 points, +1% Item Drop Chance per 3 points." },
@@ -233,9 +239,9 @@ export const STAT_INFO = {
   criticalHitChance: { title: "Critical chance", description: "Chance for an attack to be a critical hit.", formula: "Base + 1% per 5 Luck + equipment, capped at 60%." },
   criticalDamageBonus: { title: "Critical damage", description: "Damage multiplier applied on a critical hit.", formula: "Base + equipment critical damage." },
   maxHealth: { title: "Maximum health", description: "How much damage you can take before collapsing.", formula: "Base + 5 per 3 Vitality (rounded down)." },
-  maxStamina: { title: "Maximum stamina", description: "Your energy reserve for actions.", formula: "Base + 1 per level." },
+  maxStamina: { title: "Maximum stamina", description: "Your energy reserve for actions.", formula: "Base + 1 every other level." },
   gearScore: { title: "Gear score", description: "The overall power of all equipped gear.", formula: "Per item: stats × weights × 1.5 if two-handed, +25 with an ability." },
-  maxPower: { title: "Maximum power", description: "Your reserve for magical abilities.", formula: "Base + 1 per level gained + equipment and permanent bonuses." },
+  maxPower: { title: "Maximum power", description: "Your reserve for magical abilities.", formula: "Base + 1 every other level + equipment and permanent bonuses." },
 };
 
 // Older saves stored level-up Power in bonusStats.maxPower alongside permanent upgrades.

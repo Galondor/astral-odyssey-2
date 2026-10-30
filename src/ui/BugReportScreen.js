@@ -6,6 +6,7 @@ import {
 } from "../world/bugReports";
 
 const BugReportScreen = () => {
+  const [type, setType] = useState("bug");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
@@ -18,10 +19,10 @@ const BugReportScreen = () => {
     setNote("");
     setError(false);
     try {
-      await submitBugReport({ title, description });
+      await submitBugReport({ type, title, description });
       setTitle("");
       setDescription("");
-      setNote("Thanks! Your bug report has been sent.");
+      setNote(`Thanks! Your ${type === "feedback" ? "feedback" : "bug report"} has been sent.`);
     } catch (err) {
       console.error("Couldn't submit bug report", err);
       setNote(err.message || "Couldn't submit your report. Please try again.");
@@ -33,9 +34,21 @@ const BugReportScreen = () => {
 
   return (
     <div className='panel bug-report'>
-      <h2>Report a bug</h2>
-      <p>Tell me what happened and how I can reproduce it. Please don't include personal information.</p>
+      <h2>Feedback / Issues</h2>
+      <p>Report a bug or share feedback about the game. Please don't include personal information.</p>
       <form className='admin-form' onSubmit={submit}>
+        <label htmlFor='bug-report-type'>
+          Message type
+          <select
+            id='bug-report-type'
+            className='input-field'
+            value={type}
+            onChange={(event) => setType(event.target.value)}
+          >
+            <option value='bug'>Bug</option>
+            <option value='feedback'>Game feedback</option>
+          </select>
+        </label>
         <label htmlFor='bug-report-title'>
           Title
           <input
@@ -48,7 +61,7 @@ const BugReportScreen = () => {
           />
         </label>
         <label htmlFor='bug-report-description'>
-          What happened?
+          Message
           <textarea
             id='bug-report-description'
             className='input-field'
@@ -60,7 +73,7 @@ const BugReportScreen = () => {
           />
         </label>
         <button className='buttons input-button' type='submit' disabled={busy}>
-          {busy ? "Sending..." : "Submit bug report"}
+          {busy ? "Sending..." : "Submit message"}
         </button>
         {note && <div className={error ? "auth-error" : "recipe-note"} role={error ? "alert" : "status"}>{note}</div>}
       </form>

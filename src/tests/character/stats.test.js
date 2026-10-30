@@ -23,7 +23,7 @@ test("intelligence adds one magic attack per point and does not increase max pow
   expect(stats.maxPower).toBe(5);
 });
 
-test("vitality adds five max health for every three points", () => {
+test("vitality adds five max health for every two points", () => {
   const belowThreshold = calculateStats(makePlayer({
     bonusStats: { vitality: 1 },
   }));
@@ -32,9 +32,12 @@ test("vitality adds five max health for every three points", () => {
   }));
 
   expect(belowThreshold.vitality).toBe(2);
-  expect(belowThreshold.maxHealth).toBe(90);
+  expect(belowThreshold.maxHealth).toBe(95);
   expect(atThreshold.vitality).toBe(3);
   expect(atThreshold.maxHealth).toBe(95);
+  expect(calculateStats(makePlayer({
+    bonusStats: { vitality: 3 },
+  })).maxHealth).toBe(100);
 });
 
 test("percent attack substats increase only their matching attack damage", () => {
@@ -93,7 +96,7 @@ test("existing level power bonuses migrate without losing permanent upgrades", (
     powerLevelVersion: 1,
     bonusStats: { maxPower: 3 },
   });
-  expect(stats.maxPower).toBe(15);
+  expect(stats.maxPower).toBe(12);
 });
 
 test("equipped Power substats increase maximum power", () => {
@@ -106,7 +109,7 @@ test("equipped Power substats increase maximum power", () => {
   expect(stats.maxPower).toBe(8);
 });
 
-test("each gained level adds one max power and restores one current power", () => {
+test("reaching an even level adds one max power and restores one current power", () => {
   const player = makePlayer({
     stats: { health: 95, stamina: 8, power: 5, exp: expForLevel(1) - 1 },
   });
@@ -116,4 +119,45 @@ test("each gained level adds one max power and restores one current power", () =
   expect(patch.stats.maxPower).toBe(6);
   expect(patch.stats.power).toBe(6);
   expect(patch.bonusStats.maxPower).toBeUndefined();
+});
+
+test("max power and current power increase only on every other level", () => {
+  const player = makePlayer({
+    stats: { health: 95, stamina: 8, power: 0, exp: 0 },
+  });
+  const toLevelThree = expForLevel(1) + expForLevel(2);
+  const toLevelFour = toLevelThree + expForLevel(3);
+
+  const atLevelThree = gainExp(player, toLevelThree).patch;
+  expect(atLevelThree.level).toBe(3);
+  expect(atLevelThree.stats.maxPower).toBe(6);
+  expect(atLevelThree.stats.power).toBe(1);
+
+  const atLevelFour = gainExp(player, toLevelFour).patch;
+  expect(atLevelFour.level).toBe(4);
+  expect(atLevelFour.stats.maxPower).toBe(7);
+  expect(atLevelFour.stats.power).toBe(2);
+});
+
+test("stamina and skill points are awarded at their new level intervals", () => {
+  const toLevelThree = expForLevel(1) + expForLevel(2);
+  const { patch } = gainExp(makePlayer(), toLevelThree);
+
+  expect(patch.level).toBe(3);
+  expect(patch.bonusStats.maxStamina).toBe(1);
+  expect(patch.stats.maxStamina).toBe(9);
+  expect(patch.stats.stamina).toBe(9);
+  expect(patch.skillPoints).toBe(1);
+});
+
+test("multi-level gains award stamina every other level and skill points every third level", () => {
+  const expToLevelSeven = Array.from({ length: 6 }, (_, index) => expForLevel(index + 1))
+    .reduce((total, exp) => total + exp, 0);
+  const { patch } = gainExp(makePlayer(), expToLevelSeven);
+
+  expect(patch.level).toBe(7);
+  expect(patch.bonusStats.maxStamina).toBe(3);
+  expect(patch.stats.maxStamina).toBe(11);
+  expect(patch.stats.stamina).toBe(11);
+  expect(patch.skillPoints).toBe(2);
 });

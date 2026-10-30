@@ -26,6 +26,7 @@ jest.mock("../../world/worldBoss", () => ({
   subscribeWorldBossError: () => () => {},
   WORLD_BOSS_DAILY_ATTEMPTS: 3,
   WORLD_BOSS_HEALTH: 1_000_000,
+  WORLD_BOSS_MIN_LEVEL: 35,
   WORLD_BOSS_REWARD_THRESHOLD: 10_000,
 }));
 
@@ -50,6 +51,12 @@ beforeEach(() => {
 test("world boss timer includes seconds", () => {
   expect(formatWorldBossDuration(72 * 60 * 60 * 1000 + 65_000)).toBe("3d 0h 1m 5s");
   expect(formatWorldBossDuration(999)).toBe("0d 0h 0m 1s");
+});
+
+test("locked World Boss view does not describe the level requirement", () => {
+  render(<WorldBossScreen player={{ name: "Alice", level: 34, stats: {} }} />);
+  expect(screen.getByRole("heading", { name: "World Boss" })).toBeTruthy();
+  expect(screen.queryByText(/level 35/i)).toBeNull();
 });
 
 test("shows shared boss health, current rankings, and tentative placement rewards", () => {

@@ -5,7 +5,7 @@ import { getPlayer, setPlayer } from "../character/player";
  Deposited astra earns BANK_INTEREST every full hour (compounded, rounded down each hour).
  Interest is applied whenever the bank is read, so time passing while the game is closed still counts.
 */
-export const BANK_INTEREST = 0.02;
+export const BANK_INTEREST = 0.01;
 export const BANK_INTEREST_INTERVAL_MS = 60 * 60 * 1000;
 
 // Returns the bank with any interest earned since it was last updated.
@@ -54,6 +54,6 @@ export const bankTransaction = (type, text) => {
   setPlayer({
     astra: (player.astra || 0) + (deposit ? -amount : amount),
     bank: { balance, updatedAt: bank.balance > 0 ? bank.updatedAt : Date.now() },
-  });
+  }, { countAstraGain: false });
   return `You ${deposit ? "deposit" : "withdraw"} ${amount} {{astra|astra}}. Account balance: ${balance} {{astra|astra}}.`;
 };

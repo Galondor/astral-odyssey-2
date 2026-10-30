@@ -5,7 +5,9 @@ import { getPlayer } from "../character/player";
 export const MAX_BUG_TITLE_LENGTH = 100;
 export const MAX_BUG_DESCRIPTION_LENGTH = 2000;
 
-export async function submitBugReport({ title, description }) {
+export async function submitBugReport({ type = "bug", title, description }) {
+  if (type !== "bug" && type !== "feedback")
+    throw new Error("Choose whether this message is a bug or game feedback.");
   const cleanTitle = String(title || "").trim();
   const cleanDescription = String(description || "").trim();
   if (!cleanTitle || cleanTitle.length > MAX_BUG_TITLE_LENGTH)
@@ -20,6 +22,7 @@ export async function submitBugReport({ title, description }) {
   const report = {
     uid,
     playerName: String(player.name || "Unknown"),
+    type,
     title: cleanTitle,
     description: cleanDescription,
     createdAt: Date.now(),

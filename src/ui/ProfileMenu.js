@@ -4,9 +4,10 @@ import { getRegion, REGIONS } from "../world/events";
 import CharacterSummary from "./CharacterSummary";
 import profilePlaceholder from "./profile-placeholder.svg";
 
-export default function ProfileMenu({ player, sending, inCombat, onMainMenu, onLogout, onSetPublicProfile }) {
+export default function ProfileMenu({ player, sending, inCombat, contestLocked, onMainMenu, onLogout, onSetPublicProfile }) {
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState(null);
   const container = useRef(null);
@@ -15,6 +16,7 @@ export default function ProfileMenu({ player, sending, inCombat, onMainMenu, onL
   const closeMenu = useCallback(() => {
     setOpen(false);
     setSettingsOpen(false);
+    setStatsOpen(false);
     setSettingsError(null);
   }, []);
   const updatePublicProfile = async (event) => {
@@ -91,6 +93,25 @@ export default function ProfileMenu({ player, sending, inCombat, onMainMenu, onL
             <div className='profile-actions'>
               <button type='button' className='buttons' onClick={() => setSettingsOpen(false)}>Back to profile</button>
             </div>
+          </> : statsOpen ? <>
+            <h2>Character stats</h2>
+            <dl className='profile-details profile-stats'>
+              <div><dt>Basic enemies killed</dt><dd>{(player?.records?.basicEnemiesKilled || 0).toLocaleString()}</dd></div>
+              <div><dt>Elites killed</dt><dd>{(player?.records?.eliteEnemiesKilled || 0).toLocaleString()}</dd></div>
+              <div><dt>Bosses killed</dt><dd>{(player?.records?.bossEnemiesKilled || 0).toLocaleString()}</dd></div>
+              <div><dt>Contest Wins</dt><dd>{(player?.records?.playerKills || 0).toLocaleString()}</dd></div>
+              <div><dt>Contest Losses</dt><dd>{(player?.records?.playerDeaths || 0).toLocaleString()}</dd></div>
+              <div><dt>Total Astra gained</dt><dd>{(player?.records?.totalAstraGained || 0).toLocaleString()}</dd></div>
+              <div><dt>Astra lost in Blackjack</dt><dd>{(player?.records?.totalAstraLostInBlackjack || 0).toLocaleString()}</dd></div>
+              <div><dt>Most damage dealt in one hit</dt><dd>{(player?.records?.mostDamageDealt || 0).toLocaleString()}</dd></div>
+              <div><dt>Dungeons cleared</dt><dd>{(player?.records?.dungeonsCleared || 0).toLocaleString()}</dd></div>
+              <div><dt>Group dungeons cleared</dt><dd>{(player?.records?.groupDungeonsCleared || 0).toLocaleString()}</dd></div>
+              <div><dt>Labyrinths cleared</dt><dd>{(player?.records?.labyrinthsCleared || 0).toLocaleString()}</dd></div>
+              <div><dt>Highest cleared Colosseum wave</dt><dd>{(player?.records?.highestClearedColosseumWave || 0).toLocaleString()}</dd></div>
+            </dl>
+            <div className='profile-actions'>
+              <button type='button' className='buttons' onClick={() => setStatsOpen(false)}>Back to profile</button>
+            </div>
           </> : player && <>
             <div className='character-main'>
               <CharacterSummary player={player} />
@@ -101,10 +122,11 @@ export default function ProfileMenu({ player, sending, inCombat, onMainMenu, onL
               <div><dt>Reputation</dt><dd>{getRepRank(getRep(player))} ({getRep(player)})</dd></div>
             </dl>
           </>}
-          {!settingsOpen && <div className='profile-actions'>
+          {!settingsOpen && !statsOpen && <div className='profile-actions'>
+            {player && <button type='button' className='buttons' onClick={() => setStatsOpen(true)}>Stats</button>}
             {player && <button type='button' className='buttons' onClick={() => setSettingsOpen(true)}>Settings</button>}
             <button type='button' className='buttons' disabled={sending || inCombat} onClick={onMainMenu}>Main menu</button>
-            <button type='button' className='buttons' disabled={sending} onClick={onLogout}>Log out</button>
+            <button type='button' className='buttons' disabled={sending || contestLocked} onClick={onLogout}>Log out</button>
           </div>}
         </section>
       )}

@@ -109,11 +109,19 @@ import {
 } from "../world/quests";
 import Tooltip from "./Tooltip";
 import InboxScreen from "./InboxScreen";
+import SocialScreen from "./SocialScreen";
+import { hasSocialNotification } from "../world/social";
 import MarketplaceScreen from "./MarketplaceScreen";
 import { MARKETPLACE_MIN_LEVEL } from "../world/marketplace";
+import { COLOSSEUM_MIN_LEVEL } from "../world/colosseum";
+import { LABYRINTH_MIN_LEVEL } from "../world/labyrinth";
+import { WORLD_BOSS_MIN_LEVEL } from "../world/worldBoss";
 import AdminScreen from "./AdminScreen";
 import BugReportScreen from "./BugReportScreen";
 import LabyrinthScreen from "./LabyrinthExpeditionScreen";
+import { GroupLobby, GroupRunScreen } from "./GroupDungeonScreen";
+import { getGroupStatus } from "../world/groupParty";
+import { GROUP_DUNGEONS } from "../world/groupDungeonData";
 import { getUnreadCount } from "../world/inbox";
 import { DUNGEON_MIN_LEVEL, DUNGEON_REROLL_COST, describeOffer, formatTime, getBoard, getBoardRefreshMs, getRun, getStages, getTimeLeftMs, rerollDungeons, startDungeon } from "../world/dungeons";
 /*
@@ -216,8 +224,12 @@ const DungeonRunScreen = ({ messages, player }) => {
   );
 };
 
+const GROUP_MIN_LEVEL = Math.min(...Object.values(GROUP_DUNGEONS).map((dungeon) => dungeon.level));
+
 const DungeonsScreen = ({ player, goToScene, inCombat, onChange, sceneId }) => {
-  const [tab, setTab] = useState(sceneId === "labyrinth" ? "labyrinth" : "solo");
+  const [tab, setTab] = useState(
+    sceneId === "labyrinth" ? "labyrinth" : getGroupStatus().partyId && (player?.level || 1) >= GROUP_MIN_LEVEL ? "group" : "solo"
+  );
   const [error, setError] = useState("");
   const now = useNow();
   useEffect(() => {
@@ -248,19 +260,24 @@ const DungeonsScreen = ({ player, goToScene, inCombat, onChange, sceneId }) => {
       <h2>Adventures</h2>
       {error && <p className='dungeon-warning' role='alert'>{error}</p>}
       <div className='dungeon-tabs'>
-        {[["solo", "Solo Dungeons"], ["labyrinth", "Labyrinth"], ["world-boss", "World Boss"], ["group", "Group Dungeons"], ["raids", "Raids"]].map(([key, label]) => (
-          <button
-            key={key}
-            type='button'
-            className={`buttons dungeon-tab-${key} ${tab === key ? "active" : ""}`}
-            disabled={key === "group" || key === "raids" || (key === "labyrinth" && (player?.level || 1) < 22)}
-            onClick={() => setTab(key)}
-          >
-            {label}
-          </button>
-        ))}
+        {[["solo", "Solo Dungeons"], ["labyrinth", "Labyrinth"], ["world-boss", "World Boss"], ["group", "Group Dungeons"], ["raids", "Raids"]].map(([key, label]) => {
+          const minLevel =
+            key === "labyrinth" ? LABYRINTH_MIN_LEVEL : key === "world-boss" ? WORLD_BOSS_MIN_LEVEL : key === "group" ? GROUP_MIN_LEVEL : 0;
+          const levelLocked = minLevel > (player?.level || 1);
+          return (
+            <button
+              key={key}
+              type='button'
+              className={`buttons dungeon-tab-${key} ${tab === key ? "active" : ""}`}
+              disabled={key === "raids" || levelLocked}
+              onClick={() => setTab(key)}
+            >
+              {levelLocked ? `Level ${minLevel}+` : label}
+            </button>
+          );
+        })}
       </div>
-      {tab === "group" && <p>Group dungeons are coming soon!</p>}
+      {tab === "group" && <GroupLobby player={player} />}
       {tab === "labyrinth" && <LabyrinthScreen player={player} inCombat={inCombat} goToScene={goToScene} onChange={onChange} />}
       {tab === "world-boss" && <WorldBossScreen player={player} goToScene={goToScene} onChange={onChange} inCombat={inCombat} />}
       {tab === "solo" && (
@@ -274,7 +291,7 @@ const DungeonsScreen = ({ player, goToScene, inCombat, onChange, sceneId }) => {
             disabled={!!run || inCombat || (player?.level || 1) < DUNGEON_MIN_LEVEL}
             onClick={reroll}
           >
-            Generate New Dungeons ({DUNGEON_REROLL_COST.toLocaleString()} astra)
+            {(player?.level || 1) < DUNGEON_MIN_LEVEL ? `Level ${DUNGEON_MIN_LEVEL}+` : `Generate New Dungeons (${DUNGEON_REROLL_COST.toLocaleString()} astra)`}
           </button>
           {run && <p className='dungeon-warning'>You are inside {run.name}. Time left: {formatTime(getTimeLeftMs(run))}. Use the Dungeon tab to continue.</p>}
           <div className='dungeon-offers' data-now={now}>
@@ -290,7 +307,7 @@ const DungeonsScreen = ({ player, goToScene, inCombat, onChange, sceneId }) => {
                   <div>Boss: <span className='dungeon-boss'>{info.boss}</span></div>
                   <div>Unique drop: <span className='unique-text'>{info.unique?.name}</span></div>
                   <button type='button' className='buttons' disabled={offer.cleared || !!run || inCombat || (player?.level || 1) < DUNGEON_MIN_LEVEL} onClick={() => enter(offer.id)}>
-                    {offer.cleared ? "Cleared" : "Enter Dungeon"}
+                    {(player?.level || 1) < DUNGEON_MIN_LEVEL ? `Level ${DUNGEON_MIN_LEVEL}+` : offer.cleared ? "Cleared" : "Enter Dungeon"}
                   </button>
                 </div>
               );
@@ -302,9 +319,40 @@ const DungeonsScreen = ({ player, goToScene, inCombat, onChange, sceneId }) => {
   );
 };
 
+const CombatHealth = ({ label, value, max, color, marrowWard, wardLabel = "Marrow Ward" }) => {
+  const showMarrowWard = marrowWard?.current > 0;
+  return (
+    <div className={showMarrowWard ? "combat-health-warded" : undefined}>
+      <Bar label={label} value={value} max={max} color={color} />
+      {showMarrowWard && (
+        <div className='marrow-ward'>
+          <div className='marrow-ward-label'>
+            <span>Marrow Ward</span>
+            <span>{marrowWard.current}/{marrowWard.max}</span>
+          </div>
+          <div
+            className='marrow-ward-track'
+            role='progressbar'
+            aria-label={wardLabel}
+            aria-valuemin={0}
+            aria-valuemax={marrowWard.max}
+            aria-valuenow={marrowWard.current}
+          >
+            <div
+              className='marrow-ward-fill'
+              style={{
+                width: `${Math.max(0, Math.min(100, (marrowWard.current / marrowWard.max) * 100))}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const CombatScreen = ({ messages, data, player }) => {
   const { enemy, round, stats, defending, playerStatuses = [], marrowWard } = data || {};
-  const showMarrowWard = marrowWard?.current > 0;
   const analyzerUnlocked = getKeyItemEffect(player, "analyzer") > 0;
   const tier = enemy ? TIERS[enemy.tier] : null;
   const chips = (list) => (
@@ -328,11 +376,13 @@ const CombatScreen = ({ messages, data, player }) => {
               : ""}
           </h3>
           {enemy && (
-            <Bar
+            <CombatHealth
               label='HP'
               value={enemy.hp}
               max={enemy.maxHp}
               color='#c0392b'
+              marrowWard={enemy.marrowWard}
+              wardLabel="Opponent's Marrow Ward"
             />
           )}
           {enemy && chips(enemy.statuses || [])}
@@ -382,37 +432,13 @@ const CombatScreen = ({ messages, data, player }) => {
           <h3>You{defending ? " (Defending)" : ""}</h3>
           {stats && (
             <>
-              <div className={showMarrowWard ? "combat-health-warded" : undefined}>
-                <Bar
-                  label='Health'
-                  value={stats.health}
-                  max={stats.maxHealth}
-                  color='#1e8449'
-                />
-                {showMarrowWard && (
-                  <div className='marrow-ward'>
-                    <div className='marrow-ward-label'>
-                      <span>Marrow Ward</span>
-                      <span>{marrowWard.current}/{marrowWard.max}</span>
-                    </div>
-                    <div
-                      className='marrow-ward-track'
-                      role='progressbar'
-                      aria-label='Marrow Ward'
-                      aria-valuemin={0}
-                      aria-valuemax={marrowWard.max}
-                      aria-valuenow={marrowWard.current}
-                    >
-                      <div
-                        className='marrow-ward-fill'
-                        style={{
-                          width: `${Math.max(0, Math.min(100, (marrowWard.current / marrowWard.max) * 100))}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
+              <CombatHealth
+                label='Health'
+                value={stats.health}
+                max={stats.maxHealth}
+                color='#1e8449'
+                marrowWard={marrowWard}
+              />
               <Bar
                 label='Stamina'
                 value={stats.stamina}
@@ -1611,7 +1637,7 @@ const Inventory = ({ player, onChange, locked }) => {
         )}
         {tab === "titles" && (
           <div className='inventory-list'>
-            {!titles.length && <div className='equip-empty'>You have no titles yet. Titles can be claimed from mail.</div>}
+            {!titles.length && <div className='equip-empty'>You have no titles yet.</div>}
             {titles.map((id) => {
               const title = TITLES[id];
               const equipped = player.activeTitle === id;
@@ -2261,7 +2287,7 @@ const SkillsTab = ({ player, inCombat, onChange }) => {
         </span>
       </h3>
       <div className='equip-empty'>
-        You earn a skill point every other level. Equipped skills (
+        You earn a skill point every 3 levels. Equipped skills (
         {equipped.length}/{MAX_EQUIPPED}) can be used in combat for power.
       </div>
       <RespecButton
@@ -2571,8 +2597,8 @@ const QuestsScreen = ({ onChange }) => {
 
 export const SCREENS = {
   adventure: { label: "Gameplay", sidebarGroup: "adventure", link: true, component: AdventureScreen },
-  dungeons: { label: "Adventures", sidebarGroup: "adventure", link: true, minLevel: DUNGEON_MIN_LEVEL, adminAccess: true, component: DungeonsScreen },
-  arena: { label: "Arena", sidebarGroup: "adventure", link: true, component: ArenaScreen },
+  dungeons: { label: "Adventures", sidebarGroup: "adventure", link: true, minLevel: DUNGEON_MIN_LEVEL, component: DungeonsScreen },
+  arena: { label: "Arena", sidebarGroup: "adventure", link: true, minLevel: COLOSSEUM_MIN_LEVEL, component: ArenaScreen },
   character: {
     label: "Character",
     sidebarGroup: "character",
@@ -2604,12 +2630,21 @@ export const SCREENS = {
     component: InboxScreen,
     badge: () => getUnreadCount(),
   },
+  social: {
+    label: "Social",
+    sidebarGroup: "character",
+    link: true,
+    component: SocialScreen,
+    notification: () => hasSocialNotification(),
+    notificationLabel: "New friend requests or invitations",
+  },
   leaderboards: { label: "Leaderboards", sidebarGroup: "community", link: true, component: LeaderboardScreen },
   changelog: { label: "Changelog", sidebarGroup: "community", link: true, component: ChangelogScreen },
-  bugReport: { label: "Report a Bug", sidebarGroup: "community", link: true, component: BugReportScreen },
+  bugReport: { label: "Feedback / Issues", sidebarGroup: "community", link: true, component: BugReportScreen },
   admin: { label: "Admin", link: true, adminOnly: true, component: AdminScreen },
   combat: { label: "Combat", component: CombatScreen, hideUnlessActive: true },
   dungeonRun: { label: "Dungeon", component: DungeonRunScreen, hideUnlessActive: true },
+  groupRun: { label: "Group Dungeon", component: GroupRunScreen, hideUnlessActive: true },
   crafting: {
     label: "Workshop",
     component: CraftingScreen,

@@ -636,6 +636,8 @@ input[type='checkbox']:disabled {
 .bug-report-entry { padding: 12px; border: 1px solid #444; border-radius: 6px; background: #1a1a24; text-align: left; }
 .bug-report-entry.resolved { opacity: 0.7; }
 .bug-report-entry-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; text-align: left; }
+.bug-report-labels { display: flex; align-items: center; gap: 8px; }
+.bug-report-type { color: #aaa; font-size: 12px; }
 .bug-report-entry h4 { margin: 0; color: #ffd866; overflow-wrap: anywhere; }
 .bug-report-description { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; }
 .bug-report-status { color: #ffd866; font-size: 12px; text-transform: uppercase; }
@@ -840,7 +842,7 @@ input[type='checkbox']:disabled {
   box-sizing: border-box;
   min-width: 0;
 }
-.panel.dungeons { max-width: none; margin: 0; }
+.panel.dungeons { max-width: none; margin: 0; padding-right: 8px; }
 .dungeon-reroll { margin: 0 auto 12px; }
 .dungeon-offers { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; }
 .dungeon-card { display: flex; flex-direction: column; gap: 6px; }
@@ -1216,6 +1218,73 @@ input[type='checkbox']:disabled {
 
 .character-main h3 {
   color: #bfd0e4;
+}
+
+.quick-guide-dialog {
+  box-sizing: border-box;
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: clamp(18px, 4vw, 28px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.65);
+}
+
+.quick-guide-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.quick-guide-dialog h2,
+.quick-guide-dialog h3,
+.quick-guide-dialog p {
+  text-align: left;
+}
+
+.quick-guide-dialog h2 {
+  margin: 0;
+  color: #b7d4fa;
+}
+
+.quick-guide-intro {
+  margin: 6px 0 18px;
+  color: #bdc7d4;
+}
+
+.quick-guide-tips {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quick-guide-tips section {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.quick-guide-tips h3 {
+  margin: 0 0 6px;
+  color: #ffd866;
+}
+
+.quick-guide-tips p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.quick-guide-close {
+  display: block;
+  margin: 18px auto 0;
+}
+
+@media (max-width: 520px) {
+  .quick-guide-tips {
+    grid-template-columns: 1fr;
+  }
 }
 
 .inventory-panel {
@@ -1600,4 +1669,109 @@ input[type='checkbox']:disabled {
   .panel.world-boss {
     padding: 14px;
   }
+}
+
+/* Group dungeons */
+.group-lobby { display: flex; flex-direction: column; gap: 14px; text-align: left; }
+.group-muted { color: #999; font-size: 0.9em; }
+.group-dismiss { margin-left: 8px; padding: 2px 8px; }
+.group-dungeon-card { border-color: var(--group-color, #444); }
+.group-dungeon-card h3 { color: var(--group-color, #ffd866); }
+.group-stage-list { margin: 4px 0; padding-left: 20px; }
+.group-lfg { display: flex; flex-direction: column; gap: 8px; }
+.group-invite-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; border: 1px solid #444; border-radius: 6px; }
+.group-invite-row span { flex: 1 1 200px; }
+.group-invite-row span span { flex: none; }
+.social-section { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; text-align: left; }
+.social-section h3 { margin: 0; }
+.social-presence { display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; background: #666; }
+.social-presence.online { background: #6c6; }
+.group-controls .group-chat { width: 100%; margin-top: 8px; }
+.group-controls .group-chat-log { height: 150px; }
+.group-party { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; }
+.group-party-main { display: flex; flex-direction: column; gap: 10px; }
+.group-party-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.group-party-header h3 { margin: 0; }
+.group-roster { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.group-roster-member { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px; border: 1px solid #444; border-radius: 6px; }
+.group-roster-member.ready { border-color: #6a6; }
+.group-roster-member.empty { color: #777; border-style: dashed; }
+.group-roster-name { flex: 1 1 120px; font-weight: bold; }
+.group-roster-ready { color: #999; }
+.group-roster-member.ready .group-roster-ready { color: #6c6; }
+.group-roster-actions { display: flex; gap: 6px; }
+.group-online { width: 10px; height: 10px; border-radius: 50%; background: #666; }
+.group-online.on { background: #4c4; }
+.group-party-controls, .group-invite, .group-chat-form, .group-setter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.group-invite .input-field, .group-chat-form .input-field { flex: 1 1 160px; }
+.group-start { border-color: #ffd866; }
+.group-chat-toggle { position: relative; overflow: visible; }
+.group-chat-dot { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box; border: 2px solid var(--surface-2, #1a1a1a); border-radius: 9px; background: #e04848; color: #fff; font-size: 11px; font-weight: 700; line-height: 14px; text-align: center; pointer-events: none; animation: group-chat-ping 1.6s ease-out 2; }
+@keyframes group-chat-ping { 0% { box-shadow: 0 0 0 0 rgba(224, 72, 72, 0.7); } 100% { box-shadow: 0 0 0 10px rgba(224, 72, 72, 0); } }
+@media (prefers-reduced-motion: reduce) { .group-chat-dot { animation: none; } }
+.group-chat { display: flex; flex-direction: column; gap: 6px; min-height: 0; text-align: left; }
+.group-chat h4 { margin: 0; }
+.group-chat-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.group-chat-close { display: none; min-width: 44px; min-height: 44px; padding: 4px 10px; }
+.group-chat-log { height: 220px; overflow-y: auto; padding: 8px; border: 1px solid #444; border-radius: 6px; overflow-wrap: anywhere; }
+.group-chat-line { margin-bottom: 4px; text-align: left; }
+.group-result { padding: 10px; border: 1px solid #444; border-radius: 6px; }
+.group-result.cleared { border-color: #6a6; }
+.group-result.failed { border-color: #a44; }
+.group-result h4 { margin: 0 0 6px; }
+.group-claim { display: flex; flex-direction: column; gap: 2px; }
+.group-run { text-align: left; }
+.group-run-header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+.group-run-header h2 { margin: 0; color: var(--group-color, #ffd866); }
+.group-run-sub { margin-bottom: 8px; color: #bbb; }
+.group-battlefield { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.group-side { display: flex; flex-direction: column; gap: 8px; }
+.group-side h4 { margin: 0; }
+.group-member, .group-enemy { padding: 8px; border: 1px solid #444; border-radius: 6px; }
+.group-member.me { border-color: var(--group-color, #ffd866); }
+.group-member.downed, .group-enemy.dead { opacity: 0.5; }
+.group-enemy.tier-elite { border-color: #b07cff; }
+.group-enemy.tier-boss { border-color: #ff4a4a; }
+.group-member-head, .group-enemy-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+.group-intent { margin-left: auto; color: #999; font-size: 0.85em; }
+.group-intent.in { color: #6c6; }
+.group-tag { margin-top: 4px; font-size: 0.85em; color: #ccc; }
+.group-tag.immune { color: #9cf; }
+.group-tag.telegraph { color: #ff8a3a; font-weight: bold; }
+.group-tag.channel { color: #d9a3ff; }
+.group-tag.downed { color: #ff6a6a; }
+.status-chip.group-debuff { border-color: #a44; }
+.group-puzzle { padding: 10px; border: 1px solid var(--group-color, #444); border-radius: 6px; }
+.group-puzzle h4 { margin: 0 0 6px; }
+.group-order { font-size: 1.1em; font-weight: bold; color: #ffd866; }
+.group-dials { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.group-dial { display: flex; flex: 1 1 90px; flex-direction: column; align-items: center; gap: 2px; padding: 8px; border: 1px solid #444; border-radius: 6px; }
+.group-dial strong { font-size: 1.3em; }
+.group-dial.mine { border-color: var(--group-color, #ffd866); }
+.group-dial.aligned { color: #6c6; }
+.group-clues { margin: 4px 0; padding-left: 20px; color: #ffd866; }
+.group-log { max-height: 220px; overflow-y: auto; margin-top: 10px; }
+.group-controls .group-leave { border-color: #a44; }
+@media (max-width: 1000px) {
+  .group-party, .group-battlefield { grid-template-columns: minmax(0, 1fr); }
+  /* On mobile the in-run chat floats over the game screen instead of crowding the controls. */
+  .group-controls .group-chat-overlay {
+    position: fixed;
+    z-index: 100;
+    top: 64px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: calc(100dvh - 45vh - 88px);
+    min-height: 300px;
+    margin: 0;
+    padding: 10px;
+    box-sizing: border-box;
+    background: rgba(18, 18, 24, 0.94);
+    border: 1px solid var(--group-color, #ffd866);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+  }
+  .group-controls .group-chat-overlay .group-chat-log { flex: 1; height: auto; min-height: 80px; }
+  .group-chat-overlay .group-chat-close { display: inline-flex; align-items: center; justify-content: center; }
 }

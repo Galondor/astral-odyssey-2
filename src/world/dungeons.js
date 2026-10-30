@@ -1,4 +1,5 @@
 import { getPlayer, setPlayer } from "../character/player";
+import { updateRecords } from "../character/records";
 import {
   applyDeathPenalties,
   endCombat,
@@ -12,6 +13,7 @@ import { expForLevel } from "../character/stats";
 import { getEffectiveLevel } from "../combat/enemies";
 import { DUNGEON_TYPES, DUNGEON_TYPE_IDS, TRAP_COUNTERS, UNIQUES, UNIQUE_DROP_CHANCE } from "./dungeonData";
 import { isLabyrinthActive } from "./labyrinth";
+import { isInGroupDungeon } from "./groupState";
 
 /*
  Solo dungeons.
@@ -197,6 +199,7 @@ export function startDungeon(offerId) {
   const player = getPlayer();
   if (!player) return { ok: false, message: "No character loaded." };
   if (isLabyrinthActive()) return { ok: false, message: "Leave the Labyrinth before entering another dungeon." };
+  if (isInGroupDungeon()) return { ok: false, message: "Finish your group dungeon run first." };
   if (player.dungeon) return { ok: false, message: "You are already inside a dungeon." };
   if ((player.level || 1) < DUNGEON_MIN_LEVEL) return { ok: false, message: `Dungeons unlock at level ${DUNGEON_MIN_LEVEL}.` };
   if (getEnemy()) return { ok: false, message: "Finish your fight first." };
@@ -343,6 +346,7 @@ function onFightWon(p, s, patch, replies, template) {
   }
   const astra = halfReward(Math.round(run.level * 45));
   patch.astra = (patch.astra ?? p.astra ?? 0) + astra;
+  updateRecords(p, patch, { increments: { dungeonsCleared: 1 } });
   const board = p.dungeonBoard;
   if (board?.offers?.some((o) => o.id === run.offerId))
     patch.dungeonBoard = { ...board, offers: board.offers.map((o) => (o.id === run.offerId ? { ...o, cleared: true } : o)) };

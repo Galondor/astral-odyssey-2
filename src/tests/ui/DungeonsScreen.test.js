@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { SCREENS } from "../../ui/screens";
-import { getBoard, getRun, rerollDungeons, startDungeon } from "../../world/dungeons";
+import { DUNGEON_MIN_LEVEL, getBoard, getRun, rerollDungeons, startDungeon } from "../../world/dungeons";
 
 jest.mock("../../firebase", () => ({ db: {} }));
 jest.mock("../../ui/ChangelogScreen", () => () => null);
@@ -21,14 +21,16 @@ jest.mock("../../world/dungeons", () => ({
 const DungeonsScreen = SCREENS.dungeons.component;
 
 test("screen registry keeps permanent navigation grouped before contextual screens", () => {
+  expect(SCREENS.dungeons.minLevel).toBe(DUNGEON_MIN_LEVEL);
+  expect(SCREENS.dungeons.adminAccess).toBeUndefined();
   const groups = ["adventure", "character", "community", undefined].map((group) =>
     Object.entries(SCREENS).filter(([, definition]) => definition.sidebarGroup === group).map(([key]) => key)
   );
   expect(groups).toEqual([
     ["adventure", "dungeons", "arena"],
-    ["character", "progression", "quests", "inbox"],
+    ["character", "progression", "quests", "inbox", "social"],
     ["leaderboards", "changelog", "bugReport"],
-    ["admin", "combat", "dungeonRun", "crafting", "gearTrader", "marketplace", "questBoard", "forge"],
+    ["admin", "combat", "dungeonRun", "groupRun", "crafting", "gearTrader", "marketplace", "questBoard", "forge"],
   ]);
   expect(Object.keys(SCREENS)).toEqual(groups.flat());
   expect(SCREENS.worldBoss).toBeUndefined();
@@ -56,13 +58,14 @@ test("available dungeons are playable and navigate into the run", () => {
   expect(document.querySelector(".dungeons").classList.contains("adventures-theme-solo")).toBe(true);
   expect(screen.getByRole("heading", { name: "Adventures" })).toBeTruthy();
   const adventureTabs = screen.getAllByRole("button").filter((button) =>
-    ["Solo Dungeons", "Labyrinth", "World Boss", "Group Dungeons", "Raids"].includes(button.textContent)
+    ["Solo Dungeons", "Level 22+", "Level 35+", "Level 40+", "Raids"].includes(button.textContent)
   );
-  expect(adventureTabs.map((button) => button.textContent)).toEqual(["Solo Dungeons", "Labyrinth", "World Boss", "Group Dungeons", "Raids"]);
-  expect(screen.getByRole("button", { name: "World Boss" }).classList.contains("dungeon-tab-world-boss")).toBe(true);
-  expect(screen.getByRole("button", { name: "Labyrinth" }).disabled).toBe(true);
-  expect(screen.getByRole("button", { name: "World Boss" }).disabled).toBe(false);
-  expect(screen.getByRole("button", { name: "Group Dungeons" }).disabled).toBe(true);
+  expect(adventureTabs.map((button) => button.textContent)).toEqual(["Solo Dungeons", "Level 22+", "Level 35+", "Level 40+", "Raids"]);
+  expect(screen.getByRole("button", { name: "Level 35+" }).classList.contains("dungeon-tab-world-boss")).toBe(true);
+  expect(screen.getByRole("button", { name: "Level 22+" }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Level 35+" }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Level 40+" }).classList.contains("dungeon-tab-group")).toBe(true);
+  expect(screen.getByRole("button", { name: "Level 40+" }).disabled).toBe(true);
   expect(screen.getByRole("button", { name: "Raids" }).disabled).toBe(true);
   expect(screen.queryByText(/under construction/i)).toBeNull();
   const button = screen.getByRole("button", { name: "Enter Dungeon" });
@@ -70,6 +73,13 @@ test("available dungeons are playable and navigate into the run", () => {
   fireEvent.click(button);
   expect(startDungeon).toHaveBeenCalledWith(offer.id);
   expect(goToScene).toHaveBeenCalledWith("dungeon");
+});
+
+test("level 40 characters can open the Group Dungeons lobby", () => {
+  render(<DungeonsScreen player={{ level: 40 }} goToScene={jest.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Group Dungeons" }));
+  expect(screen.getByRole("heading", { name: "Tidewrack Hold" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Looking for Group" })).toBeTruthy();
 });
 
 test("World Boss is opened from its tab inside Adventures rather than a sidebar screen", () => {
@@ -94,8 +104,14 @@ test.each(["cleared", "active", "combat", "level"])("entry remains disabled for 
   if (restriction === "cleared") getBoard.mockReturnValue({ offers: [{ ...offer, cleared: true }] });
   if (restriction === "active") getRun.mockReturnValue({ name: "Sunken Crypt", deadline: Date.now() + 60000 });
   render(<DungeonsScreen player={{ level: restriction === "level" ? 9 : 20 }} goToScene={jest.fn()} inCombat={restriction === "combat"} />);
-  const button = screen.getByRole("button", { name: restriction === "cleared" ? "Cleared" : "Enter Dungeon" });
+  const button = restriction === "level"
+    ? document.querySelector(".dungeon-offers button")
+    : screen.getByRole("button", { name: restriction === "cleared" ? "Cleared" : "Enter Dungeon" });
   expect(button.disabled).toBe(true);
+  if (restriction === "level") {
+    expect(button.textContent).toBe("Level 12+");
+    expect(document.querySelector(".dungeon-reroll").textContent).toBe("Level 12+");
+  }
   fireEvent.click(button);
   expect(startDungeon).not.toHaveBeenCalled();
 });

@@ -62,7 +62,7 @@ export const CONSUMABLES = {
 };
 
 export const PRISMATIC_ALLOY_DROP_CHANCE = 0.005;
-export const RUNE_OF_UNPREDICTABILITY_DROP_CHANCE = 0.01;
+export const RUNE_OF_UNPREDICTABILITY_DROP_CHANCE = 0.05;
 
 export const ITEM_CERTIFICATE_DROP_CHANCE = {
   overworld: { elite: 0.1, boss: 0.25 },

@@ -10,19 +10,38 @@ jest.mock("../../world/bugReports", () => ({
 
 beforeEach(() => jest.clearAllMocks());
 
-test("submits a player's report and confirms success", async () => {
+test("submits a bug report and confirms success", async () => {
   submitBugReport.mockResolvedValue();
   render(<BugReportScreen />);
 
+  expect(screen.getByLabelText("Message type").value).toBe("bug");
   fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Quest cannot complete" } });
-  fireEvent.change(screen.getByLabelText("What happened?"), { target: { value: "The final objective never updates." } });
-  fireEvent.click(screen.getByRole("button", { name: "Submit bug report" }));
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "The final objective never updates." } });
+  fireEvent.click(screen.getByRole("button", { name: "Submit message" }));
 
   await waitFor(() => expect(submitBugReport).toHaveBeenCalledWith({
+    type: "bug",
     title: "Quest cannot complete",
     description: "The final objective never updates.",
   }));
   expect((await screen.findByRole("status")).textContent).toContain("Thanks! Your bug report has been sent.");
+});
+
+test("players can submit game feedback", async () => {
+  submitBugReport.mockResolvedValue();
+  render(<BugReportScreen />);
+
+  fireEvent.change(screen.getByLabelText("Message type"), { target: { value: "feedback" } });
+  fireEvent.change(screen.getByLabelText("Title"), { target: { value: "More quests" } });
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "I'd enjoy more side quests." } });
+  fireEvent.click(screen.getByRole("button", { name: "Submit message" }));
+
+  await waitFor(() => expect(submitBugReport).toHaveBeenCalledWith({
+    type: "feedback",
+    title: "More quests",
+    description: "I'd enjoy more side quests.",
+  }));
+  expect((await screen.findByRole("status")).textContent).toContain("Thanks! Your feedback has been sent.");
 });
 
 test("shows an error when a report cannot be saved", async () => {
@@ -30,8 +49,8 @@ test("shows an error when a report cannot be saved", async () => {
   submitBugReport.mockRejectedValue(new Error("Database unavailable"));
   render(<BugReportScreen />);
   fireEvent.change(screen.getByLabelText("Title"), { target: { value: "A bug" } });
-  fireEvent.change(screen.getByLabelText("What happened?"), { target: { value: "It failed." } });
-  fireEvent.click(screen.getByRole("button", { name: "Submit bug report" }));
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "It failed." } });
+  fireEvent.click(screen.getByRole("button", { name: "Submit message" }));
 
   expect((await screen.findByRole("alert")).textContent).toContain("Database unavailable");
   error.mockRestore();

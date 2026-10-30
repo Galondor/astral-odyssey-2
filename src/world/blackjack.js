@@ -1,4 +1,5 @@
 import { getPlayer, setPlayer } from "../character/player";
+import { updateRecords } from "../character/records";
 import { parseAmount } from "./bank";
 
 /*
@@ -51,7 +52,10 @@ const finish = (outcome) => {
   const net =
     outcome === "blackjack" ? Math.floor(stake * 1.5) : outcome === "win" ? stake : outcome === "push" ? 0 : -stake;
   const astra = Math.max(0, (player.astra || 0) + net);
-  setPlayer({ astra });
+  const patch = { astra };
+  if (net < 0)
+    updateRecords(player, patch, { increments: { totalAstraLostInBlackjack: -net } });
+  setPlayer(patch);
   const text = {
     blackjack: `Blackjack! You win ${net} {{astra|astra}}.`,
     win: `You win ${net} {{astra|astra}}.`,
@@ -75,7 +79,8 @@ const settleDealer = () => {
 export const startBlackjack = (text) => {
   const player = getPlayer();
   const astra = player?.astra || 0;
-  const bet = parseAmount(text, astra);
+  const words = String(text || "").toLowerCase().split(/\s+/);
+  const bet = words.includes("half") ? Math.floor(astra / 2) : parseAmount(text, astra);
   if (bet === null) return { error: 'Type "bet <amount>" or "bet all" to play a hand.' };
   if (bet <= 0) return { error: "You have no astra to bet." };
   if (bet > astra) return { error: `You only have ${astra} {{astra|astra}} on hand.` };

@@ -223,10 +223,23 @@ const stampOwnership = (player, patch) => {
 };
 
 // Merge values into the saved player data.
-export const setPlayer = (patch) => {
+export const setPlayer = (patch, { countAstraGain = true } = {}) => {
   if (syncError) throw new Error(syncError);
   const player = getPlayer();
   patch = stampOwnership(player, patch);
+  const astraGained = Number.isFinite(patch.astra)
+    ? Math.max(0, patch.astra - (player?.astra || 0))
+    : 0;
+  if (countAstraGain && astraGained > 0) {
+    patch = {
+      ...patch,
+      records: {
+        ...(player?.records || {}),
+        ...(patch.records || {}),
+        totalAstraGained: (patch.records?.totalAstraGained ?? player?.records?.totalAstraGained ?? 0) + astraGained,
+      },
+    };
+  }
   const additions = getNewInventoryItems(player, patch);
   const unseenInventoryItems = { ...(player?.unseenInventoryItems || {}) };
   for (const [category, keys] of Object.entries(additions)) {
@@ -429,7 +442,8 @@ const loadPlayerData = async (accountId, characterId) => {
       };
     }
     const accountWideTitles = Object.keys(account.accountWideTitles || {})
-      .filter((id) => account.accountWideTitles[id] && TITLES[id]?.accountWide);
+      .filter((id) => account.accountWideTitles[id] && TITLES[id]?.accountWide
+        && !(loadedPlayer.ignoredAccountWideTitles || []).includes(id));
     const unrecordedAccountWideTitles = (loadedPlayer.titles || [])
       .filter((id) => TITLES[id]?.accountWide && !account.accountWideTitles?.[id]);
     currentPlayer = accountWideTitles.length
@@ -455,13 +469,13 @@ const loadPlayerData = async (accountId, characterId) => {
     onValue(ref(db, `users/${accountId}/saveRevision`), (s) => {
       const remote = s.val() || 0;
       if (remote !== getMeta().revision && remote !== writingRevision) {
-        syncError = "Progress changed in another browser or device. Reload the cloud save before continuing.";
+        syncError = "Progress changed in another browser or device. Reload the cloud save before continuing. ";
         clearTimeout(flushTimer);
         statusListeners.forEach((fn) => fn());
       }
     }, (error) => {
       console.warn("Save synchronization unavailable", error);
-      syncError = "Cloud synchronization is unavailable. Reload before continuing.";
+      syncError = "Cloud synchronization is unavailable. Reload before continuing. ";
       statusListeners.forEach((fn) => fn());
     }),
     onValue(ref(db, ".info/connected"), (s) => {

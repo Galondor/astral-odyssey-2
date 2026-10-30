@@ -15,6 +15,7 @@ export const MATERIAL_TIERS = {
 };
 
 export const MATERIALS = {
+  proof_of_victory: { name: "Proof of Victory", tier: "rare", description: "Proof of defeating another player in a live Contest." },
   slime_gel: { name: "Slime Gel", tier: "common", description: "Sticky, resilient goo." },
   wolf_pelt: { name: "Wolf Pelt", tier: "common", description: "A thick pelt, good for hardy leather." },
   boar_tusk: { name: "Boar Tusk", tier: "common", description: "A sturdy tusk that can be ground into tools." },
@@ -58,6 +59,8 @@ export const MATERIALS = {
   observatory_void_dust: { name: "Void Dust", tier: "uncommon", description: "Starless motes left by basic Void Observatory enemies." },
   observatory_rift_thread: { name: "Rift Thread", tier: "rare", description: "A strand of folded space taken from Void Observatory elites." },
   observatory_star_core: { name: "Collapsed Star Core", tier: "unique", description: "A captive singularity held only by Void Observatory bosses." },
+  broken_blade_fragments: { name: "Broken Blade Fragments", tier: "rare", description: "Rare shards of shattered weapons recovered from Colosseum gladiators." },
+  champions_medallion: { name: "Champion's Medallion", tier: "legendary", description: "The singular emblem awarded to a Colosseum champion." },
   relicFragments: { name: "Relic Fragments", tier: "epic", description: "Shards of impossible artifacts found in the weekly Labyrinth. Earn up to 95 from a single expedition." },
   labyrinth_etched_fang: { name: "Maze-Etched Fang", tier: "uncommon", description: "A labyrinth stalker's fang scored with its final route." },
   labyrinth_echo_silk: { name: "Echo Silk", tier: "uncommon", description: "Resonant thread spun by an echo weaver in the shifting halls." },
@@ -72,7 +75,16 @@ export const MATERIALS = {
   infernal_heart: { name: "Infernal Heart", tier: "legendary", description: "Burns hot enough to melt steel. Dropped by the Infernal Drake." },
   wraith_crown: { name: "Wraith Crown", tier: "legendary", description: "A cold crown torn from the Wraith King." },
   metal_scraps: { name: "Metal Scraps", tier: "common", description: "Bits of metal salvaged from various sources." },
-  leather: { name: "Leather", tier: "common", description: "Tanned hide, useful for crafting armor and gear." }
+  leather: { name: "Leather", tier: "common", description: "Tanned hide, useful for crafting armor and gear." },
+  tidewrack_brine_pearl: { name: "Brine Pearl", tier: "rare", description: "A salt-crusted pearl taken from the crew of Tidewrack Hold." },
+  tidewrack_kraken_ink: { name: "Kraken Ink", tier: "epic", description: "Black ink that never dries, carried by Tidewrack Hold elites." },
+  tidewrack_doubloon: { name: "Saltblood Doubloon", tier: "unique", description: "Cursed gold from Captain Vareth's own hoard." },
+  chrono_mainspring: { name: "Chrono Mainspring", tier: "rare", description: "A coiled spring that still keeps the Spire's time." },
+  chrono_paradox_gear: { name: "Paradox Gear", tier: "epic", description: "A gear that turns both ways at once, shed by Chronoforge elites." },
+  chrono_heartwatch: { name: "Chronarch's Heartwatch", tier: "unique", description: "The ticking heart of the Chronarch." },
+  starless_void_shard: { name: "Void Shard", tier: "rare", description: "A splinter of nothing from the Starless Throne." },
+  starless_eclipse_ichor: { name: "Eclipse Ichor", tier: "epic", description: "Dark ichor drained from Starless Throne elites." },
+  starless_eater_fang: { name: "Star-Eater's Fang", tier: "unique", description: "A fang that once swallowed a sun. Dropped by Nyx'thara." }
 };
 
 export const getMaterialCount = (player, key) => player?.materials?.[key] || 0;

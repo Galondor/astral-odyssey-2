@@ -1,0 +1,51 @@
+{
+  "generatedAt": "2026-10-29T17:15:00Z",
+  "generatedOnPlatform": "win32",
+  "projectType": "webapp",
+  "setup": [],
+  "assertions": [
+    {
+      "name": "production-build",
+      "kind": "process",
+      "command": "npm",
+      "args": ["run", "build"],
+      "verificationMethod": "exit-code",
+      "expected": "0",
+      "timeoutSeconds": 300
+    },
+    {
+      "name": "home-route-200",
+      "kind": "http-probe",
+      "startCommand": "npm",
+      "startArgs": ["start"],
+      "env": {
+        "PORT": "3001",
+        "BROWSER": "none"
+      },
+      "url": "http://localhost:3001/",
+      "verificationMethod": "http-status",
+      "expected": "200",
+      "timeoutSeconds": 120
+    },
+    {
+      "name": "tests-pass",
+      "kind": "process",
+      "command": "npm",
+      "args": [
+        "test",
+        "--",
+        "--watchAll=false",
+        "--runInBand",
+        "-t",
+        "Arena and Adventures navigation labels change at levels 5 and 12|Arena follows Adventures in the sidebar|navigation toggles, preserves restrictions and badges|Arena locks Contest and Colosseum tabs|Contest and Colosseum tabs unlock at levels 25 and 5|Contest content and Boss Rush remain available after unlocking|Colosseum entry is disabled during an existing battle|Colosseum button shows its proper name once the player reaches level 5|Contest queue is locked until level 25|screen registry keeps permanent navigation grouped before contextual screens",
+        "src/tests/App.test.js",
+        "src/tests/ui/ArenaScreen.test.js",
+        "src/tests/ui/ContestScreen.test.js",
+        "src/tests/ui/DungeonsScreen.test.js"
+      ],
+      "verificationMethod": "test-results",
+      "expected": "0",
+      "timeoutSeconds": 300
+    }
+  ]
+}

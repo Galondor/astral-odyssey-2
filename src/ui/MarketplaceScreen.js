@@ -11,7 +11,6 @@ import {
   MARKET_RARITIES,
   MARKET_SLOTS,
   MARKET_STATS,
-  MARKETPLACE_MIN_LEVEL,
   MAX_LISTINGS,
   SORTS,
   buyListing,
@@ -221,7 +220,6 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
     return (
       <div className='workshop marketplace'>
         <h3>Marketplace</h3>
-        <div className='equip-empty'>The marketplace opens to adventurers of level {MARKETPLACE_MIN_LEVEL}.</div>
       </div>
     );
   }

@@ -1,4 +1,4 @@
-import { getPlayer, setPlayer } from "../character/player";
+import { getPlayer as getSavedPlayer, setPlayer as setSavedPlayer } from "../character/player";
 import { generateRandomGemstone, generateRandomSlotItem } from "../items/items";
 import {
   applyConsumable,
@@ -9,14 +9,24 @@ import {
 } from "../items/consumables";
 import {
   SKILLS,
+  applySupportSkill,
   getSkillLevel,
   skillCost,
   skillMultiplier,
 } from "../character/skills";
 import { gainExp, MAX_PLAYER_CHANCE } from "../character/stats";
-import { getAbilityTotals } from "./abilities";
+import { updateRecords } from "../character/records";
+import {
+  SALTBLOOD_TIDE,
+  STAR_EATER,
+  TEMPORAL_ECHO,
+  advanceEcho,
+  bleedRemaining,
+  getAbilityTotals,
+} from "./abilities";
 import {
   STATUSES,
+  absorbDamage,
   addStatus,
   hasStatus,
   healMult,
@@ -49,6 +59,12 @@ let playerDefending = false;
 let playerStatuses = [];
 let fight = null;
 let openingReplies = [];
+let contestContext = null;
+const getPlayer = () => contestContext ? contestContext.player : getSavedPlayer();
+const setPlayer = (patch) => {
+  if (contestContext) Object.assign(contestContext.player, patch);
+  else setSavedPlayer(patch);
+};
 
 export const getEnemy = () => enemy;
 export const getCombatRound = () => fight?.round ?? null;
@@ -121,6 +137,10 @@ export const startCombat = (template, { enemyFirst = false } = {}) => {
     starReady: false,
     rootstrideReady: true,
     unwrittenPathStrikes: 0,
+    echoCount: 0,
+    tideHits: 0,
+    hunger: 0,
+    mostDamageDealt: 0,
   };
   if (fight.ab.uniqueEffects.includes("marrowWard")) {
     fight.wardMax = Math.round((p.stats?.maxHealth || 0) * 0.2);
@@ -193,6 +213,16 @@ function healEnemy(amount, replies) {
 function dealEnemyDamage(amount) {
   const before = enemy.hp;
   enemy.hp = Math.max(0, enemy.hp - amount);
+  if (contestContext) {
+    const defender = contestContext.defender;
+    const wind = defender.combat.ab.secondWind;
+    if (wind && !defender.combat.secondWindUsed && enemy.hp <= enemy.maxHp * 0.1) {
+      defender.combat.secondWindUsed = true;
+      enemy.hp = Math.min(enemy.maxHp, enemy.hp + Math.round(enemy.maxHp * wind));
+      contestContext.reactions.push(`${enemy.name}'s Second Wind restores health!`);
+    }
+  }
+  fight.mostDamageDealt = Math.max(fight.mostDamageDealt, before - enemy.hp);
   if (enemy.worldBossCycle)
     enemy.worldBossDamageDealt += before - enemy.hp;
 }
@@ -276,7 +306,10 @@ function endOfRound(s, replies) {
     playerStatuses,
     s.maxHealth,
     (amount, label, calculation) => {
-      if (amount < 0) return;
+      if (amount < 0) {
+        healPlayer(s, -amount, replies, "Regeneration");
+        return;
+      }
       damagePlayer(s, amount, replies);
       replies.push(
         `You take ${damageNumber(amount, calculation)} ${label} damage.`,
@@ -398,6 +431,14 @@ function enemyStrike(s, replies, ability) {
     dmg -= absorbed;
     replies.push(`Marrow Ward absorbs ${absorbed} damage${fight.ward ? ` (${fight.ward} ward remains)` : " and breaks"}.`);
     calculation.push(`Marrow Ward absorbs ${absorbed}; ${dmg} damage passes through.`);
+  }
+  if (dmg > 0) {
+    const { remaining, absorbed } = absorbDamage(playerStatuses, dmg);
+    if (absorbed) {
+      dmg = remaining;
+      replies.push(`Your barrier absorbs ${absorbed} damage.`);
+      calculation.push(`Barrier absorbs ${absorbed}; ${dmg} damage passes through.`);
+    }
   }
   if (fight.ab.uniqueEffects.includes("temperedSteel")) {
     fight.temperedStrikes += 1;
@@ -561,21 +602,25 @@ function winCombat(p, s, replies, patch) {
         ).size * 0.1,
       )
     : 0;
-  const astra = Math.round(
-    enemy.astra * (1 + (fight.ab.astraBonus || 0) + plunderBonus),
-  );
+  const astraMultiplier = 1 + (fight.ab.astraBonus || 0) + plunderBonus;
+  const astra = enemy.colosseum
+    ? Math.floor(enemy.astra * astraMultiplier * 0.5)
+    : Math.round(enemy.astra * astraMultiplier);
+  const exp = enemy.colosseum ? Math.floor(enemy.exp / 2) : enemy.exp;
   patch.astra = (p.astra || 0) + astra;
   replies.push(
-    `The ${enemy.name} falls! You gain ${enemy.exp} exp and ${astra} {{astra|astra}}.`,
+    `The ${enemy.name} falls! You gain ${exp} exp and ${astra} {{astra|astra}}.`,
   );
-  const leveled = gainExp({ ...p, stats: s }, enemy.exp);
+  const leveled = gainExp({ ...p, stats: s }, exp);
   Object.assign(patch, leveled.patch);
   replies.push(...leveled.messages);
 
-  const questKill = recordQuestKill(p.quests, enemy);
-  if (questKill.messages.length) {
-    patch.quests = questKill.quests;
-    replies.push(...questKill.messages);
+  if (!enemy.colosseum) {
+    const questKill = recordQuestKill(p.quests, enemy);
+    if (questKill.messages.length) {
+      patch.quests = questKill.quests;
+      replies.push(...questKill.messages);
+    }
   }
 
   // Luck improves drop chance by 1% per 3 points
@@ -593,38 +638,40 @@ function winCombat(p, s, replies, patch) {
     replies.push(`Materials gained: ${list.join(", ")}.`);
   }
 
-  if (Math.random() < (enemy.dropChance ?? BASE_DROP_CHANCE) + luckBonus) {
-    const item = generateRandomSlotItem(enemy.minRarity || 0);
-    if (item) {
-      patch.inventory = [...(p.inventory || []), item];
-      replies.push(
-        `The ${enemy.name} dropped {{${item.name}|item:${item.id}}}!`,
-      );
+  if (!enemy.colosseum) {
+    if (Math.random() < (enemy.dropChance ?? BASE_DROP_CHANCE) + luckBonus) {
+      const item = generateRandomSlotItem(enemy.minRarity || 0);
+      if (item) {
+        patch.inventory = [...(p.inventory || []), item];
+        replies.push(
+          `The ${enemy.name} dropped {{${item.name}|item:${item.id}}}!`,
+        );
+      }
     }
-  }
-  if (Math.random() < PRISMATIC_ALLOY_DROP_CHANCE) {
-    const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
-    consumables.prismaticAlloy = (consumables.prismaticAlloy || 0) + 1;
-    patch.consumables = consumables;
-    replies.push(`The ${enemy.name} dropped a {{Prismatic Alloy|consumable:prismaticAlloy}}!`);
-  }
-  if (!enemy.dungeon && Math.random() < RUNE_OF_UNPREDICTABILITY_DROP_CHANCE) {
-    const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
-    consumables.runeOfUnpredictability = (consumables.runeOfUnpredictability || 0) + 1;
-    patch.consumables = consumables;
-    replies.push(`The ${enemy.name} dropped a {{Rune of Unpredictability|consumable:runeOfUnpredictability}}!`);
-  }
-  if (Math.random() < 0.08 + luckBonus) {
-    const gemstone = generateRandomGemstone();
-    patch.gemstones = [...(p.gemstones || []), gemstone];
-    replies.push(`The ${enemy.name} dropped a {{${gemstone.name}|gemstone:${gemstone.id}}}!`);
-  }
-  const certificateChance = ITEM_CERTIFICATE_DROP_CHANCE[enemy.dungeon ? "dungeon" : "overworld"][enemy.tier];
-  if (certificateChance && Math.random() < certificateChance) {
-    const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
-    consumables.itemCertificate = (consumables.itemCertificate || 0) + 1;
-    patch.consumables = consumables;
-    replies.push(`The ${enemy.name} dropped an {{Item Certificate|consumable:itemCertificate}}!`);
+    if (Math.random() < PRISMATIC_ALLOY_DROP_CHANCE) {
+      const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
+      consumables.prismaticAlloy = (consumables.prismaticAlloy || 0) + 1;
+      patch.consumables = consumables;
+      replies.push(`The ${enemy.name} dropped a {{Prismatic Alloy|consumable:prismaticAlloy}}!`);
+    }
+    if (!enemy.dungeon && Math.random() < RUNE_OF_UNPREDICTABILITY_DROP_CHANCE) {
+      const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
+      consumables.runeOfUnpredictability = (consumables.runeOfUnpredictability || 0) + 1;
+      patch.consumables = consumables;
+      replies.push(`The ${enemy.name} dropped a {{Rune of Unpredictability|consumable:runeOfUnpredictability}}!`);
+    }
+    if (Math.random() < 0.08 + luckBonus) {
+      const gemstone = generateRandomGemstone();
+      patch.gemstones = [...(p.gemstones || []), gemstone];
+      replies.push(`The ${enemy.name} dropped a {{${gemstone.name}|gemstone:${gemstone.id}}}!`);
+    }
+    const certificateChance = ITEM_CERTIFICATE_DROP_CHANCE[enemy.dungeon ? "dungeon" : "overworld"][enemy.tier];
+    if (certificateChance && Math.random() < certificateChance) {
+      const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
+      consumables.itemCertificate = (consumables.itemCertificate || 0) + 1;
+      patch.consumables = consumables;
+      replies.push(`The ${enemy.name} dropped an {{Item Certificate|consumable:itemCertificate}}!`);
+    }
   }
   enemy.onDefeat?.(p, patch.stats || s, patch, replies);
   setPlayer(patch);
@@ -633,22 +680,50 @@ function winCombat(p, s, replies, patch) {
 
 // Applies a round outcome and saves. Returns { replies, over }.
 function settle(outcome, p, s, replies, patch) {
+  if (contestContext) {
+    setPlayer({ ...patch, stats: s });
+    return { replies, over: !!outcome, outcome };
+  }
+  const increments = {};
+  if (outcome === "victory" && ["basic", "elite", "boss"].includes(enemy.tier))
+    increments[`${enemy.tier}EnemiesKilled`] = 1;
+  updateRecords(p, patch, {
+    increments,
+    maxima: {
+      mostDamageDealt: fight.mostDamageDealt,
+      ...(outcome === "victory" && enemy.colosseum
+        ? { highestClearedColosseumWave: enemy.colosseumWave }
+        : {}),
+    },
+  });
   if (outcome === "victory") {
     winCombat(p, s, replies, patch);
-    return { replies, over: true };
+    return { replies, over: true, outcome };
   }
   if (outcome === "collapse") {
     collapse(p, s, replies, patch);
     endCombat();
     setPlayer({ ...patch, stats: s });
-    return { replies, over: true };
+    return { replies, over: true, outcome };
   }
   setPlayer({ ...patch, stats: s });
-  return { replies, over: false };
+  return { replies, over: false, outcome: null };
 }
 
 // Ends the player's action: the enemy takes its turn, effects tick, then the player's guard drops.
 function finishRound(p, s, replies, patch) {
+  if (contestContext) {
+    playerStatuses = tickStatuses(playerStatuses, s.maxHealth, (amount, label) => {
+      if (amount < 0) healPlayer(s, -amount, replies);
+      else {
+        damagePlayer(s, amount, replies);
+        replies.push(`You take ${amount} ${label} damage.`);
+      }
+    });
+    if (fight.cls === "Spellcaster" && s.power < s.maxPower) s.power += 1;
+    fight.round += 1;
+    return settle(s.health <= 0 ? "collapse" : enemy.hp <= 0 ? "victory" : null, p, s, replies, patch);
+  }
   const outcome = enemyTurn(s, replies) || endOfRound(s, replies);
   playerDefending = false;
   const result = settle(outcome, p, s, replies, patch);
@@ -707,6 +782,21 @@ export function attackRound(type, skillKey) {
   if (loseTurnToStun(replies))
     return { ...finishRound(p, s, replies, {}), used: true };
   s.power -= cost;
+  const echo = advanceEcho(fight, fight.ab);
+
+  // Outside group combat, support skills always target the caster.
+  if (skill?.type === "support") {
+    const self = { name: "You", stats: s, statuses: playerStatuses };
+    replies.push(`You use ${skill.name}.`);
+    replies.push(...applySupportSkill(skillKey, level, self, [self]).lines);
+    if (echo) {
+      const echoed = applySupportSkill(skillKey, level, self, [self], { echo: TEMPORAL_ECHO.power }).lines;
+      replies.push(echoed.length ? `Chronal Loop: ${skill.name} echoes through time!` : "Chronal Loop: the echo finds nothing to repeat.", ...echoed);
+    }
+    playerStatuses = self.statuses;
+    fight.combo += 1;
+    return { ...finishRound(p, s, replies, {}), used: true };
+  }
 
   const { ab, cls } = fight;
   const speedAdvantage =
@@ -801,6 +891,13 @@ export function attackRound(type, skillKey) {
   if (abilityBonus)
     calculation.push(`Ability damage bonus: +${abilityBonus * 100}%.`);
   if (skillBonus) calculation.push(`Skill bonus: +${skillBonus * 100}%.`);
+  const hunger = ab.uniqueEffects.includes("starEaterHunger")
+    ? Math.min(STAR_EATER.maxStacks, fight.hunger || 0) * STAR_EATER.bonus
+    : 0;
+  if (hunger) {
+    bonus += hunger;
+    calculation.push(`Star-Eater's Hunger: +${Math.round(hunger * 100)}%.`);
+  }
   const outgoing = outgoingMult(playerStatuses);
   const incoming = incomingMult(enemy.statuses);
   const beforeMultipliers = hit;
@@ -831,11 +928,13 @@ export function attackRound(type, skillKey) {
   );
   if (enemy.defending) {
     const beforeBlock = dealt;
-    dealt = Math.max(1, Math.floor(dealt / 2));
+    const blockMultiplier = contestContext?.defender.combat.cls === "Swordsman" ? BULWARK_DAMAGE_TAKEN : 0.5;
+    dealt = Math.max(1, Math.floor(dealt * blockMultiplier));
     calculation.push(
-      `Enemy defending: floor(${beforeBlock} ÷ 2) = ${dealt} (minimum 1).`,
+      `Enemy defending: floor(${beforeBlock} × ${blockMultiplier}) = ${dealt} (minimum 1).`,
     );
   }
+  if (contestContext) dealt = defendContestStrike(dealt, s, replies);
   ctx.dealt = dealt;
   dealEnemyDamage(dealt);
   if (ab.uniqueEffects.includes("unwrittenPath")) {
@@ -850,17 +949,17 @@ export function attackRound(type, skillKey) {
     `${skill ? `You use ${skill.name} on` : "You strike"} the ${enemy.name} for ${damageNumber(dealt, calculation, ctx.crit)} damage${enemy.defending ? " (defended)" : ""}.`,
   );
 
-  if (glacialShatter) {
+  if (glacialShatter && dealt > 0) {
     enemy.statuses = enemy.statuses.filter((status) => status.id !== "vulnerable");
     replies.push("Glacial Edge shatters the enemy's vulnerability!");
   }
-  if (constellationReady && enemy.hp > 0) {
+  if (constellationReady && dealt > 0 && enemy.hp > 0) {
     inflictOnEnemy("stun", {}, replies);
     replies.push("The constellation aligns and locks the enemy in place!");
   }
   if (ab.uniqueEffects.includes("rootstride") && fight.playerActsFirst && fight.rootstrideReady) {
     fight.rootstrideReady = false;
-    if (enemy.hp > 0) {
+    if (dealt > 0 && enemy.hp > 0) {
       inflictOnEnemy("stun", {}, replies);
       replies.push("Rootstride binds the enemy with your opening strike!");
     }
@@ -886,29 +985,43 @@ export function attackRound(type, skillKey) {
       ])} damage.`,
     );
   }
-  if (ab.lifesteal)
+  if (ab.lifesteal && dealt > 0)
     healPlayer(
       s,
       Math.max(1, Math.round(dealt * ab.lifesteal)),
       replies,
       "Vampiric",
     );
-  if (ab.surge && ctx.crit && s.power < s.maxPower) {
+  if (ab.surge && ctx.crit && dealt > 0 && s.power < s.maxPower) {
     s.power = Math.min(
       s.maxPower,
       s.power + Math.round((s.maxPower * ab.surge) / 2),
     );
     replies.push("Arcane Surge: you recover power!");
   }
-  if (ctx.crit && ab.uniqueEffects.includes("orbitalFocus")) {
+  if (ctx.crit && dealt > 0 && ab.uniqueEffects.includes("orbitalFocus")) {
     if (enemy.hp > 0) {
       const shard = Math.max(1, Math.round(dealt * 0.35));
       dealEnemyDamage(shard);
       replies.push(`Orbital Focus launches a shard for ${damageNumber(shard, [`Strike damage: ${dealt}.`, `Orbiting shard: ${dealt} × 35% = ${shard}.`])} bonus damage.`);
     }
   }
-  skill?.onHit?.(ctx);
-  if (enemy.hp > 0) {
+  if (echo && dealt > 0 && enemy.hp > 0) {
+    const echoed = Math.max(1, Math.round(dealt * TEMPORAL_ECHO.power));
+    dealEnemyDamage(echoed);
+    replies.push(`Chronal Loop: your ${skill ? skill.name : "strike"} echoes for ${damageNumber(echoed, [`Strike damage: ${dealt}.`, `Echo: ${dealt} × ${TEMPORAL_ECHO.power * 100}% = ${echoed}.`])} damage.`);
+  }
+  if (dealt > 0 && enemy.hp > 0 && ab.uniqueEffects.includes("starEaterHunger")) {
+    const meal = enemy.statuses.find((status) => STAR_EATER.buffs.includes(status.id));
+    if (meal) {
+      enemy.statuses = enemy.statuses.filter((status) => status !== meal);
+      fight.hunger = Math.min(STAR_EATER.maxStacks, (fight.hunger || 0) + 1);
+      replies.push(`Star-Eater's Hunger devours the ${enemy.name}'s ${STATUSES[meal.id].name} effect (+${Math.round(fight.hunger * STAR_EATER.bonus * 100)}% damage)!`);
+      healPlayer(s, Math.round(s.maxHealth * STAR_EATER.heal), replies, "Star-Eater's Hunger");
+    }
+  }
+  if (dealt > 0) skill?.onHit?.(ctx);
+  if (dealt > 0 && enemy.hp > 0) {
     if (ab.ignite && Math.random() < ab.ignite)
       inflictOnEnemy("burn", { turns: 3, power: 0.04 }, replies);
     if (ab.weakened && Math.random() < ab.weakened)
@@ -922,6 +1035,22 @@ export function attackRound(type, skillKey) {
       const poison = enemy.statuses.find((status) => status.id === "poison");
       if (poison) poison.stacks = stacks;
       replies.push(`Bloom of Decay grows to ${stacks} poison stack${stacks === 1 ? "" : "s"}.`);
+    }
+    if (ab.uniqueEffects.includes("saltbloodTide")) {
+      inflictOnEnemy("bleed", SALTBLOOD_TIDE.bleed, replies);
+      fight.tideHits = (fight.tideHits || 0) + 1;
+      const bleed = enemy.statuses.find((status) => status.id === "bleed");
+      if (fight.tideHits >= SALTBLOOD_TIDE.every && bleed) {
+        fight.tideHits = 0;
+        const burst = bleedRemaining(bleed, enemy.maxHp);
+        enemy.statuses = enemy.statuses.filter((status) => status !== bleed);
+        dealEnemyDamage(burst);
+        replies.push(`Saltblood Tide breaks, drawing out the bleed for ${damageNumber(burst, [
+          `Bleed: ${enemy.maxHp} × ${bleed.power} × ${bleed.stacks} for ${bleed.turns} round(s).`,
+          `All at once: ${burst}.`,
+        ])} damage!`);
+        healPlayer(s, Math.min(Math.round(burst * SALTBLOOD_TIDE.healShare), Math.round(s.maxHealth * SALTBLOOD_TIDE.healCap)), replies, "Saltblood Tide");
+      }
     }
     if (cls === "Trickster" && Math.random() < HEX_CHANCE)
       inflictOnEnemy(
@@ -993,3 +1122,119 @@ export function consumeItemRound(key) {
     used: true,
   };
 }
+
+const serializeFight = (state) => ({
+  ...state,
+  kinds: [...state.kinds],
+  starKinds: [...state.starKinds],
+});
+const restoreFight = (state) => ({
+  ...state,
+  kinds: new Set(state.kinds || []),
+  starKinds: new Set(state.starKinds || []),
+});
+
+// Reuse PvE actions without touching the local character or an existing PvE fight.
+const withContestContext = (context, work) => {
+  const previous = { enemy, playerDefending, playerStatuses, fight, openingReplies, contestContext };
+  contestContext = context;
+  try {
+    return work();
+  } finally {
+    ({ enemy, playerDefending, playerStatuses, fight, openingReplies, contestContext } = previous);
+  }
+};
+
+export const createContestFighter = (player) => withContestContext({ player }, () => {
+  startCombat({ name: "Contest opponent", maxHp: 1, speed: 0 });
+  return {
+    player,
+    combat: serializeFight(fight),
+    statuses: [],
+    defending: false,
+  };
+});
+
+function defendContestStrike(amount, s, replies) {
+  const defender = contestContext.defender;
+  const state = defender.combat;
+  const stats = defender.player.stats;
+  if (Math.random() < Math.min(MAX_PLAYER_CHANCE, stats.evasion || 0)) {
+    replies.push(`${enemy.name} evades the attack!`);
+    return 0;
+  }
+  if (state.cls === "Duelist" && Math.random() < PARRY_CHANCE) {
+    damagePlayer(s, Math.max(1, Math.round(roll(stats.attackMin, stats.attackMax) * PARRY_COUNTER - s.defense)), replies);
+    replies.push(`${enemy.name} parries and ripostes!`);
+    return 0;
+  }
+  state.combo = 0;
+  amount = Math.max(1, Math.round(amount * (1 - Math.min(DAMAGE_REDUCTION_CAP, state.ab.damageReduction || 0))));
+  if (state.ward > 0) {
+    const absorbed = Math.min(state.ward, amount);
+    state.ward -= absorbed;
+    amount -= absorbed;
+    replies.push(`${enemy.name}'s Marrow Ward absorbs ${absorbed} damage.`);
+  }
+  if (amount > 0) {
+    const { remaining, absorbed } = absorbDamage(enemy.statuses, amount);
+    if (absorbed) {
+      amount = remaining;
+      replies.push(`${enemy.name}'s barrier absorbs ${absorbed} damage.`);
+    }
+  }
+  if (state.ab.uniqueEffects.includes("temperedSteel")) {
+    state.temperedStrikes += 1;
+    if (state.temperedStrikes === 2) {
+      state.temperedStrikes = 0;
+      amount = 0;
+      damagePlayer(s, Math.max(1, Math.round(stats.attackMax * 0.6 - s.defense)), replies);
+      replies.push(`${enemy.name}'s Tempered Steel counters!`);
+    }
+  }
+  if (state.ab.reflect && amount > 0)
+    damagePlayer(s, Math.max(1, Math.round(amount * state.ab.reflect)), replies);
+  if (enemy.defending && state.cls === "Swordsman")
+    damagePlayer(s, Math.max(1, Math.round(roll(stats.attackMin, stats.attackMax) * BULWARK_COUNTER - s.defense)), replies);
+  if (state.ab.uniqueEffects.includes("frozenResolve") && Math.random() < 0.1)
+    inflictOnPlayer("stun", {}, replies);
+  return amount;
+}
+
+export const playContestAction = (actor, target, action) => {
+  const attacker = JSON.parse(JSON.stringify(actor));
+  const defender = JSON.parse(JSON.stringify(target));
+  defender.combat.ab = getAbilityTotals(defender.player);
+  const context = { player: attacker.player, defender, reactions: [] };
+  return withContestContext(context, () => {
+    fight = restoreFight({ ...attacker.combat, ab: getAbilityTotals(attacker.player) });
+    playerStatuses = attacker.statuses || [];
+    playerDefending = false;
+    enemy = {
+      name: defender.player.name,
+      hp: defender.player.stats.health,
+      maxHp: defender.player.stats.maxHealth,
+      defense: defender.player.stats.defense,
+      speed: Math.round(defender.player.stats.speed * (1 + (defender.combat.ab.speedMult || 0))),
+      statuses: defender.statuses || [],
+      defending: defender.defending,
+      stunGrace: defender.combat.playerStunGrace,
+    };
+    let result;
+    if (action.type === "melee" || action.type === "magic") result = attackRound(action.type);
+    else if (action.type === "skill" && (attacker.player.equippedSkills || []).includes(action.key))
+      result = attackRound("melee", action.key);
+    else if (action.type === "defend") result = defendRound();
+    else if (action.type === "pass") result = passRound();
+    else if (action.type === "consume") result = consumeItemRound(action.key);
+    else throw new Error("Choose an available Contest action.");
+    if (result.used === false) throw new Error(result.replies.join(" "));
+    attacker.combat = serializeFight(fight);
+    attacker.statuses = playerStatuses;
+    attacker.defending = playerDefending;
+    defender.player.stats.health = enemy.hp;
+    defender.statuses = enemy.statuses;
+    defender.combat.playerStunGrace = enemy.stunGrace;
+    return { attacker, defender, replies: [...result.replies, ...context.reactions] };
+  });
+};

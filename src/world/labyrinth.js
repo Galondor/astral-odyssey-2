@@ -1,10 +1,12 @@
 import { getPlayer, setPlayer } from "../character/player";
+import { updateRecords } from "../character/records";
 import { gainExp } from "../character/stats";
 import { getEffectiveLevel } from "../combat/enemies";
 import { applyDeathPenalties, startCombat } from "../combat/combat";
 import { createUniqueItem } from "../items/items";
 import { addToMaterials } from "../items/materials";
 import { UNIQUES } from "./dungeonData";
+import { isInGroupDungeon } from "./groupState";
 
 export const LABYRINTH_MIN_LEVEL = 22;
 export const LABYRINTH_FLOOR_COUNT = 5;
@@ -232,6 +234,7 @@ export function enterLabyrinth() {
   if (!player) return { ok: false, message: "No character is loaded." };
   if ((player.level || 1) < LABYRINTH_MIN_LEVEL) return { ok: false, message: `The Labyrinth opens at level ${LABYRINTH_MIN_LEVEL}.` };
   if (player.dungeon) return { ok: false, message: "Finish your current dungeon before entering the Labyrinth." };
+  if (isInGroupDungeon()) return { ok: false, message: "Finish your group dungeon run before entering the Labyrinth." };
   const state = clone(getLabyrinthState(player));
   if (state.completed) return { ok: false, message: "This week's Labyrinth has already been cleared." };
   const floor = state.floors[state.currentFloor];
@@ -338,6 +341,7 @@ function grantFinalRewards(player, patch, replies, state, floor) {
   state.active = false;
   state.returnToLabyrinth = true;
   state.completedAt = Date.now();
+  updateRecords(player, patch, { increments: { labyrinthsCleared: 1 } });
   awardFragments(state, player, patch, 12);
   patch.astra = (patch.astra ?? player.astra ?? 0) + floor.level * 300;
   const leveled = gainExp({ ...player, ...patch, stats: patch.stats || player.stats }, floor.level * 1800);

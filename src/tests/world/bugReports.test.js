@@ -30,11 +30,18 @@ test("submits a trimmed bug report with the signed-in player's identity", async 
   expect(set).toHaveBeenCalledWith("new-report", {
     uid: "player-1",
     playerName: "Nova",
+    type: "bug",
     title: "Stuck in combat",
     description: "The exit button does nothing.",
     createdAt: expect.any(Number),
     status: "open",
   });
+});
+
+test("stores the selected game feedback type", async () => {
+  await submitBugReport({ type: "feedback", title: "More quests", description: "Add more side quests." });
+
+  expect(set).toHaveBeenCalledWith("new-report", expect.objectContaining({ type: "feedback" }));
 });
 
 test.each([
@@ -43,6 +50,15 @@ test.each([
   [{ title: "x".repeat(101), description: "Description" }, /title/],
 ])("rejects invalid report content", async (report, message) => {
   await expect(submitBugReport(report)).rejects.toThrow(message);
+  expect(set).not.toHaveBeenCalled();
+});
+
+test("rejects an invalid report type", async () => {
+  await expect(submitBugReport({
+    type: "other",
+    title: "Title",
+    description: "Description",
+  })).rejects.toThrow(/bug or game feedback/);
   expect(set).not.toHaveBeenCalled();
 });
 

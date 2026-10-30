@@ -145,6 +145,31 @@ export const UNIQUES = {
     ability: "Colossus Breaker",
     subStats: ["maxPower", "defense", "speed", "criticalDamage", "attackPercent", "magicAttackPercent"],
   },
+  // Group dungeon boss uniques (see groupDungeonData.js)
+  varethCutlass: {
+    id: "varethCutlass",
+    name: "Vareth's Saltblood Cutlass",
+    slot: "weapon",
+    stat: "dexterity",
+    ability: "Saltblood Tide",
+    subStats: ["attackMin", "attackMax", "magicAttackMin", "magicAttackMax", "attackPercent", "magicAttackPercent"],
+  },
+  chronarchEscapement: {
+    id: "chronarchEscapement",
+    name: "Chronarch's Escapement",
+    slot: "offhand",
+    stat: "intelligence",
+    ability: "Chronal Loop",
+    subStats: ["speed", "resilience", "vitality", "agility", "luck", "magicAttackPercent"],
+  },
+  starEaterCrown: {
+    id: "starEaterCrown",
+    name: "Crown of the Star-Eater",
+    slot: "helmet",
+    stat: "strength",
+    ability: "Star-Eater's Hunger",
+    subStats: ["resilience", "vitality", "agility", "luck", "attackPercent", "magicAttackPercent"],
+  },
 };
 
 const stun = (chance) => ({ id: "stun", chance });

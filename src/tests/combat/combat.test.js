@@ -48,6 +48,82 @@ test("combat rounds start at one and advance after each completed player turn", 
   expect(getCombatRound()).toBe(2);
 });
 
+test("victories record enemy tier kills and the highest single hit", () => {
+  startCombat({
+    name: "Basic Target",
+    tier: "basic",
+    maxHp: 1,
+    defense: 0,
+    speed: 1,
+    abilities: [],
+  });
+
+  const result = attackRound("melee");
+
+  expect(result.over).toBe(true);
+  expect(setPlayer).toHaveBeenCalledWith(
+    expect.objectContaining({
+      records: expect.objectContaining({
+        basicEnemiesKilled: 1,
+        mostDamageDealt: 1,
+      }),
+    }),
+  );
+});
+
+test("Colosseum victories halve astra and experience and award only their configured material", () => {
+  getPlayer.mockReturnValue({
+    ...player,
+    astra: 100,
+    inventory: [],
+    stats: { ...player.stats, exp: 0 },
+  });
+  startCombat({
+    name: "Pit Recruit",
+    tier: "basic",
+    maxHp: 1,
+    astra: 11,
+    exp: 9,
+    attack: [1, 1],
+    defense: 0,
+    speed: 1,
+    abilities: [],
+    colosseum: true,
+    colosseumWave: 4,
+    drops: [{ key: "broken_blade_fragments", chance: 1, min: 1, max: 1 }],
+    dropChance: 1,
+  });
+  jest.spyOn(Math, "random").mockReturnValue(0);
+
+  const result = attackRound("melee");
+  const patch = setPlayer.mock.calls.at(-1)[0];
+
+  expect(result.outcome).toBe("victory");
+  expect(result.replies.join(" ")).toContain("You gain 4 exp and 5");
+  expect(patch.astra).toBe(105);
+  expect(patch.records.highestClearedColosseumWave).toBe(4);
+  expect(patch.materials).toEqual({ broken_blade_fragments: 1 });
+  expect(patch.inventory).toBeUndefined();
+  expect(patch.gemstones).toBeUndefined();
+});
+
+test("an uncleared Colosseum wave never increases the cleared-wave record", () => {
+  getPlayer.mockReturnValue({
+    ...player,
+    records: { highestClearedColosseumWave: 3 },
+  });
+  startCombat({
+    name: "Pit Recruit",
+    maxHp: 1000,
+    defense: 0,
+    speed: 1,
+    colosseum: true,
+    colosseumWave: 4,
+  });
+  attackRound("melee");
+  expect(setPlayer.mock.calls.at(-1)[0].records.highestClearedColosseumWave).toBe(3);
+});
+
 test("World Boss combat ends after ten completed rounds", () => {
   getPlayer.mockReturnValue({ ...player, equipment: {} });
   startCombat({
@@ -492,3 +568,54 @@ test.each([[0, true], [0.009999, true], [0.01, false]])(
     expect(replies.some((line) => line.includes("Rune of Unpredictability"))).toBe(drops);
   },
 );
+
+const uniquePlayer = (slot, name, stats = {}) => ({
+  ...player,
+  equipment: { [slot]: { ability: { name } } },
+  stats: { ...player.stats, attackMin: 10, attackMax: 10, health: 50, ...stats },
+});
+
+test("Saltblood Tide bleeds the enemy and every 4th hit draws out the bleed to heal", () => {
+  getPlayer.mockReturnValue(uniquePlayer("weapon", "Saltblood Tide"));
+  startCombat({ name: "Target", maxHp: 1000, defense: 0, speed: 1, attack: [1, 1], abilities: [] });
+  jest.spyOn(Math, "random").mockReturnValue(0.5);
+
+  const early = [attackRound("melee"), attackRound("melee"), attackRound("melee")];
+  expect(getEnemy().statuses.some(({ id }) => id === "bleed")).toBe(true);
+  expect(early.some(({ replies }) => replies.some((r) => r.includes("Saltblood Tide breaks")))).toBe(false);
+
+  const { replies } = attackRound("melee");
+  expect(replies.some((r) => r.startsWith("Saltblood Tide breaks") && r.includes("{{90|"))).toBe(true);
+  expect(replies).toContain("Saltblood Tide: you recover [green]15[/green] health.");
+  expect(getEnemy().statuses.some(({ id }) => id === "bleed")).toBe(false);
+});
+
+test("Chronal Loop echoes every third action at 30% power", () => {
+  getPlayer.mockReturnValue(uniquePlayer("offhand", "Chronal Loop"));
+  startCombat({ name: "Target", maxHp: 1000, defense: 0, speed: 1, attack: [1, 1], abilities: [] });
+  jest.spyOn(Math, "random").mockReturnValue(0.5);
+
+  const first = attackRound("melee");
+  const second = attackRound("melee");
+  const third = attackRound("melee");
+
+  const echoed = (result) => result.replies.some((r) => r.startsWith("Chronal Loop"));
+  expect(echoed(first) || echoed(second)).toBe(false);
+  expect(third.replies.some((r) => r.startsWith("Chronal Loop: your strike echoes") && r.includes("{{3|"))).toBe(true);
+  expect(getEnemy().hp).toBe(1000 - 30 - 3);
+});
+
+test("Star-Eater's Hunger devours an enemy buff, heals, and stacks damage", () => {
+  getPlayer.mockReturnValue(uniquePlayer("helmet", "Star-Eater's Hunger"));
+  startCombat({ name: "Target", maxHp: 1000, defense: 0, speed: 1, attack: [1, 1], abilities: [] });
+  getEnemy().statuses.push({ id: "enrage", turns: 3, power: 0.5, stacks: 1 });
+  jest.spyOn(Math, "random").mockReturnValue(0.5);
+
+  const first = attackRound("melee");
+  expect(first.replies.some((r) => r.includes("Star-Eater's Hunger devours the Target's Enraged effect (+15% damage)"))).toBe(true);
+  expect(first.replies).toContain("Star-Eater's Hunger: you recover [green]10[/green] health.");
+  expect(getEnemy().statuses.some(({ id }) => id === "enrage")).toBe(false);
+
+  const second = attackRound("melee");
+  expect(second.replies.some((r) => r.includes("{{12|"))).toBe(true);
+});

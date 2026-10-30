@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import AdminScreen from "../../ui/AdminScreen";
 import { resolveBugReport, subscribeBugReports } from "../../world/bugReports";
+import { resetPlayerData, resetServerData } from "../../world/adminData";
 import {
   administerPlayerTimer,
   describeAttachments,
@@ -37,6 +38,10 @@ jest.mock("../../world/bugReports", () => ({
   resolveBugReport: jest.fn(),
   subscribeBugReports: jest.fn(),
 }));
+jest.mock("../../world/adminData", () => ({
+  resetPlayerData: jest.fn(),
+  resetServerData: jest.fn(),
+}));
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -51,6 +56,7 @@ beforeEach(() => {
       id: "report-1",
       title: "Quest cannot complete",
       description: "The final objective never updates.",
+      type: "feedback",
       playerName: "Nova",
       uid: "player-1",
       createdAt: 1000,
@@ -77,20 +83,89 @@ test("admins can refresh a selected player's timer and grant a Labyrinth attempt
   await waitFor(() => expect(administerPlayerTimer).toHaveBeenCalledWith("player-1", "dungeons"));
   await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Dungeons timer refreshed."));
 
+  fireEvent.change(screen.getByLabelText("Timer"), { target: { value: "colosseum" } });
+  fireEvent.click(screen.getByRole("button", { name: "Force refresh timer" }));
+  await waitFor(() => expect(administerPlayerTimer).toHaveBeenCalledWith("player-1", "colosseum"));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Colosseum timer refreshed."));
+
   fireEvent.click(screen.getByRole("button", { name: "Grant another Labyrinth attempt" }));
   await waitFor(() => expect(grantLabyrinthAttempt).toHaveBeenCalledWith("player-1"));
   expect((await screen.findByRole("status")).textContent).toContain("A fresh Labyrinth attempt has been granted.");
 });
 
-test("admins can view player reports and resolve them", async () => {
+test("Data tab requires exact character confirmation and supports cancel before resetting", async () => {
+  getDirectory.mockResolvedValue([{ uid: "player-1", name: "Nova", level: 22 }]);
+  resetPlayerData.mockResolvedValue();
   render(<AdminScreen />);
-  fireEvent.click(screen.getByRole("tab", { name: "Bugs" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Data" }));
+  expect(screen.getByRole("button", { name: "Reset player data" }).disabled).toBe(true);
+  await screen.findByRole("option", { name: "Nova (Lv 22)" });
+  fireEvent.change(screen.getByLabelText("Player"), { target: { value: "player-1" } });
+  fireEvent.click(screen.getByRole("button", { name: "Reset player data" }));
+  expect(screen.getByRole("button", { name: "Permanently reset player" }).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(resetPlayerData).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Reset player data" }));
+  fireEvent.change(screen.getByLabelText(/Type "Nova"/), { target: { value: "Nova" } });
+  fireEvent.click(screen.getByRole("button", { name: "Permanently reset player" }));
+  await waitFor(() => expect(resetPlayerData).toHaveBeenCalledWith("player-1", "Nova"));
+  expect((await screen.findByRole("status")).textContent).toContain("Nova has been reset");
+  expect(resetServerData).not.toHaveBeenCalled();
+});
+
+test("server reset requires the explicit server phrase and disables duplicate submissions", async () => {
+  let finish;
+  resetServerData.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  render(<AdminScreen />);
+  fireEvent.click(screen.getByRole("tab", { name: "Data" }));
+  fireEvent.click(screen.getByRole("button", { name: "Reset server data" }));
+  const confirm = screen.getByRole("button", { name: "Permanently reset server" });
+  fireEvent.change(screen.getByLabelText(/Type "RESET SERVER"/), { target: { value: "reset server" } });
+  expect(confirm.disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText(/Type "RESET SERVER"/), { target: { value: "RESET SERVER" } });
+  fireEvent.click(confirm);
+  expect(screen.getByRole("button", { name: "Resetting..." }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Cancel" }).disabled).toBe(true);
+  finish(5);
+  expect((await screen.findByRole("status")).textContent).toContain("5 characters reset");
+  expect(resetServerData).toHaveBeenCalledTimes(1);
+});
+
+test("reset errors are shown without a success message", async () => {
+  const errorLog = jest.spyOn(console, "error").mockImplementation(() => {});
+  resetServerData.mockRejectedValue(new Error("Permission denied"));
+  render(<AdminScreen />);
+  fireEvent.click(screen.getByRole("tab", { name: "Data" }));
+  fireEvent.click(screen.getByRole("button", { name: "Reset server data" }));
+  fireEvent.change(screen.getByLabelText(/Type "RESET SERVER"/), { target: { value: "RESET SERVER" } });
+  fireEvent.click(screen.getByRole("button", { name: "Permanently reset server" }));
+  expect((await screen.findByRole("status")).textContent).toContain("Reset failed: Permission denied");
+  expect(screen.getByRole("button", { name: "Permanently reset server" }).disabled).toBe(false);
+  errorLog.mockRestore();
+});
+
+test("admins can view and resolve categorized player messages", async () => {
+  render(<AdminScreen />);
+  fireEvent.click(screen.getByRole("tab", { name: "Player Messages" }));
 
   expect(await screen.findByText("Quest cannot complete")).toBeTruthy();
+  expect(screen.getByText("Game feedback")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
 
   await waitFor(() => expect(resolveBugReport).toHaveBeenCalledWith("report-1"));
   expect(await screen.findByRole("status")).toBeTruthy();
+});
+
+test("legacy player reports without a type are displayed as bugs", async () => {
+  subscribeBugReports.mockImplementation((onReports) => {
+    onReports([{ id: "legacy-report", title: "Old report", status: "open" }]);
+    return jest.fn();
+  });
+  render(<AdminScreen />);
+  fireEvent.click(screen.getByRole("tab", { name: "Player Messages" }));
+
+  expect(await screen.findByText("Old report")).toBeTruthy();
+  expect(screen.getByText("Bug")).toBeTruthy();
 });
 
 test.each(["broadcast", "individual"])("admins can attach runes to a %s message", async (mode) => {

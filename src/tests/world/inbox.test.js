@@ -1,6 +1,6 @@
-import { get, onValue, set } from "firebase/database";
+import { get, onValue, set, update } from "firebase/database";
 import { commitPlayerChange, getPlayer, setPlayer } from "../../character/player";
-import { claimMessage, describeAttachments, getMessages, hasAttachments, normalizeAttachments, sendMessage, startInbox } from "../../world/inbox";
+import { administerPlayerTimer, claimMessage, describeAttachments, getMessages, hasAttachments, normalizeAttachments, sendMessage, startInbox } from "../../world/inbox";
 import { UNIQUES } from "../../world/dungeonData";
 import { createCustomItem } from "../../items/items";
 
@@ -14,6 +14,7 @@ jest.mock("firebase/database", () => ({
   get: jest.fn(async () => ({ val: () => false })),
   push: (path) => `${path}/sent`,
   set: jest.fn(),
+  update: jest.fn(),
 }));
 
 let player;
@@ -43,7 +44,37 @@ test("claim flags and granted rewards are submitted in the same player commit", 
     "inboxState/alice/gift/claimed": true,
     "inboxState/alice/gift/read": true,
   });
+
   expect(commitPlayerChange).toHaveBeenCalledTimes(1);
+});
+
+test.each([false, true])("admin Colosseum resets preserve progress and bump save revisions (character=%s)", async (character) => {
+  stop();
+  get.mockImplementation(async (path) => ({
+    val: () => path === "admins/admin" ? true
+      : path === "characterOwners/target" && character
+        ? { accountId: "account", characterId: "1".repeat(40) }
+        : path.endsWith("/saveRevision") ? 7 : null,
+  }));
+  stop = startInbox("admin", () => {});
+  await Promise.resolve();
+
+  await administerPlayerTimer("target", "colosseum");
+
+  const accountId = character ? "account" : "target";
+  const playerPath = character
+    ? `users/account/characters/${"1".repeat(40)}/player`
+    : "users/target/player";
+  expect(update).toHaveBeenCalledWith(undefined, {
+    [`users/${accountId}/saveRevision`]: 8,
+    [`${playerPath}/lastColosseumRunAt`]: null,
+  });
+});
+
+test("non-admins cannot force-refresh a Colosseum timer", async () => {
+  await Promise.resolve();
+  await expect(administerPlayerTimer("target", "colosseum")).rejects.toThrow("Admin access is required.");
+  expect(update).not.toHaveBeenCalled();
 });
 
 test("title mail only grants catalog titles when claimed and equips the first claimed title", async () => {

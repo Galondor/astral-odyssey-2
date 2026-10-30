@@ -77,6 +77,31 @@ test("shared health is derived from all players' damage and ranked by contributi
   expect(summary.fighters.map(({ name }) => name)).toEqual(["Alice", "Bryn"]);
 });
 
+test("admin damage still affects shared health without occupying a rank", () => {
+  const summary = summarizeWorldBoss({
+    admin: { name: "Admin", damage: 720_000 },
+    alice: { name: "Alice", damage: 280_000 },
+  }, ["admin"]);
+  expect(summary.health).toBe(0);
+  expect(summary.fighters.map(({ name }) => name)).toEqual(["Alice"]);
+});
+
+test("admin-owned characters are excluded from World Boss placement rewards", async () => {
+  state.set("admins", { admin: true });
+  state.set("characterOwners/admin-character/accountId", "admin");
+  const participants = {
+    "admin-character": { name: "Admin", damage: 600_000 },
+    alice: { name: "Alice", damage: 400_000 },
+  };
+
+  await deliverWorldBossRewards("no-admin-ranks", participants);
+  expect(state.get("worldBossMail/alice/no-admin-ranks").attachments.astra).toBe(850_000);
+
+  getCharacterIdentity.mockReturnValue("admin-character");
+  await deliverWorldBossRewards("no-admin-reward", participants);
+  expect(state.has("worldBossMail/admin-character/no-admin-reward")).toBe(false);
+});
+
 test("the unique drop chance scales to 15% for first place and bottoms at 1%", () => {
   expect(getWorldBossUniqueDropChance(1)).toBe(15);
   expect(getWorldBossUniqueDropChance(2)).toBeCloseTo(13.6);

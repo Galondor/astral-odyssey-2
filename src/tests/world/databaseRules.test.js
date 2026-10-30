@@ -12,6 +12,12 @@ test("marketplace rules accept exactly the current consumable catalog", () => {
   expect(allowedKeys.sort()).toEqual(Object.keys(CONSUMABLES).sort());
 });
 
+test("player message rules allow only bug and feedback categories", () => {
+  const typeValidation = databaseRules.rules.bugReports.$reportId.type[".validate"];
+  expect(typeValidation).toBe("newData.val() === 'bug' || newData.val() === 'feedback'");
+  expect(databaseRules.rules.bugReports.$reportId[".validate"]).not.toContain("'type'");
+});
+
 // Optional integration tier: run against an isolated Firebase Database emulator.
 // Start with: firebase emulators:start --only database --project demo-name-elixir
 // Then set DATABASE_RULES_TEST_URL to its local URL before running npm test.
@@ -87,6 +93,9 @@ rulesTests("Firebase name and consumable marketplace rules", () => {
       characterOwners: {
         "character-player": { accountId: "account", characterId },
       },
+      characterSlots: {
+        account: { 0: { index: 0, characterId } },
+      },
       directory: { seller: { name: "Seller", level: 10 } },
       characterNames: { Seller: "seller" },
       marketplace: { test: listing() },
@@ -104,6 +113,40 @@ rulesTests("Firebase name and consumable marketplace rules", () => {
     expect((await request("PUT", "characterNames/Nova", "buyer", "buyer")).status).toBe(200);
     expect((await request("PUT", "characterNames/Nova", "seller", "seller")).status).toBe(401);
     expect((await request("GET", "characterNames/Nova", undefined, "buyer")).body).toBe("buyer");
+  });
+
+  test("admins cannot publish leaderboard rankings for legacy or character identities and old entries can be removed", async () => {
+    const entry = {
+      name: "Admin", level: 10, gearScore: 0, astra: 0,
+      highestClearedColosseumWave: 0, updatedAt: { ".sv": "timestamp" },
+    };
+    await request("PUT", "users/admin/player", { name: "Admin", level: 10 }, "owner");
+    await request("PUT", "characterOwners/admin-character", { accountId: "admin", characterId }, "owner");
+    await request("PUT", `users/admin/characters/${characterId}/player`, { name: "Admin", level: 10 }, "owner");
+    for (const identity of ["admin", "admin-character"]) {
+      expect((await request("PUT", `leaderboardEntries/${identity}`, entry, "admin")).status).toBe(401);
+      await request("PUT", `leaderboardEntries/${identity}`, entry, "owner");
+      expect((await request("DELETE", `leaderboardEntries/${identity}`, undefined, "seller")).status).toBe(200);
+      expect((await request("GET", `leaderboardEntries/${identity}`, undefined, "seller")).body).toBeNull();
+    }
+    expect((await request("DELETE", "leaderboardEntries/seller", undefined, "buyer")).status).toBe(401);
+  });
+
+  test("Colosseum leaderboard scores must match cleared waves in the saved player", async () => {
+    await request("PATCH", "users/seller/player", {
+      level: 10, records: { highestClearedColosseumWave: 8 },
+    }, "owner");
+    const entry = {
+      name: "Seller", accountId: "seller", level: 10, gearScore: 0, astra: 0,
+      highestClearedColosseumWave: 9, updatedAt: { ".sv": "timestamp" },
+    };
+    expect((await request("PUT", "leaderboardEntries/seller", entry, "seller")).status).toBe(401);
+    expect((await request("PUT", "leaderboardEntries/seller", {
+      ...entry, highestClearedColosseumWave: 8, accountId: "someone-else",
+    }, "seller")).status).toBe(401);
+    expect((await request("PUT", "leaderboardEntries/seller", {
+      ...entry, highestClearedColosseumWave: 8,
+    }, "seller")).status).toBe(200);
   });
 
   test("name creation requires a reservation, and saves the player immediately", async () => {
@@ -159,6 +202,34 @@ rulesTests("Firebase name and consumable marketplace rules", () => {
       .toMatchObject({ dungeonBoard: { slot: 3 } });
     expect((await request("GET", `users/account/characters/${characterId}`, undefined, "account")).body.player.labyrinth)
       .toBeUndefined();
+  });
+
+  test.each(["seller", "account"])("only admins can clear another player's Colosseum cooldown (%s)", async (accountId) => {
+    const playerPath = accountId === "seller"
+      ? "users/seller/player"
+      : `users/account/characters/${characterId}/player`;
+    await request("PATCH", playerPath, {
+      lastColosseumRunAt: Date.now(),
+      records: { highestClearedColosseumWave: 12 },
+    }, "owner");
+    const currentRevision = accountId === "seller" ? 0 : 4;
+    const updates = {
+      [`users/${accountId}/saveRevision`]: currentRevision + 1,
+      [`${playerPath}/lastColosseumRunAt`]: null,
+    };
+    expect((await request("PATCH", "", updates, "buyer")).status).toBe(401);
+    expect((await request("PATCH", "", {
+      ...updates, [`${playerPath}/lastColosseumRunAt`]: 1,
+    }, "admin")).status).toBe(401);
+    expect((await request("PATCH", "", updates, "admin")).status).toBe(200);
+    const saved = (await request("GET", playerPath, undefined, accountId)).body;
+    expect(saved.lastColosseumRunAt).toBeUndefined();
+    expect(saved.records.highestClearedColosseumWave).toBe(12);
+    expect((await request("GET", `users/${accountId}/saveRevision`, undefined, accountId)).body)
+      .toBe(currentRevision + 1);
+    expect((await request("PATCH", playerPath, {
+      records: { highestClearedColosseumWave: 99 },
+    }, "admin")).status).toBe(401);
   });
 
   test.each([...consumableItems, sword, slimeGel, ruby])("sellers can list and cancel $name", async (item) => {
