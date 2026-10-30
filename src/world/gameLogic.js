@@ -1,4 +1,4 @@
-import { Player, getPlayer, savePlayerName, setPlayer } from "../character/player";
+import { getPlayer, savePlayerName, setPlayer } from "../character/player";
 import { runTravelEvent } from "./events";
 import { expireIfNeeded, getDungeonOptions, getDungeonText, isInDungeon } from "./dungeons";
 import { isLabyrinthActive } from "./labyrinth";
@@ -182,7 +182,6 @@ export const scenes = {
       {
         label: "Town",
         tooltip: () => {
-          const p = getPlayer();
           return {
             title: "Town",
             description: "Visit the town to access various services.",
@@ -211,7 +210,6 @@ export const scenes = {
     input: INPUT_MODES[0],
     clearLog: true,
     text: () => {
-      const p = getPlayer();
       return `You have arrived at the portal.`;
     },
     options: [
@@ -408,7 +406,6 @@ export const scenes = {
     input: INPUT_MODES[0],
     clearLog: true,
     text: () => {
-      const p = getPlayer();
       return `You are traveling...`;
     },
     options: [
@@ -424,7 +421,6 @@ export const scenes = {
     input: INPUT_MODES[1],
     clearLog: true,
     text: () => {
-      const p = getPlayer();
       return `You have arrived in town.`;
     },
     options: [
@@ -689,7 +685,6 @@ export const scenes = {
     input: INPUT_MODES[2],
     clearLog: true,
     text: () => {
-      const p = getPlayer();
       return `Welcome to the Inn. Rest and recover your strength.`;
     },
     options: [

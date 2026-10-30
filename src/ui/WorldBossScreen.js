@@ -7,7 +7,6 @@ import {
   forceWorldBossRespawn,
   getWorldBossError,
   getWorldBossTentativeRewards,
-  getWorldBossUniqueDropChance,
   hasPendingWorldBossAttempt,
   retryWorldBossAttempt,
   startWorldBossAttempt,
