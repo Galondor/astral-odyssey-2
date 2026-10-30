@@ -30,7 +30,7 @@ test("shows searchable character details, disables private profiles, and opens p
     astra: 300,
     rep: 80,
   });
-  render(<CharacterSearch excludeIdentity='self-id' />);
+  const { container } = render(<nav className='navbar'><CharacterSearch excludeIdentity='self-id' /></nav>);
 
   fireEvent.change(screen.getByRole("combobox", { name: "Search characters" }), { target: { value: "no" } });
   const privateResult = await screen.findByRole("option", { name: /NoraPrivate.*Level 12 Duelist.*Gear score 320.*Private profile/ });
@@ -40,11 +40,16 @@ test("shows searchable character details, disables private profiles, and opens p
 
   const publicResult = await screen.findByRole("option", { name: /Nova.*Level 20 Spellblade.*Gear score 850/ });
   fireEvent.click(publicResult);
-  expect(await screen.findByRole("dialog", { name: "Nova's character profile" })).toBeTruthy();
+  const dialog = await screen.findByRole("dialog", { name: "Nova's character profile" });
+  expect(dialog.parentElement.parentElement).toBe(document.body);
+  expect(container.contains(dialog)).toBe(false);
   expect(screen.getByText(/Sharpening Stone × 2/)).toBeTruthy();
   expect(screen.getByText("Backstab — Level 3").closest("li").textContent).toBe("Backstab — Level 3");
   expect(screen.getByText("Analyzer").closest("li").textContent).toBe("Analyzer");
   expect(loadPublicProfile).toHaveBeenCalledWith("public-id");
+
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
 });
 
 test("the character popup opens settings and saves the Public Profile option", async () => {

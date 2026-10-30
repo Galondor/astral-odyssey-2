@@ -34,7 +34,7 @@
     "providers": {
       "emailPassword": true,
       "googleSignIn": {
-        "oAuthBrandDisplayName": "astral-odyssey-two",
+        "oAuthBrandDisplayName": "Astral Odyssey 2",
         "supportEmail": "support@astral-odyssey-two.firebaseapp.com"
       }
     }

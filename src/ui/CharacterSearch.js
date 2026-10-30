@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { KEY_ITEMS } from "../items/consumables";
 import { RECIPES, getCraftedCount } from "../items/workshop";
 import { itemTooltip, RARITY_COLORS, SLOTS } from "../items/items";
@@ -213,14 +214,15 @@ export default function CharacterSearch({ excludeIdentity }) {
           </div>
         )}
       </div>
-      {profileLoading && <div className='character-profile-status' role='status'>Loading character profile...</div>}
-      {profileError && (
+      {profileLoading && createPortal(<div className='character-profile-status' role='status'>Loading character profile...</div>, document.body)}
+      {profileError && createPortal(
         <div className='character-profile-error' role='alert'>
           <p>{profileError}</p>
           <button type='button' className='buttons' onClick={() => setProfileError(null)}>Close</button>
-        </div>
+        </div>,
+        document.body,
       )}
-      {profile && <PublicCharacterProfile profile={profile} onClose={() => setProfile(null)} />}
+      {profile && createPortal(<PublicCharacterProfile profile={profile} onClose={() => setProfile(null)} />, document.body)}
     </>
   );
 }
