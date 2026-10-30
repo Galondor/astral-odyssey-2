@@ -1,6 +1,8 @@
 import {
   createLabyrinth,
+  enterLabyrinth,
   LABYRINTH_FLOOR_COUNT,
+  leaveLabyrinth,
   moveInLabyrinth,
   solveLabyrinthPuzzle,
 } from "../../world/labyrinth";
@@ -67,7 +69,7 @@ beforeEach(() => {
   });
 });
 
-test("each Labyrinth move costs five stamina and refuses moves below the cost", () => {
+test("each Labyrinth move costs two stamina and refuses moves below the cost", () => {
   const state = createLabyrinth(player);
   state.active = true;
   const nextTile = state.floors[0].tiles[1 * 9 + 2];
@@ -76,13 +78,26 @@ test("each Labyrinth move costs five stamina and refuses moves below the cost", 
   player.labyrinth = state;
 
   expect(moveInLabyrinth(2, 1)).toMatchObject({ ok: true });
-  expect(player.stats.stamina).toBe(25);
-  player.stats.stamina = 4;
+  expect(player.stats.stamina).toBe(28);
+  player.stats.stamina = 1;
   expect(moveInLabyrinth(3, 1)).toMatchObject({
     ok: false,
-    message: "You need 5 stamina to move. Return to a checkpoint to recover.",
+    message: "You need 2 stamina to move. Return to a checkpoint to recover.",
   });
-  expect(player.stats.stamina).toBe(4);
+  expect(player.stats.stamina).toBe(1);
+});
+
+test("leaving and resuming the Labyrinth preserves the saved position", () => {
+  const state = createLabyrinth(player);
+  state.active = true;
+  state.started = true;
+  state.floors[0].position = { x: 2, y: 1 };
+  player.labyrinth = state;
+
+  expect(leaveLabyrinth()).toMatchObject({ ok: true });
+  expect(player.labyrinth.floors[0].position).toEqual({ x: 2, y: 1 });
+  expect(enterLabyrinth()).toMatchObject({ ok: true });
+  expect(player.labyrinth.floors[0].position).toEqual({ x: 2, y: 1 });
 });
 
 test("a Labyrinth trap deals over a third of max health without reducing health below one", () => {

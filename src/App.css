@@ -205,6 +205,7 @@ input[type='checkbox']:disabled {
 .game-content {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1774,4 +1775,30 @@ input[type='checkbox']:disabled {
   }
   .group-controls .group-chat-overlay .group-chat-log { flex: 1; height: auto; min-height: 80px; }
   .group-chat-overlay .group-chat-close { display: inline-flex; align-items: center; justify-content: center; }
+}
+
+@media (max-height: 640px) {
+  .navbar {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  .game-content {
+    min-height: 0;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .game-screen {
+    min-height: 0;
+    padding: 8px;
+  }
+
+  .game-controls {
+    min-height: 0;
+    max-height: 40dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
 }

@@ -12,7 +12,7 @@ export const LABYRINTH_MIN_LEVEL = 22;
 export const LABYRINTH_FLOOR_COUNT = 5;
 export const LABYRINTH_MAX_RELICS = 5;
 export const LABYRINTH_MAX_FRAGMENTS_PER_WEEK = 95;
-export const LABYRINTH_STAMINA_PER_STEP = 5;
+export const LABYRINTH_STAMINA_PER_STEP = 2;
 
 const MAP_SIZE = 9;
 const START = { x: 1, y: 1 };
@@ -243,7 +243,6 @@ export function enterLabyrinth() {
     floor.checkpoint = { ...START };
     floor.position = { ...START };
   } else {
-    floor.position = { ...floor.checkpoint };
     const stats = { ...player.stats };
     stats.health = stats.maxHealth;
     stats.stamina = stats.maxStamina;
@@ -259,8 +258,6 @@ export function leaveLabyrinth() {
   const player = getPlayer();
   if (!player?.labyrinth) return { ok: false, message: "No Labyrinth expedition is active." };
   const state = clone(getLabyrinthState(player));
-  const floor = state.floors[state.currentFloor];
-  floor.position = { ...floor.checkpoint };
   state.active = false;
   state.returnToLabyrinth = false;
   persist({ labyrinth: state });
