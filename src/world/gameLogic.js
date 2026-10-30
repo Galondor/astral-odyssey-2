@@ -418,7 +418,7 @@ export const scenes = {
     ],
   },
   town: {
-    input: INPUT_MODES[1],
+    input: INPUT_MODES[0],
     clearLog: true,
     text: () => {
       return `You have arrived in town.`;
@@ -682,7 +682,7 @@ export const scenes = {
     options: [{ label: "Leave", keywords: ["leave", "1"], next: "town" }],
   },
   lodging: {
-    input: INPUT_MODES[2],
+    input: INPUT_MODES[0],
     clearLog: true,
     text: () => {
       return `Welcome to the Inn. Rest and recover your strength.`;
