@@ -414,7 +414,7 @@ function Game({ uid, onLogout, onMainMenu }) {
             }}>
               Quick guide
             </button>
-            <span className='sidebar-version' aria-label='Game version'>v0.3.0.0</span>
+            <span className='sidebar-version' aria-label='Game version'>v0.3.0.0-Alpha</span>
           </div>
         </nav>
         </div>
