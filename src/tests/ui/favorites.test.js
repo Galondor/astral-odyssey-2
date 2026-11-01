@@ -8,9 +8,14 @@ import { getHolofoilStyle } from "../../items/holofoil";
 import { listItem, subscribeListings } from "../../world/marketplace";
 import MarketplaceScreen from "../../ui/MarketplaceScreen";
 import { SCREENS } from "../../ui/screens";
+import { isAdmin } from "../../world/inbox";
 
 jest.mock("../../firebase", () => ({ db: {}, auth: { currentUser: { uid: "alice" } } }));
 jest.mock("../../ui/changelogFiles", () => ({ changelogFiles: [] }));
+jest.mock("../../world/inbox", () => ({
+  ...jest.requireActual("../../world/inbox"),
+  isAdmin: jest.fn(() => false),
+}));
 jest.mock("../../character/player", () => ({
   getPlayer: jest.fn(), setPlayer: jest.fn(), savePlayerName: jest.fn(),
   getInventoryItemKey: (item) => item?.id || JSON.stringify(item),
@@ -28,6 +33,7 @@ const sapphire = { ...ruby, id: "sapphire", name: "Rare Sapphire", type: "sapphi
 let player;
 beforeEach(() => {
   jest.clearAllMocks();
+  isAdmin.mockReturnValue(false);
   player = {
     name: "Alice", class: "Specialist", level: 25, astra: 1000,
     stats: { strength: 2, dexterity: 2, intelligence: 2 },
@@ -77,32 +83,99 @@ test("Titles inventory equips an owned title and clicking it again unequips it",
   expect(title).toHaveAttribute("aria-pressed", "false");
 });
 
-test("Gemstone selection opens a gear popup and equipped gemstones can be removed", () => {
-  player.inventory.push({ ...sword, id: "offhand", name: "Offhand Placeholder", twoHandedOf: "sword" });
+test("equipped gear popups socket gemstones via the picker and unsocket them for astra", () => {
   player.equipment = { mainHand: { ...helmet, id: "equipped-helmet" } };
   renderCharacter();
-  fireEvent.click(screen.getByRole("tab", { name: /Gemstones/ }));
 
-  const rubyCard = screen.getByRole("button", { name: /Rare Ruby/ });
-  expect(rubyCard).toHaveTextContent("Strength +3");
-  expect(screen.queryByText("Offhand Placeholder")).not.toBeInTheDocument();
-  expect(screen.getByText("No equipped gear has a gemstone socketed.")).toBeInTheDocument();
-
-  fireEvent.click(rubyCard);
-  const popup = screen.getByRole("dialog", { name: "Socket Rare Ruby" });
-  expect(within(popup).getByRole("button", { name: "Socket Rare Ruby into Zeta Helmet (Main Hand)" })).toBeInTheDocument();
-  expect(within(popup).queryByRole("button", { name: /Offhand Placeholder/ })).not.toBeInTheDocument();
-
-  fireEvent.click(within(popup).getByRole("button", { name: "Socket Rare Ruby into Zeta Helmet (Main Hand)" }));
+  fireEvent.click(screen.getByRole("button", { name: /Main Hand/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Socket gemstone" }));
+  const picker = screen.getByRole("dialog", { name: "Socket a gemstone into Zeta Helmet" });
+  expect(within(picker).getByRole("button", { name: "Socket Rare Sapphire into Zeta Helmet" })).toBeInTheDocument();
+  fireEvent.click(within(picker).getByRole("button", { name: "Socket Rare Ruby into Zeta Helmet" }));
 
   expect(player.gemstones).toEqual([sapphire]);
-  expect(player.equipment.mainHand.gemstone).toEqual(ruby);
-  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  expect(screen.getByText(/Socketed: Rare Ruby · Strength \+3/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Remove Rare Ruby from Zeta Helmet for 300 astra" }));
+  expect(player.equipment.mainHand.gemstones).toEqual([ruby]);
+  expect(screen.queryByRole("dialog", { name: /Socket a gemstone/ })).not.toBeInTheDocument();
+  expect(screen.getByText("Gemstone socketed.")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Unsocket gemstone (300 astra)" }));
   expect(player.gemstones).toEqual([sapphire, ruby]);
-  expect(player.equipment.mainHand.gemstone).toBeUndefined();
+  expect(player.equipment.mainHand.gemstones).toEqual([]);
   expect(player.astra).toBe(700);
+  expect(screen.getByText("Gemstone removed for 300 astra.")).toBeInTheDocument();
+});
+
+test("inventory gear popups socket gemstones with a searchable picker", () => {
+  renderCharacter();
+  fireEvent.click(screen.getByRole("button", { name: "Alpha Sword" }));
+  fireEvent.click(screen.getByRole("button", { name: "Socket gemstone" }));
+  const picker = screen.getByRole("dialog", { name: "Socket a gemstone into Alpha Sword" });
+  fireEvent.change(within(picker).getByRole("searchbox", { name: "Search gemstones" }), { target: { value: "sapphire" } });
+  expect(within(picker).queryByRole("button", { name: "Socket Rare Ruby into Alpha Sword" })).not.toBeInTheDocument();
+  fireEvent.click(within(picker).getByRole("button", { name: "Socket Rare Sapphire into Alpha Sword" }));
+
+  expect(player.gemstones).toEqual([ruby]);
+  expect(player.inventory[0].gemstones).toEqual([sapphire]);
+  expect(screen.queryByRole("dialog", { name: /Socket a gemstone/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Unsocket gemstone (300 astra)" }));
+  expect(player.inventory[0].gemstones).toEqual([]);
+  expect(player.gemstones).toEqual([ruby, sapphire]);
+});
+
+test.each(["inventory", "equipment"])("%s gear fills two sockets and removes a specific gemstone", (location) => {
+  const item = { ...sword, rarity: "Legendary", socketCount: 2 };
+  player.inventory = location === "inventory" ? [item] : [];
+  player.equipment = location === "equipment" ? { mainHand: item } : {};
+  renderCharacter();
+  fireEvent.click(screen.getByRole("button", { name: location === "equipment" ? `Main Hand ${item.name}` : item.name }));
+  for (const gemstone of [ruby, sapphire]) {
+    fireEvent.click(screen.getByRole("button", { name: "Socket gemstone" }));
+    fireEvent.click(screen.getByRole("button", { name: `Socket ${gemstone.name} into ${item.name}` }));
+  }
+  const dialog = screen.getByRole("dialog", { name: `${item.name} details` });
+  expect(within(dialog).queryByRole("button", { name: "Socket gemstone" })).not.toBeInTheDocument();
+  expect(within(dialog).getByText("Sockets: 2/2")).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Unsocket socket 2: Rare Sapphire (300 astra)" }));
+  const updated = location === "equipment" ? player.equipment.mainHand : player.inventory[0];
+  expect(updated.gemstones).toEqual([ruby]);
+  expect(player.gemstones).toEqual([sapphire]);
+  expect(player.astra).toBe(700);
+  expect(screen.getByRole("button", { name: "Socket gemstone" })).toBeInTheDocument();
+});
+
+test.each(["Common", "Uncommon"])("%s item popups have no new sockets but allow removing legacy gems", (rarity) => {
+  player.inventory = [{ ...sword, rarity, gemstone: ruby }];
+  renderCharacter();
+  fireEvent.click(screen.getByRole("button", { name: sword.name }));
+  expect(screen.queryByRole("button", { name: "Socket gemstone" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Unsocket gemstone (300 astra)" }));
+  expect(screen.queryByRole("button", { name: "Socket gemstone" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Unsocket/ })).not.toBeInTheDocument();
+  expect(screen.getByText("No sockets")).toBeInTheDocument();
+});
+
+test("socket actions respect combat and individual removal costs", () => {
+  player.inventory = [{ ...sword, rarity: "Epic", socketCount: 2, gemstones: [ruby] }];
+  player.astra = 299;
+  const Character = SCREENS.character.component;
+  const { unmount } = render(<Character player={player} />);
+  fireEvent.click(screen.getByRole("button", { name: sword.name }));
+  expect(screen.getByRole("button", { name: "Unsocket socket 1: Rare Ruby (300 astra)" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Socket gemstone" })).toBeEnabled();
+  unmount();
+  render(<Character player={player} inCombat />);
+  fireEvent.click(screen.getByRole("button", { name: sword.name }));
+  expect(screen.getByRole("button", { name: "Socket gemstone" })).toBeDisabled();
+});
+
+test("Escape cancels gemstone selection without closing the item details", () => {
+  renderCharacter();
+  fireEvent.click(screen.getByRole("button", { name: sword.name }));
+  fireEvent.click(screen.getByRole("button", { name: "Socket gemstone" }));
+  fireEvent.keyDown(screen.getByRole("searchbox", { name: "Search gemstones" }), { key: "Escape" });
+  expect(screen.queryByRole("dialog", { name: /Socket a gemstone into/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("dialog", { name: `${sword.name} details` })).toBeInTheDocument();
+  expect(player.gemstones).toEqual([ruby, sapphire]);
 });
 
 test("Gemstones can be filtered and sorted without favorite filtering", () => {
@@ -307,6 +380,26 @@ test("trader gear popup protects favorites and allows unfavoriting before sellin
   fireEvent.click(gem);
   expect(player.gemstones).toEqual([ruby, sapphire]);
   expect(player.astra).toBe(1050);
+});
+
+test("only admins can force refresh gear trader stock", () => {
+  const hour = Math.floor(Date.now() / (30 * 60 * 1000));
+  const existingStock = [{ ...sword, id: "existing-stock" }];
+  player.gearTraderStock = { hour, items: existingStock };
+  const Trader = SCREENS.gearTrader.component;
+
+  const { unmount } = render(<Trader />);
+  expect(screen.queryByRole("button", { name: "Force refresh stock" })).not.toBeInTheDocument();
+  unmount();
+
+  isAdmin.mockReturnValue(true);
+  render(<Trader />);
+  fireEvent.click(screen.getByRole("tab", { name: "Buy Gear" }));
+  fireEvent.click(screen.getByRole("button", { name: "Force refresh stock" }));
+
+  expect(player.gearTraderStock.items).toHaveLength(20);
+  expect(player.gearTraderStock.items).not.toBe(existingStock);
+  expect(screen.getByText("Gear trader stock refreshed.")).toBeInTheDocument();
 });
 
 test("trader can mass-sell selected gear while excluding favorites", () => {

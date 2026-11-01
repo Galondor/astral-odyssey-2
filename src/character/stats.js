@@ -1,5 +1,6 @@
 import { getClassForStats } from "./classes";
 import { getItemGearScore } from "../items/gearScore";
+import { getItemGemstones } from "../items/sockets";
 
 /*
  Central stat calculation. Every derived stat is computed here from:
@@ -33,8 +34,8 @@ const getGearSources = (equipment = {}) => {
   };
   for (const item of Object.values(equipment)) {
     if (!item) continue;
-    if (item.gemstone)
-      add(item.gemstone.stat, `${item.name} (${item.gemstone.name})`, item.gemstone.value);
+    for (const gemstone of getItemGemstones(item))
+      add(gemstone.stat, `${item.name} (${gemstone.name})`, gemstone.value);
     if (item.mainStat) add(item.mainStat.stat, item.name, item.mainStat.value);
     for (const [k, v] of Object.entries(item.subStats || {})) add(k, item.name, v);
   }
@@ -48,7 +49,7 @@ export const getGearBonuses = (equipment = {}) =>
   );
 
 // Saves from before baseStats existed stored totals; remove the gear contribution to recover the base.
-const getBaseStats = (player, gear) => {
+export const getBaseStats = (player, gear = getGearBonuses(player.equipment)) => {
   if (player.baseStats) return player.baseStats;
   const s = player.stats || {};
   return Object.fromEntries(CORE_STATS.map((k) => [k, Math.max(0, (s[k] || 0) - (gear[k] || 0))]));
@@ -122,7 +123,7 @@ const compute = (player) => {
   define("attackMax", atLeast(increasedAttackMaxLines, attackMin), "number", 0);
   define("magicAttackMax", atLeast(increasedMagicMaxLines, magicMin), "number", 0);
 
-  define("defense", [line(`Resilience ${resilience} ÷ 3 (rounded down)`, Math.floor(resilience / 3)), ...gearLines("defense"), ...bonusLines("defense")]);
+  define("defense", [line(`Resilience ${resilience} ÷ 2 (rounded down)`, Math.floor(resilience / 2)), ...gearLines("defense"), ...bonusLines("defense")]);
   define("evasion", capChanceLines([line("Base", 0.01), line(`Agility ${agility} ÷ 8 × 1% (rounded down)`, Math.floor(agility / 8) * 0.01), ...gearLines("evasion"), ...bonusLines("evasion")]), "percent");
   define("speed", [line(`Agility ${agility} ÷ 3 (rounded down)`, Math.floor(agility / 3)), ...gearLines("speed"), ...bonusLines("speed")]);
   define("criticalHitChance", capChanceLines([line("Base", 0.05), line(`Luck ${luck} ÷ 5 × 1% (rounded down)`, Math.floor(luck / 5) * 0.01), ...gearLines("criticalHitChance"), ...bonusLines("criticalHitChance")]), "percent");
@@ -224,7 +225,7 @@ export const STAT_INFO = {
   dexterity: { title: "Dexterity", description: "Increases melee damage and agility.", formula: "+1 Attack per point, +1 Agility per 2 points." },
   intelligence: { title: "Intelligence", description: "Increases magic damage.", formula: "+1 Magic Attack per point." },
   vitality: { title: "Vitality", description: "Increases maximum health.", formula: "+5 health per 2 points of Vitality." },
-  resilience: { title: "Resilience", description: "Increases defense.", formula: "+1 Defense per 3 points of Resilience." },
+  resilience: { title: "Resilience", description: "Increases defense.", formula: "+1 Defense per 2 points of Resilience." },
   agility: { title: "Agility", description: "Increases speed and evasion.", formula: "+1 Speed per 3 points, +1% Evasion per 8 points." },
   luck: { title: "Luck", description: "Increases critical hit chance and item drop rates.", formula: "+1% Critical Hit Chance per 5 points, +1% Item Drop Chance per 3 points." },
   attackPercent: { title: "Increased attack", description: "Increases physical attack damage.", formula: "Added to the physical attack damage multiplier." },
@@ -233,7 +234,7 @@ export const STAT_INFO = {
   attackMax: { title: "Maximum attack", description: "The highest damage of a physical attack.", formula: "(5 + Strength + Dexterity + equipment max attack) × (1 + increased attack %)." },
   magicAttackMin: { title: "Minimum magic attack", description: "The lowest damage of a magical attack.", formula: "(1 + Intelligence + equipment min magic attack) × (1 + increased magic attack %)." },
   magicAttackMax: { title: "Maximum magic attack", description: "The highest damage of a magical attack.", formula: "(5 + Intelligence + equipment max magic attack) × (1 + increased magic attack %)." },
-  defense: { title: "Defense", description: "Reduces the damage taken from each hit.", formula: "1 per 3 Resilience + equipment defense." },
+  defense: { title: "Defense", description: "Reduces the damage taken from each hit.", formula: "1 per 2 Resilience + equipment defense." },
   evasion: { title: "Evasion", description: "Chance to avoid an incoming attack.", formula: "Base + 1% per 8 Agility + equipment, capped at 60%." },
   speed: { title: "Speed", description: "How quickly you act.", formula: "Agility ÷ 3 + equipment." },
   criticalHitChance: { title: "Critical chance", description: "Chance for an attack to be a critical hit.", formula: "Base + 1% per 5 Luck + equipment, capped at 60%." },

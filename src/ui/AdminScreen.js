@@ -22,6 +22,7 @@ import AdminDataPanel from "./AdminDataPanel";
 const KINDS = {
   astra: { label: "Astra" },
   exp: { label: "Experience" },
+  rep: { label: "Reputation" },
   material: { label: "Material", options: Object.entries(MATERIALS).map(([k, v]) => [k, v.name]) },
   consumable: { label: "Consumable", options: Object.entries(CONSUMABLES).map(([k, v]) => [k, v.name]) },
   keyItem: { label: "Key item", options: Object.entries(KEY_ITEMS).map(([k, v]) => [k, v.name]) },
@@ -34,11 +35,12 @@ const KINDS = {
 
 // Collapses the picked rows into the attachments shape stored on a message.
 const buildAttachments = (rows) => {
-  const out = { astra: 0, exp: 0, materials: {}, consumables: {}, keyItems: {}, gear: [], uniques: [], gemstones: [], titles: [], items: [] };
+  const out = { astra: 0, exp: 0, rep: 0, materials: {}, consumables: {}, keyItems: {}, gear: [], uniques: [], gemstones: [], titles: [], items: [] };
   for (const r of rows) {
     const foil = r.holofoil ? { holofoil: r.holofoil } : {};
     if (r.kind === "astra") out.astra += r.amount;
     else if (r.kind === "exp") out.exp += r.amount;
+    else if (r.kind === "rep") out.rep += r.amount;
     else if (r.kind === "material") out.materials[r.key] = (out.materials[r.key] || 0) + r.amount;
     else if (r.kind === "consumable") out.consumables[r.key] = (out.consumables[r.key] || 0) + r.amount;
     else if (r.kind === "keyItem") out.keyItems[r.key] = true;

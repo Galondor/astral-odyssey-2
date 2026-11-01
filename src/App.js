@@ -381,10 +381,10 @@ function Game({ uid, onLogout, onMainMenu }) {
           </button>
           <div id='sidebar-links' className={`sidebar-links ${sidebarOpen ? "open" : ""}`}>
             {Object.entries(SCREENS).filter(([key, s]) => (!s.hideUnlessActive || key === sceneScreen) && (!s.adminOnly || isAdmin())).map(([key, s], index, visibleScreens) => {
-              const levelLocked = !!s.minLevel && (player.level || 1) < s.minLevel && !(s.adminAccess && isAdmin());
+              const levelLocked = !!s.minLevel && (player?.level || 1) < s.minLevel && !(s.adminAccess && isAdmin());
               const enabled = (!contestLocked || key === (contestView ? "combat" : "arena")) && (!groupLocked || key === "groupRun") &&
                 !!player?.stats && !player.needsNameChange && (s.link || key === sceneScreen) &&
-                ((player.level || 1) >= (s.minLevel || 0) || (s.adminAccess && isAdmin()));
+                ((player?.level || 1) >= (s.minLevel || 0) || (s.adminAccess && isAdmin()));
               const badge = player && s.badge ? s.badge(player) : 0;
               const notification = player && s.notification?.(player);
               const attention = s.hideUnlessActive && key !== activeScreen;
@@ -414,7 +414,7 @@ function Game({ uid, onLogout, onMainMenu }) {
             }}>
               Quick guide
             </button>
-            <span className='sidebar-version' aria-label='Game version'>v0.3.0.0-Alpha</span>
+            <span className='sidebar-version' aria-label='Game version'>v0.3.1.0-Alpha</span>
           </div>
         </nav>
         </div>

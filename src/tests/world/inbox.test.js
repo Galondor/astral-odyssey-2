@@ -48,6 +48,33 @@ test("claim flags and granted rewards are submitted in the same player commit", 
   expect(commitPlayerChange).toHaveBeenCalledTimes(1);
 });
 
+test("reputation attachments are normalized, described, sent, and claimed", async () => {
+  const attachments = { rep: 25.8 };
+  expect(normalizeAttachments(attachments).rep).toBe(25);
+  expect(hasAttachments(attachments)).toBe(true);
+  expect(describeAttachments(attachments)).toEqual(["25 reputation"]);
+  await sendMessage({ to: "alice", subject: "Reputation", body: "Thanks!", attachments });
+  expect(set).toHaveBeenCalledWith("inbox/alice/sent", expect.objectContaining({
+    attachments: { rep: 25 },
+  }));
+
+  stop();
+  onValue.mockImplementation((path, callback) => {
+    callback({ val: () => path === "inbox/alice"
+      ? { reputation: { subject: "Reputation", attachments: { rep: 25 } } }
+      : {} });
+    return () => {};
+  });
+  stop = startInbox("alice", () => {});
+
+  expect(await claimMessage("reputation")).toEqual({ ok: true, lines: ["25 reputation"] });
+  expect(player.rep).toBe(25);
+  expect(writes).toEqual({
+    "inboxState/alice/reputation/claimed": true,
+    "inboxState/alice/reputation/read": true,
+  });
+});
+
 test.each([false, true])("admin Colosseum resets preserve progress and bump save revisions (character=%s)", async (character) => {
   stop();
   get.mockImplementation(async (path) => ({

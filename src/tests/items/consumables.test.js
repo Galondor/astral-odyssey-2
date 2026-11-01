@@ -1,6 +1,6 @@
 import { commitPlayerChange, getPlayer, setPlayer } from "../../character/player";
 import { get, onValue, update } from "firebase/database";
-import { applyConsumable, consumableTooltip, drinkConsumable } from "../../items/consumables";
+import { applyConsumable, consumableTooltip, drinkConsumable, getKeyItemEffect, keyItemTooltip, toggleKeyItem } from "../../items/consumables";
 import { claimMessage, describeAttachments, normalizeAttachments, startInbox } from "../../world/inbox";
 
 jest.mock("../../firebase", () => ({ db: {} }));
@@ -29,6 +29,32 @@ test("normal healing potions still work", () => {
   getPlayer.mockReturnValue(player);
   expect(drinkConsumable("healthPotion")).toMatchObject({ ok: true, consumables: { healthPotion: 1 } });
   expect(setPlayer).toHaveBeenCalledWith(expect.objectContaining({ stats: { ...player.stats, health: 61 } }));
+});
+
+test("the Hunter's Horn can be toggled off and on, suspending its effect", () => {
+  let player = { keyItems: ["huntersHorn"] };
+  getPlayer.mockImplementation(() => player);
+  setPlayer.mockImplementation((patch) => { player = { ...player, ...patch }; });
+  expect(getKeyItemEffect(player, "huntBonus")).toBe(1);
+  expect(keyItemTooltip("huntersHorn", player).footer).toContain("Active");
+
+  expect(toggleKeyItem("huntersHorn")).toMatchObject({ ok: true });
+  expect(player.disabledKeyItems).toEqual(["huntersHorn"]);
+  expect(getKeyItemEffect(player, "huntBonus")).toBe(0);
+  expect(keyItemTooltip("huntersHorn", player).footer).toContain("Disabled");
+
+  expect(toggleKeyItem("huntersHorn")).toMatchObject({ ok: true });
+  expect(player.disabledKeyItems).toEqual([]);
+  expect(getKeyItemEffect(player, "huntBonus")).toBe(1);
+});
+
+test("non-toggleable and unowned key items cannot be toggled", () => {
+  let player = { keyItems: ["analyzer"] };
+  getPlayer.mockImplementation(() => player);
+  expect(toggleKeyItem("analyzer")).toMatchObject({ ok: false });
+  expect(toggleKeyItem("huntersHorn")).toMatchObject({ ok: false });
+  expect(setPlayer).not.toHaveBeenCalled();
+  expect(keyItemTooltip("analyzer", player).footer).toBeUndefined();
 });
 
 test("admin and marketplace elixir attachments normalize and describe correctly", () => {

@@ -6,6 +6,7 @@ import {
   generateRandomItem,
   getGearTraderStock,
   itemTooltip,
+  refreshGearTraderStock,
 } from "../../items/items";
 
 jest.mock("../../character/player", () => ({
@@ -15,10 +16,14 @@ jest.mock("../../character/player", () => ({
 jest.mock("../../combat/combat", () => ({ getEnemy: () => null }));
 
 const SUBSTAT_CAPS = {
-  maxPower: 0.5, resilience: 2, agility: 2, vitality: 3, luck: 1,
-  attackMin: 3, attackMax: 3, magicAttackMin: 3, magicAttackMax: 3,
-  criticalDamage: 0.02,
+  defense: 0.48, speed: 0.77, resilience: 1.44, agility: 0.48, vitality: 2,
+  luck: 0.34, maxPower: 0.15, attackMin: 1.2, attackMax: 2.4,
+  magicAttackMin: 2.2, magicAttackMax: 3.4, criticalDamage: 0.006,
+  attackPercent: 0.001, magicAttackPercent: 0.001,
 };
+
+const SUBSTAT_PRECISION = { criticalDamage: 100, attackPercent: 1000, magicAttackPercent: 1000 };
+const TWO_HANDED_MULT = 2;
 
 let player;
 beforeEach(() => {
@@ -40,9 +45,9 @@ const expectTierFloor = (item, minTier) => {
   expect(item.mainStat.tier).toBeGreaterThanOrEqual(minTier);
   expect(itemTooltip(item).stats[0].tier).toBe(`T${item.mainStat.tier}`);
   for (const [key, value] of Object.entries(item.subStats)) {
-    const precision = key === "criticalDamage" ? 100 : 1;
+    const precision = SUBSTAT_PRECISION[key] || 1;
     const max = Math.max(1, Math.ceil(SUBSTAT_CAPS[key] * item.iLevel * precision));
-    const unscaled = value / (item.twoHanded ? 1.5 : 1) * precision;
+    const unscaled = value / (item.twoHanded ? TWO_HANDED_MULT : 1) * precision;
     // Two-handed integer stats can round by half a point when scaled.
     const rounding = item.twoHanded ? precision / 3 : 0;
     const minimum = Math.ceil(1 + ((minTier - 0.5) / 7) * (max - 1));
@@ -56,7 +61,8 @@ const expectTierFloor = (item, minTier) => {
 
 test.each([
   [0, 0], [19, 0], [20, 0], [79, 0], [80, 1], [249, 1],
-  [250, 2], [699, 2], [700, 3], [1799, 3], [1800, 4], [5000, 4],
+  [250, 2], [699, 2], [700, 3], [1799, 3], [1800, 4],
+  [2700, 4], [4000, 4], [5000, 4],
 ])("reputation %i grants a T%i stat floor", (rep, minTier) => {
   player.rep = rep;
   for (let i = 0; i < 10; i++) {
@@ -98,13 +104,19 @@ test.each([
   [80, [0.15, 0.3, 0.3, 0.22, 0.03]],
   [250, [0, 0.15, 0.35, 0.43, 0.07]],
   [700, [0, 0, 0.3, 0.58, 0.12]],
-  [1800, [0, 0, 0.2, 0.6, 0.2]],
+  [1800, [0, 0, 0.3, 0.5, 0.2]],
+  [2700, [0, 0, 0.15, 0.6, 0.25]],
+  [4000, [0, 0, 0.1, 0.6, 0.3]],
 ])("reputation %i uses the intended rarity distribution", (rep, odds) => {
   player.rep = rep;
+  // The trader only ever stocks Common..Legendary; Unique and Mythic gear never appears.
   const counts = { Common: 0, Uncommon: 0, Rare: 0, Epic: 0, Legendary: 0 };
   for (let i = 0; i < 300; i++) {
     delete player.gearTraderStock;
-    getGearTraderStock().forEach((item) => { counts[item.rarity]++; });
+    getGearTraderStock().forEach((item) => {
+      expect(counts).toHaveProperty(item.rarity);
+      counts[item.rarity]++;
+    });
   }
   Object.values(counts).forEach((count, index) => {
     if (odds[index] === 0) expect(count).toBe(0);
@@ -130,6 +142,19 @@ test("stock and purchases persist until refresh, even after a reputation upgrade
   expect(player.gearTraderStock.items).toBe(refreshed);
 });
 
+test("force refresh replaces cached stock within the current refresh window", () => {
+  const stock = getGearTraderStock();
+  const refreshed = refreshGearTraderStock();
+
+  expect(refreshed).toHaveLength(20);
+  expect(refreshed).not.toBe(stock);
+  expect(player.gearTraderStock).toEqual({
+    hour: 100,
+    items: refreshed,
+  });
+  expect(getGearTraderStock()).toBe(refreshed);
+});
+
 test("saved stock from before reputation scaling remains valid this cycle", () => {
   const items = [{ id: "existing-stock", rarity: "Common" }];
   player = { ...player, rep: 1800, gearTraderStock: { hour: 100, items } };
@@ -147,11 +172,12 @@ test("explicit player data controls trader level and reputation", () => {
 
 test("non-trader loot retains low rolls and existing minimum-rarity behavior", () => {
   player.rep = 1800;
-  Math.random.mockReturnValue(0);
+  Math.random.mockReturnValue(0.01);
   const common = generateRandomItem("helmet");
+  expect(common.holofoil).toBeUndefined();
   expect(common.rarity).toBe("Common");
   expect(common.mainStat.value).toBe(0);
   expect(common.mainStat.tier).toBe(0);
-  expect(common.subTiers.maxPower).toBe(0);
+  expect(common.subTiers.defense).toBe(0);
   expect(generateRandomItem("helmet", 3).rarity).toBe("Epic");
 });

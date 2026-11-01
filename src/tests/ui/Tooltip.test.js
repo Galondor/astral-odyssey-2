@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import Tooltip from "../../ui/Tooltip";
+import Tooltip, { TooltipContent } from "../../ui/Tooltip";
 import { itemTooltip } from "../../items/items";
 import { getHolofoilStyle } from "../../items/holofoil";
 
@@ -59,4 +59,17 @@ test("equipment tooltip separates the main stat from its first substat", () => {
   const tooltip = screen.getByRole("tooltip");
   expect(tooltip.querySelectorAll(".tooltip-stat-divider")).toHaveLength(1);
   expect(tooltip.querySelector(".tooltip-stat-divider").textContent).toContain("Speed");
+});
+
+test.each([undefined, 4])("item upgrade count %s appears immediately below the subtitle", (upgrades) => {
+  const details = itemTooltip({
+    name: "Test blade", rarity: "Rare", slot: "weapon", iLevel: 50, price: 10, upgrades,
+  });
+  render(<TooltipContent data={details} />);
+  expect(screen.getByText(`Upgrades: ${upgrades ?? 0}`).previousElementSibling.textContent).toBe(details.subtitle);
+});
+
+test("non-equipment tooltip content does not show an upgrade count", () => {
+  render(<TooltipContent data={{ title: "Ruby", subtitle: "Rare Gemstone" }} />);
+  expect(screen.queryByText(/Upgrades:/)).toBeNull();
 });

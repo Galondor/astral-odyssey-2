@@ -188,7 +188,8 @@ test("custom gear preserves choices and rolls independent copies inside chosen t
       ability: { name: "Undying Hunger" }, mainStat: { tier: 7 },
     });
     expect(first.id).not.toBe(second.id);
-    expect(first.subTiers).toEqual(customDefinition.subStats);
+    expect(first.subTiers).toEqual({ ...customDefinition.subStats, criticalDamage: 5 });
+    expect(first.price).toBe(customDefinition.price * 2);
     const secondValues = { ...second.subStats };
     const secondMain = second.mainStat.value;
     first.subStats.maxPower = 999;
@@ -258,7 +259,7 @@ test.each([false, true])("all available custom tiers match displayed values (two
             .filter((stat) => getSubStatPool(customDefinition.slot).includes(stat))
             .filter((stat) => getCustomSubStatTiers(stat, level, twoHanded).includes(tier))
             .map((stat) => [stat, tier]));
-          const item = createCustomItem({ ...customDefinition, iLevel: level, twoHanded,
+          const item = createCustomItem({ ...customDefinition, holofoil: undefined, iLevel: level, twoHanded,
             mainStat: { stat: "strength", tier }, subStats: chosen });
           expect(Math.round(item.mainStat.value / 22 * 7)).toBe(tier);
           expect(itemTooltip(item).stats[0].tier).toBe(`T${tier}`);
@@ -289,7 +290,7 @@ test.each([false, true])("all available custom tiers match displayed values (two
 
 test("unrepresentable low-level tiers fail instead of rolling a different tier", () => {
   expect(getCustomSubStatTiers("luck", 1)).toEqual([7]);
-  expect(() => createCustomItem({ ...customDefinition, slot: "helmet", twoHanded: false, iLevel: 1, subStats: { luck: 0 } }))
+  expect(() => createCustomItem({ ...customDefinition, holofoil: undefined, slot: "helmet", twoHanded: false, iLevel: 1, subStats: { luck: 0 } }))
     .toThrow(/cannot roll T0/);
 });
 

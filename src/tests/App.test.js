@@ -84,7 +84,11 @@ jest.mock("../world/gameLogic", () => ({
   getVisibleOptions: jest.fn(() => []),
   initialMessages: () => [],
   processButton: jest.fn(() => ({ sceneId: "menu", replies: [] })),
-  scenes: { menu: { screen: "adventure" } },
+  scenes: {
+    start: { screen: "adventure" },
+    createCharacter: { screen: "adventure" },
+    menu: { screen: "adventure" },
+  },
 }));
 
 beforeEach(() => {
@@ -533,12 +537,43 @@ test("sign-in opens the character menu without loading gameplay or exposing keys
 });
 
 test("creating a character reserves a slot and opens character creation", async () => {
+  loadCharacters.mockResolvedValueOnce({ characters: [], limit: 3 });
+  loadCharacters.mockResolvedValueOnce({
+    characters: [{ id: "character-2" }],
+    limit: 3,
+  });
   createCharacter.mockResolvedValueOnce("character-2");
+  getPlayer.mockReturnValue(null);
+  getInputMode.mockReturnValue("text");
   render(<App />);
   fireEvent.click(await screen.findByRole("button", { name: "Create character" }));
-  await screen.findByRole("navigation");
+  const navigation = await screen.findByRole("navigation");
   expect(createCharacter).toHaveBeenCalledWith("test-player");
   expect(loadPlayer).toHaveBeenCalledWith("test-player", "character-2");
+  expect(getInputMode).toHaveBeenLastCalledWith(scenes.start);
+  expect(screen.getByPlaceholderText("Type your action...")).toBeTruthy();
+  ["Game", "Character", "Level 5+", "Level 12+"].forEach((name) => {
+    expect(within(navigation).getByRole("button", { name }).disabled).toBe(true);
+  });
+});
+
+test.each([
+  [null, "Continue character creation", "start"],
+  [{ name: "Nova" }, "Continue Nova", "createCharacter"],
+])("unfinished characters resume safely with player data %j", async (player, buttonName, sceneId) => {
+  loadCharacters.mockResolvedValueOnce({
+    characters: [{ id: "character-1", player }],
+    limit: 3,
+  });
+  getPlayer.mockReturnValue(player);
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: buttonName }));
+  const navigation = await screen.findByRole("navigation");
+  expect(loadPlayer).toHaveBeenCalledWith("test-player", "character-1");
+  expect(getInputMode).toHaveBeenLastCalledWith(scenes[sceneId]);
+  ["Game", "Level 5+", "Level 12+"].forEach((name) => {
+    expect(within(navigation).getByRole("button", { name }).disabled).toBe(true);
+  });
 });
 
 test("all three slots disable character creation", async () => {

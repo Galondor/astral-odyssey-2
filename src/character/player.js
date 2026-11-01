@@ -5,6 +5,7 @@ import { migratePowerProgression, recalculateStats } from "./stats";
 import { hasInappropriateName } from "../shared/names";
 import { createDirectoryEntry, createPublicProfile } from "./profiles";
 import { TITLES } from "./titles";
+import { migrateHolofoilItems } from "../items/items";
 
 const PLAYER_KEY = "Player";
 const META_KEY = "PlayerMeta";
@@ -356,6 +357,11 @@ export const loadPlayer = async (accountId, characterId) => {
   await loadPlayerData(accountId, characterId);
   const uid = getMeta().uid;
   let player = getPlayer();
+  const holofoilMigration = migrateHolofoilItems(player);
+  if (holofoilMigration !== player) {
+    setPlayer({ ...holofoilMigration, ...recalculateStats(holofoilMigration) });
+    player = getPlayer();
+  }
   if (player?.stats?.maxPower != null) {
     const migrated = migratePowerProgression(player);
     const recalculated = recalculateStats(migrated);

@@ -9,7 +9,7 @@ const MARGIN = 8;
  *  - string / number / React node
  *  - function returning any of the above or a data object (evaluated on hover, so it can show live data)
  *  - data object: {
- *      title, subtitle, description,
+ *      title, subtitle, upgrades, description,
  *      stats: [{ label, value, color? }],
  *      list: ["line", ...],
  *      tags: ["tag", ...],
@@ -20,11 +20,12 @@ const MARGIN = 8;
 export function TooltipContent({ data }) {
   if (data == null || data === false) return null;
   if (typeof data !== "object" || data.$$typeof) return <>{data}</>;
-  const { title, titleColor, subtitle, description, stats, list, tags, sections, footer } = data;
+  const { title, titleColor, subtitle, upgrades, description, stats, list, tags, sections, footer } = data;
   return (
     <>
       {title && <div className='tooltip-title' style={titleColor ? { color: titleColor } : undefined}>{title}</div>}
       {subtitle && <div className='tooltip-subtitle'>{subtitle}</div>}
+      {upgrades != null && <div className='tooltip-subtitle'>Upgrades: {upgrades}</div>}
       {description && (
         <div className='tooltip-description'>
           {Array.isArray(description) ? description.map((d, i) => <div key={i}>{d}</div>) : description}

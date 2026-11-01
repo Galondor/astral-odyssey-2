@@ -1,11 +1,12 @@
 import { getPlayer, setPlayer } from "../character/player";
-import { recalculateStats } from "../character/stats";
+import { getBaseStats, recalculateStats } from "../character/stats";
 import { getEnemy } from "../combat/combat";
 import { ABILITIES, UNIQUE_ABILITIES, findAbility } from "../combat/abilities";
 import { getItemGearScore } from "./gearScore";
 import { isFavorite } from "./favorites";
-import { getHolofoilStyle, rollHolofoil, validateHolofoil } from "./holofoil";
+import { getHolofoilStyle, isHolofoilColors, rollHolofoil, validateHolofoil } from "./holofoil";
 import { RARITY_COLORS } from "./rarities";
+import { getItemBaseSocketCount, getItemGemstones, getItemSocketCount, rollItemSocketCount } from "./sockets";
 export { RARITY_COLORS } from "./rarities";
 
 /*
@@ -17,6 +18,9 @@ export { RARITY_COLORS } from "./rarities";
  Equipped item stats are added directly onto player.stats when equipped and removed when unequipped.
  Fixed items live in ITEMS as templates (same shape, no id/iLevel); use createItem(templateKey) to get an instance.
  Newly generated equipment has a 1% holofoil chance; `holofoil` stores its permanent #RRGGBB colors and `holofoilEffect` its rolled visual effect.
+ `socketCount` stores base capacity rolled at creation, excluding the Holofoil bonus; `gemstones` stores socketed gems in order. Legacy `gemstone` saves remain readable until the next socket change.
+ `upgrades` stores permanent Forge upgrades used (0 when absent), limited to 10 and item level 100.
+ Holofoil bonuses raise low stats to T5+, double value once, and are tracked by `holofoilBonusVersion`.
 */
 export const SLOTS = [
   { key: "mainHand", label: "Main Hand", type: "weapon" },
@@ -54,15 +58,16 @@ const newId = () =>
 export const createItem = (key) => {
   const t = ITEMS[key];
   if (!t) return null;
-  return {
+  return applyHolofoilBonuses({
     ...t,
     id: newId(),
+    socketCount: rollItemSocketCount(t.rarity),
     iLevel: 1,
     mainStat: { ...t.mainStat },
     subStats: { ...t.subStats },
     ability: t.ability ? { ...t.ability } : null,
     ...rollHolofoil(),
-  };
+  });
 };
 
 export const createStarterInventory = (baseStats = {}) => {
@@ -539,8 +544,9 @@ const round = (n, d = 3) => Math.round(n * 10 ** d) / 10 ** d;
 
 // minRarity is an index into RARITIES; lower rarities are excluded and the rest keep their relative odds.
 const rollRarity = (minRarity = 0, weights) => {
+  // Weights may be shorter than RARITIES; unlisted rarities roll with 0 weight.
   const pool = RARITIES.map((rarity, index) =>
-    weights ? { ...rarity, chance: weights[index] } : rarity,
+    weights ? { ...rarity, chance: weights[index] ?? 0 } : rarity,
   ).slice(minRarity);
   let roll = Math.random() * pool.reduce((sum, r) => sum + r.chance, 0);
   for (const r of pool) {
@@ -615,6 +621,66 @@ const rollSubStatValue = (key, iLevel, minTier = 0, scale = 1) => {
       Math.log10(getSubStatPrecision(key)),
     );
   return randInt(cap);
+};
+
+export const HOLOFOIL_MIN_TIER = 5;
+
+// The marker prevents reapplying value/stat bonuses on color rerolls or reloads.
+export const applyHolofoilBonuses = (item) => {
+  if (!item || item.twoHandedOf || !isHolofoilColors(item.holofoil) || item.holofoilBonusVersion === 1)
+    return item;
+  if (item.price !== undefined && (!Number.isSafeInteger(item.price) || item.price < 0 || !Number.isSafeInteger(item.price * 2)))
+    throw new Error("Holofoil item value must be a non-negative whole number that can be doubled safely.");
+  const upgraded = { ...item, holofoilBonusVersion: 1 };
+  if (item.price !== undefined) upgraded.price = item.price * 2;
+  if (item.mainStat?.stat) {
+    let value = item.mainStat.value;
+    if (getMainStatTier(value) < HOLOFOIL_MIN_TIER) {
+      const minimum = Math.ceil(((HOLOFOIL_MIN_TIER - 0.5) / SUBSTAT_MAX_TIER) * MAIN_STAT_MAX_VALUE);
+      value = minimum + randInt(MAIN_STAT_MAX_VALUE - minimum + 1) - 1;
+    }
+    upgraded.mainStat = { ...item.mainStat, value, tier: getMainStatTier(value) };
+  }
+  if (item.subStats) {
+    const iLevel = item.iLevel || 1;
+    const scale = item.twoHanded ? TWO_HANDED_MULT : 1;
+    upgraded.subStats = { ...item.subStats };
+    upgraded.subTiers = { ...item.subTiers };
+    for (const [stat, current] of Object.entries(item.subStats)) {
+      if (!SUBSTAT_NAMES.includes(stat))
+        throw new Error(`Cannot apply Holofoil bonuses to unsupported substat ${stat}.`);
+      const value = rollTier(stat, current / scale, iLevel, scale) < HOLOFOIL_MIN_TIER
+        ? scaleValue(stat, rollSubStatValue(stat, iLevel, HOLOFOIL_MIN_TIER, scale), scale)
+        : current;
+      upgraded.subStats[stat] = value;
+      upgraded.subTiers[stat] = rollTier(stat, value / scale, iLevel, scale);
+    }
+  }
+  return upgraded;
+};
+
+export const migrateHolofoilItems = (player) => {
+  if (!player) return player;
+  let changed = false;
+  const upgrade = (item) => {
+    const upgraded = applyHolofoilBonuses(item);
+    if (upgraded !== item) changed = true;
+    return upgraded;
+  };
+  const inventory = (player.inventory || []).map(upgrade);
+  const equipment = Object.fromEntries(Object.entries(player.equipment || {}).map(([slot, item]) => [slot, upgrade(item)]));
+  const gearTraderStock = player.gearTraderStock
+    ? { ...player.gearTraderStock, items: (player.gearTraderStock.items || []).map(upgrade) }
+    : null;
+  const gearTraderBuyback = (player.gearTraderBuyback || []).map((entry) => {
+    const item = upgrade(entry.item);
+    return item === entry.item ? entry : { ...entry, item };
+  });
+  return changed ? {
+    ...player, baseStats: getBaseStats(player), inventory, equipment,
+    ...(gearTraderStock ? { gearTraderStock } : {}),
+    ...(player.gearTraderBuyback ? { gearTraderBuyback } : {}),
+  } : player;
 };
 
 // Item Generation
@@ -726,12 +792,13 @@ const generateItem = (
     .filter(Boolean)
     .join(" ");
 
-  return {
+  return applyHolofoilBonuses({
     id: newId(),
     name,
     slot,
     twoHanded,
     rarity: rarity.name,
+    socketCount: rollItemSocketCount(rarity.name),
     condition: condition.name,
     iLevel,
     price,
@@ -741,7 +808,7 @@ const generateItem = (
     subTiers,
     ability,
     ...rollHolofoil(quality.holofoil),
-  };
+  });
 };
 
 export const generateRandomItem = (slot, minRarity = 0, holofoil, minTier = 0) =>
@@ -799,12 +866,13 @@ export const createUniqueItem = (def, iLevel = 1, holofoil) => {
       UNIQUE_PRICE_MULT *
       config.priceMult,
   );
-  return {
+  return applyHolofoilBonuses({
     id: newId(),
     name: def.name,
     slot: def.slot,
     twoHanded,
     rarity: "Unique",
+    socketCount: rollItemSocketCount("Unique"),
     condition: "Perfect",
     iLevel: level,
     price,
@@ -815,7 +883,7 @@ export const createUniqueItem = (def, iLevel = 1, holofoil) => {
     subTiers,
     ability: { name: ability.name, description: ability.description },
     ...rollHolofoil(holofoil),
-  };
+  });
 };
 
 export const GEAR_SLOT_TYPES = Object.keys(SLOT_CONFIG);
@@ -945,20 +1013,24 @@ export const createCustomItem = ({
   if (abilityName && !ability)
     throw new Error("Select an ability available for this slot.");
   validateHolofoil(holofoil);
+  const minimumTier = holofoil !== undefined ? HOLOFOIL_MIN_TIER : 0;
   const scale = twoHanded ? TWO_HANDED_MULT : 1;
   const mainRange = getTierRollRange(
     0,
     MAIN_STAT_MAX_VALUE,
-    mainStat.tier,
+    Math.max(mainStat.tier, minimumTier),
     getMainStatTier,
   );
   const subRanges = Object.entries(subStats).map(([stat, tier]) => {
-    const range = getCustomSubStatRange(stat, iLevel, tier, scale);
+    const selectedTier = minimumTier && tier < minimumTier
+      ? getCustomSubStatTiers(stat, iLevel, twoHanded).find((candidate) => candidate >= minimumTier)
+      : tier;
+    const range = getCustomSubStatRange(stat, iLevel, selectedTier, scale);
     if (!range)
       throw new Error(
-        `${STAT_LABELS[stat]} cannot roll T${tier} at item level ${iLevel} with this handedness.`,
+        `${STAT_LABELS[stat]} cannot roll T${selectedTier} at item level ${iLevel} with this handedness.`,
       );
-    return [stat, range];
+    return [stat, { ...range, tier: selectedTier }];
   });
   const rolledSubStats = Object.fromEntries(
     subRanges.map(([stat, range]) => [
@@ -970,11 +1042,12 @@ export const createCustomItem = ({
       ),
     ]),
   );
-  return {
+  return applyHolofoilBonuses({
     id: newId(),
     name: name.trim(),
     slot,
     rarity,
+    socketCount: rollItemSocketCount(rarity),
     condition,
     iLevel,
     price,
@@ -982,16 +1055,16 @@ export const createCustomItem = ({
     description: "",
     mainStat: {
       stat: mainStat.stat,
-      tier: mainStat.tier,
+      tier: Math.max(mainStat.tier, minimumTier),
       value: mainRange.min + randInt(mainRange.max - mainRange.min + 1) - 1,
     },
     subStats: rolledSubStats,
-    subTiers: { ...subStats },
+    subTiers: Object.fromEntries(subRanges.map(([stat, range]) => [stat, range.tier])),
     ability: ability
       ? { name: ability.name, description: ability.description }
       : null,
     ...(holofoil !== undefined ? rollHolofoil(holofoil) : {}),
-  };
+  });
 };
 
 export const generateRandomSlotItem = (minRarity = 0, minTier = 0) =>
@@ -1032,7 +1105,7 @@ export const gemstoneTooltip = (gemstone) => {
 export const formatValue = (stat, v) => {
   const n = PERCENT_STATS.includes(stat)
     ? `${round(Math.abs(v) * 100, 1)}%`
-    : Math.abs(v);
+    : round(Math.abs(v), 3);
   return `${v < 0 ? "-" : "+"}${n}`;
 };
 
@@ -1040,10 +1113,10 @@ export const itemTooltip = (item, extra) => {
   if (!item) return null;
   const slot = SLOTS.find((s) => s.type === item.slot);
   const stats = [];
-  if (item.gemstone) {
+  for (const gemstone of getItemGemstones(item)) {
     stats.push({
-      label: `${GEMSTONES[item.gemstone.type]?.name || item.gemstone.name.replace(/^(Common|Uncommon|Rare|Epic|Legendary)\s+/, "")} (${STAT_LABELS[item.gemstone.stat] || item.gemstone.stat})`,
-      value: formatValue(item.gemstone.stat, item.gemstone.value),
+      label: `${GEMSTONES[gemstone.type]?.name || gemstone.name.replace(/^(Common|Uncommon|Rare|Epic|Legendary)\s+/, "")} (${STAT_LABELS[gemstone.stat] || gemstone.stat})`,
+      value: formatValue(gemstone.stat, gemstone.value),
       color: "#7bd88f",
     });
   }
@@ -1085,6 +1158,7 @@ export const itemTooltip = (item, extra) => {
     backgroundStyle: getHolofoilStyle(item),
     titleColor: RARITY_COLORS[item.rarity],
     subtitle: `${item.holofoil ? "Holofoil " : ""}${item.rarity}, Item Level ${item.iLevel} • Equip level ${getEquipLevel(item)}`,
+    upgrades: item.upgrades ?? 0,
     description: [abilityText].filter(Boolean),
     stats,
     footer: [
@@ -1123,8 +1197,8 @@ const getComparedItems = (item) => {
 const sumStats = (items) => {
   const out = {};
   for (const it of items) {
-    if (it.gemstone)
-      out[it.gemstone.stat] = (out[it.gemstone.stat] || 0) + it.gemstone.value;
+    for (const gemstone of getItemGemstones(it))
+      out[gemstone.stat] = (out[gemstone.stat] || 0) + gemstone.value;
     if (it.mainStat)
       out[it.mainStat.stat] = (out[it.mainStat.stat] || 0) + it.mainStat.value;
     for (const [k, v] of Object.entries(it.subStats || {}))
@@ -1206,14 +1280,15 @@ export const findGemstone = (id) => {
   return (
     [
       ...(player?.gemstones || []),
-      ...Object.values(player?.equipment || {}).map((item) => item?.gemstone),
+      ...(player?.inventory || []).flatMap(getItemGemstones),
+      ...Object.values(player?.equipment || {}).flatMap(getItemGemstones),
     ].find((gemstone) => gemstone?.id === id) || null
   );
 };
 
 // Accepts an item object, or a key from ITEMS
 export const addItem = (item) => {
-  const obj = typeof item === "string" ? createItem(item) : item;
+  const obj = typeof item === "string" ? createItem(item) : applyHolofoilBonuses(item);
   if (!obj) return;
   setPlayer({ inventory: [...getInventory(), obj] });
 };
@@ -1285,10 +1360,14 @@ export function socketGemstone(gemstoneId, target) {
   const gemstone = gemstones[gemstoneIndex];
   const targetItem = getGemstoneTarget(player, target);
   if (!gemstone || !targetItem) return { ok: false, reason: "invalid" };
-  if (targetItem.item.gemstone) return { ok: false, reason: "occupied" };
+  const socketCount = getItemSocketCount(targetItem.item);
+  if (!socketCount) return { ok: false, reason: "noSockets" };
+  const socketed = getItemGemstones(targetItem.item);
+  if (socketed.length >= socketCount) return { ok: false, reason: "occupied" };
 
   gemstones.splice(gemstoneIndex, 1);
-  const item = { ...targetItem.item, gemstone };
+  const item = { ...targetItem.item, socketCount: getItemBaseSocketCount(targetItem.item), gemstones: [...socketed, gemstone] };
+  delete item.gemstone;
   const changes = { gemstones };
   if (targetItem.location === "inventory") {
     targetItem.inventory[target.index] = item;
@@ -1301,17 +1380,24 @@ export function socketGemstone(gemstoneId, target) {
   return { ok: true };
 }
 
-export function removeGemstone(target) {
+export function removeGemstone(target, socketIndex = 0) {
   const player = getPlayer();
   if (!player || getEnemy()) return { ok: false, reason: "combat" };
   const targetItem = getGemstoneTarget(player, target);
-  if (!targetItem?.item.gemstone) return { ok: false, reason: "invalid" };
-  const gemstone = targetItem.item.gemstone;
+  if (!targetItem || !Number.isInteger(socketIndex) || socketIndex < 0)
+    return { ok: false, reason: "invalid" };
+  const socketed = getItemGemstones(targetItem.item);
+  const gemstone = socketed[socketIndex];
+  if (!gemstone) return { ok: false, reason: "invalid" };
   const cost = getGemstoneRemovalCost(gemstone);
   if (cost === null) return { ok: false, reason: "invalid" };
   if ((player.astra || 0) < cost) return { ok: false, reason: "astra", cost };
 
-  const item = { ...targetItem.item };
+  const item = {
+    ...targetItem.item,
+    socketCount: getItemBaseSocketCount(targetItem.item),
+    gemstones: socketed.filter((_, index) => index !== socketIndex),
+  };
   delete item.gemstone;
   const changes = {
     astra: (player.astra || 0) - cost,
@@ -1331,24 +1417,20 @@ export function removeGemstone(target) {
 const BUYBACK_LIMIT = 10;
 const GEAR_TRADER_STOCK_SIZE = 20;
 const GEAR_TRADER_QUALITY = [
-  { rep: 0, minTier: 0 },
-  { rep: 20, minTier: 0, weights: [35, 30, 20, 14, 1] },
-  { rep: 80, minTier: 1, weights: [15, 30, 30, 22, 3] },
-  { rep: 250, minTier: 2, weights: [0, 15, 35, 45, 5] },
-  { rep: 700, minTier: 3, weights: [0, 0, 32, 60, 8] },
-  { rep: 1800, minTier: 4, weights: [0, 0, 25, 65, 10] },
+  // Weights cover Common..Legendary only, so the trader never stocks Unique or Mythic gear.
+  { rep: 0, minTier: 0, weights: [40, 25, 18, 14, 3] },
+  { rep: 20, minTier: 0, weights: [35, 25, 20, 16, 4] },
+  { rep: 80, minTier: 1, weights: [25, 25, 25, 20, 5] },
+  { rep: 250, minTier: 1, weights: [15, 22, 28, 27, 8] },
+  { rep: 700, minTier: 2, weights: [8, 18, 30, 32, 12] },
+  { rep: 1800, minTier: 2, weights: [5, 15, 30, 35, 15] },
+  { rep: 2700, minTier: 3, weights: [3, 12, 30, 37, 18] },
+  { rep: 4000, minTier: 4, weights: [2, 10, 28, 40, 20] },
 ];
 export const GEAR_TRADER_REFRESH_MS = 30 * 60 * 1000;
 const getGearTraderHour = () => Math.floor(Date.now() / GEAR_TRADER_REFRESH_MS);
 
-export const getGearTraderStock = (player = getPlayer()) => {
-  const hour = getGearTraderHour();
-  if (
-    player?.gearTraderStock?.hour === hour &&
-    Array.isArray(player.gearTraderStock.items)
-  )
-    return player.gearTraderStock.items;
-
+const generateGearTraderStock = (player, hour) => {
   const slots = Object.keys(SLOT_CONFIG);
   const quality =
     [...GEAR_TRADER_QUALITY]
@@ -1360,6 +1442,20 @@ export const getGearTraderStock = (player = getPlayer()) => {
   );
   if (player) setPlayer({ gearTraderStock: { hour, items } });
   return items;
+};
+
+export const refreshGearTraderStock = (player = getPlayer()) =>
+  generateGearTraderStock(player, getGearTraderHour());
+
+export const getGearTraderStock = (player = getPlayer()) => {
+  const hour = getGearTraderHour();
+  if (
+    player?.gearTraderStock?.hour === hour &&
+    Array.isArray(player.gearTraderStock.items)
+  )
+    return player.gearTraderStock.items;
+
+  return generateGearTraderStock(player, hour);
 };
 
 export function sellInventoryItem(index) {

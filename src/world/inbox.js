@@ -14,7 +14,7 @@ import { TITLES } from "../character/titles";
    inbox/{uid}/{id}      personal messages (admin-written)
    broadcasts/{id}       messages for every player (admin-written)
    inboxState/{uid}/{id} this player's { read, claimed, deleted } flags for either kind
- attachments: { astra, exp, materials: { key: n }, consumables: { key: n }, keyItems: { key: true }, gear: [{ slot, minRarity, count }], gemstones: [{ minRarity, count }], gemstoneItems: [gemstone], items: [item] }
+ attachments: { astra, exp, rep, materials: { key: n }, consumables: { key: n }, keyItems: { key: true }, gear: [{ slot, minRarity, count }], gemstones: [{ minRarity, count }], gemstoneItems: [gemstone], items: [item] }
  Gear is generated when claimed to match the claiming player's level; gemstones are generated at the selected minimum rarity.
  Gear and unique attachments may include `holofoil: true` for random colors or two #RRGGBB colors to force a holofoil.
  `items` also supports admin-created custom gear, saved at send time and claimed without rerolling.
@@ -34,6 +34,7 @@ const asList = (v) => (Array.isArray(v) ? v.filter(Boolean) : Object.values(v ||
 export const normalizeAttachments = (a = {}) => ({
   astra: Math.max(0, Math.floor(Number(a.astra) || 0)),
   exp: Math.max(0, Math.floor(Number(a.exp) || 0)),
+  rep: Math.max(0, Math.floor(Number(a.rep) || 0)),
   materials: Object.entries({
     ...(a.materials || {}),
     ...(Number(a.consumables?.relic) > 0
@@ -78,7 +79,7 @@ export const normalizeAttachments = (a = {}) => ({
 
 export const hasAttachments = (a) => {
   const n = normalizeAttachments(a);
-  return n.astra > 0 || n.exp > 0 || n.materials.length + n.consumables.length + n.keyItems.length + n.gear.length + n.uniques.length + n.gemstones.length + n.gemstoneItems.length + n.items.length + n.titles.length > 0;
+  return n.astra > 0 || n.exp > 0 || n.rep > 0 || n.materials.length + n.consumables.length + n.keyItems.length + n.gear.length + n.uniques.length + n.gemstones.length + n.gemstoneItems.length + n.items.length + n.titles.length > 0;
 };
 
 export const hasUnclaimed = (msg) => !msg.claimed && hasAttachments(msg.attachments);
@@ -89,6 +90,7 @@ export const describeAttachments = (a) => {
   return [
     ...(n.astra ? [`${n.astra} astra`] : []),
     ...(n.exp ? [`${n.exp} exp`] : []),
+    ...(n.rep ? [`${n.rep} reputation`] : []),
     ...n.materials.map(([k, c]) => `${c}× ${MATERIALS[k].name}`),
     ...n.consumables.map(([k, c]) => `${c}× ${CONSUMABLES[k].name}`),
     ...n.keyItems.map((k) => `Key item: ${KEY_ITEMS[k].name}`),
@@ -167,6 +169,10 @@ function grant(a) {
   if (n.astra) {
     patch.astra = (p.astra || 0) + n.astra;
     lines.push(`${n.astra} astra`);
+  }
+  if (n.rep) {
+    patch.rep = (p.rep || 0) + n.rep;
+    lines.push(`${n.rep} reputation`);
   }
   if (n.materials.length) {
     patch.materials = addToMaterials(p.materials, Object.fromEntries(n.materials));
@@ -311,6 +317,7 @@ export async function sendMessage({ to, subject, body, attachments }) {
   const clean = {
     ...(n.astra ? { astra: n.astra } : {}),
     ...(n.exp ? { exp: n.exp } : {}),
+    ...(n.rep ? { rep: n.rep } : {}),
     ...(n.materials.length ? { materials: Object.fromEntries(n.materials) } : {}),
     ...(n.consumables.length ? { consumables: Object.fromEntries(n.consumables) } : {}),
     ...(n.keyItems.length ? { keyItems: Object.fromEntries(n.keyItems.map((k) => [k, true])) } : {}),

@@ -66,6 +66,37 @@ const existingPlayer = () => {
   return player;
 };
 
+test.each([true, false])("loading legacy holofoils persists bonuses once with saved base stats: %s", async (hasBaseStats) => {
+  const player = existingPlayer();
+  const baseStats = { strength: 2, dexterity: 2, intelligence: 2 };
+  if (hasBaseStats) player.baseStats = baseStats;
+  player.stats = { ...player.stats, strength: 3, dexterity: 2, intelligence: 2 };
+  player.powerLevelVersion = 1;
+  const foil = {
+    id: "legacy-foil", name: "Legacy Foil", rarity: "Legendary", slot: "weapon",
+    iLevel: 25, socketCount: 2, price: 100, holofoil: ["#123456", "#abcdef"],
+    mainStat: { stat: "strength", value: 1 }, subStats: { speed: 1 },
+  };
+  player.inventory = [{ ...foil, id: "inventory-foil" }];
+  player.equipment = { mainHand: foil };
+  player.gearTraderStock = { hour: 123, items: [{ ...foil, id: "stock-foil" }] };
+  player.gearTraderBuyback = [{ item: { ...foil, id: "buyback-foil" }, price: 100 }];
+  records["users/alice"] = { player, saveRevision: 1 };
+  await loadPlayer("alice");
+  const upgraded = getPlayer();
+  expect(upgraded.equipment.mainHand.price).toBe(200);
+  expect(upgraded.equipment.mainHand.mainStat.tier).toBeGreaterThanOrEqual(5);
+  expect(upgraded.stats.strength).toBe(2 + upgraded.equipment.mainHand.mainStat.value);
+  expect(upgraded.inventory[0].price).toBe(200);
+  expect(upgraded.gearTraderStock.items[0].price).toBe(200);
+  expect(upgraded.gearTraderBuyback[0].item.price).toBe(200);
+  expect(records["users/alice"].player.equipment.mainHand).toEqual(upgraded.equipment.mainHand);
+  await loadPlayer("alice");
+  expect(getPlayer().equipment.mainHand).toEqual(upgraded.equipment.mainHand);
+  expect(getPlayer().stats.strength).toBe(upgraded.stats.strength);
+  expect(getPlayer().baseStats).toEqual(baseStats);
+});
+
 test("a new name is reserved and saved immediately before allocating stats", async () => {
   expect(await savePlayerName("  Nova  ")).toMatchObject({ ok: true });
   expect(records["characterNames/Nova"]).toBe("alice");

@@ -192,6 +192,27 @@ test.each(["broadcast", "individual"])("admins can attach runes to a %s message"
   })));
 });
 
+test.each(["broadcast", "individual"])("admins can attach reputation to a %s message", async (mode) => {
+  getDirectory.mockResolvedValue([{ uid: "player-1", name: "Nova", level: 20 }]);
+  sendMessage.mockResolvedValue();
+  render(<AdminScreen />);
+  if (mode === "individual") {
+    fireEvent.click(screen.getByRole("tab", { name: "Individual Message" }));
+    fireEvent.change(screen.getByRole("combobox", { name: /player/i }), { target: { value: "Nova" } });
+    fireEvent.mouseDown(await screen.findByRole("option", { name: /Nova/ }));
+  }
+  fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "Reputation gift" } });
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Thanks!" } });
+  fireEvent.change(screen.getByLabelText("Attachment type"), { target: { value: "rep" } });
+  fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "25" } });
+  fireEvent.click(screen.getByRole("button", { name: "Attach" }));
+  fireEvent.click(screen.getByRole("button", { name: /send/i }));
+  await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+    to: mode === "broadcast" ? "all" : "player-1",
+    attachments: expect.objectContaining({ rep: 25 }),
+  })));
+});
+
 test("admins can attach Labyrinth Relic Fragments and the Unwritten Path unique", async () => {
   sendMessage.mockResolvedValue();
   render(<AdminScreen />);

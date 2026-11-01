@@ -2,9 +2,10 @@ import { get, onValue, push, ref } from "firebase/database";
 import { auth, db } from "../firebase";
 import { commitPlayerChange, getCharacterIdentity, getPlayer, setPlayer } from "../character/player";
 import { getEnemy } from "../combat/combat";
-import { RARITY_NAMES, SLOTS, STAT_LABELS, canEquip } from "../items/items";
+import { RARITY_NAMES, SLOTS, STAT_LABELS, applyHolofoilBonuses, canEquip } from "../items/items";
 import { findAbility } from "../combat/abilities";
 import { getItemGearScore } from "../items/gearScore";
+import { getItemGemstones } from "../items/sockets";
 import { CONSUMABLES } from "../items/consumables";
 import { MATERIALS, MATERIAL_TIERS, addToMaterials } from "../items/materials";
 import { isFavorite } from "../items/favorites";
@@ -163,7 +164,7 @@ const returnItem = (item) => {
   } else if (isGemstoneListing(item)) {
     setPlayer({ gemstones: [...(player.gemstones || []), item] });
   } else {
-    setPlayer({ inventory: [...(player.inventory || []), restoreItem(item)] });
+    setPlayer({ inventory: [...(player.inventory || []), applyHolofoilBonuses(restoreItem(item))] });
   }
 };
 
@@ -294,7 +295,8 @@ export const getItemStats = (item) => {
   const out = {};
   if (item.mainStat?.stat) out[item.mainStat.stat] = (out[item.mainStat.stat] || 0) + (Number(item.mainStat.value) || 0);
   for (const [k, v] of Object.entries(item.subStats || {})) out[k] = (out[k] || 0) + (Number(v) || 0);
-  if (item.gemstone?.stat) out[item.gemstone.stat] = (out[item.gemstone.stat] || 0) + (Number(item.gemstone.value) || 0);
+  for (const gemstone of getItemGemstones(item))
+    if (gemstone.stat) out[gemstone.stat] = (out[gemstone.stat] || 0) + (Number(gemstone.value) || 0);
   if (isGemstoneListing(item) && item.stat) out[item.stat] = (out[item.stat] || 0) + (Number(item.value) || 0);
   return out;
 };
@@ -318,7 +320,7 @@ const searchText = (listing) => {
     item.ability?.name,
     item.ability && (findAbility(item.ability)?.description || item.ability.description),
     ...Object.keys(getItemStats(item)).map((k) => STAT_LABELS[k] || k),
-    item.gemstone?.name,
+    ...getItemGemstones(item).map((gemstone) => gemstone.name),
     listing.sellerName,
     item.originalOwner,
   ]

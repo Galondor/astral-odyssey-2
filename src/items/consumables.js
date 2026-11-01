@@ -2,9 +2,11 @@ import { getPlayer, setPlayer } from "../character/player";
 
 /*
  Consumables and key items.
- The player saves `consumables` ({ key: count }) and `keyItems` (array of KEY_ITEMS keys).
+ The player saves `consumables` ({ key: count }), `keyItems` (array of KEY_ITEMS keys),
+ and `disabledKeyItems` (array of toggleable key items switched off by the player).
  Add an entry to CONSUMABLES (heal: health restored) or KEY_ITEMS to create a new item;
- consumables with a `price` are sold in the general store.
+ consumables with a `price` are sold in the general store. Key items marked
+ `toggleable: true` can be switched on and off from the inventory.
 */
 export const CONSUMABLES = {
   minorPotion: {
@@ -52,7 +54,7 @@ export const CONSUMABLES = {
   },
   prismaticAlloy: {
     name: "Prismatic Alloy",
-    description: "Adds a Holofoil to an owned item or rerolls an existing Holofoil.",
+    description: "Adds a Holofoil to an owned item or rerolls its colors. Holofoil grants an extra socket (maximum 3), T5 or better stats, and double value. Color rerolls do not stack these bonuses.",
   },
   runeOfUnpredictability: {
     name: "Rune of Unpredictability",
@@ -90,6 +92,7 @@ export const KEY_ITEMS = {
     name: "Hunter's Horn",
     description: "Elite and boss encounters are much more common.",
     effects: { huntBonus: 1 },
+    toggleable: true,
   },
   wayfindersCompass: {
     name: "Wayfinder's Compass",
@@ -103,9 +106,14 @@ export const KEY_ITEMS = {
   },
 };
 
+export const isKeyItemEnabled = (player, key) =>
+  !(player?.disabledKeyItems || []).includes(key);
+
 export const getKeyItemEffect = (player, name) =>
   (player?.keyItems || []).reduce(
-    (sum, k) => sum + (KEY_ITEMS[k]?.effects?.[name] || 0),
+    (sum, k) =>
+      sum +
+      (isKeyItemEnabled(player, k) ? KEY_ITEMS[k]?.effects?.[name] || 0 : 0),
     0,
   );
 
@@ -120,11 +128,15 @@ export const consumableTooltip = (key, extra) => {
   };
 };
 
-export const keyItemTooltip = (key) => {
+export const keyItemTooltip = (key, player) => {
   const k = KEY_ITEMS[key];
-  return k
-    ? { title: k.name, subtitle: "Key Item", description: k.description }
-    : null;
+  if (!k) return null;
+  const tooltip = { title: k.name, subtitle: "Key Item", description: k.description };
+  if (k.toggleable && player)
+    tooltip.footer = isKeyItemEnabled(player, key)
+      ? "Active • Click to disable"
+      : "Disabled • Click to enable";
+  return tooltip;
 };
 
 export const getConsumables = (player = getPlayer()) =>
@@ -135,7 +147,11 @@ export const getConsumables = (player = getPlayer()) =>
 export const getKeyItems = (player = getPlayer()) =>
   (player?.keyItems || [])
     .filter((key) => KEY_ITEMS[key])
-    .map((key) => ({ key, ...KEY_ITEMS[key] }));
+    .map((key) => ({
+      key,
+      ...KEY_ITEMS[key],
+      enabled: isKeyItemEnabled(player, key),
+    }));
 
 export const addConsumable = (key, amount = 1) => {
   if (!CONSUMABLES[key]) return;
@@ -148,6 +164,23 @@ export const addKeyItem = (key) => {
   const owned = getPlayer()?.keyItems || [];
   if (KEY_ITEMS[key] && !owned.includes(key))
     setPlayer({ keyItems: [...owned, key] });
+};
+
+export const toggleKeyItem = (key) => {
+  const player = getPlayer();
+  if (!KEY_ITEMS[key]?.toggleable || !(player?.keyItems || []).includes(key))
+    return { ok: false, message: "That item can't be toggled." };
+  const disabled = player?.disabledKeyItems || [];
+  const enabling = disabled.includes(key);
+  setPlayer({
+    disabledKeyItems: enabling
+      ? disabled.filter((k) => k !== key)
+      : [...disabled, key],
+  });
+  return {
+    ok: true,
+    message: `${KEY_ITEMS[key].name} is now ${enabling ? "active" : "disabled"}.`,
+  };
 };
 
 // Applies one consumable to the stats copy `s` (mutated). Returns { ok, message, consumables }; nothing is used when ok is false.

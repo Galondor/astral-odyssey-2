@@ -27,6 +27,7 @@ import {
   gemstoneTooltip,
   itemTooltip,
   removeGemstone,
+  refreshGearTraderStock,
   socketGemstone,
   sellEquippedItem,
   sellGemstone,
@@ -40,6 +41,7 @@ import { isFavorite, toggleFavorite } from "../items/favorites";
 import { applyRune, canApplyRune, RUNE_MAIN_STATS } from "../items/runes";
 import { canRenameItem, renameItem } from "../items/certificates";
 import { applyPrismaticAlloy, canApplyPrismaticAlloy } from "../items/prismaticAlloy";
+import { getItemUpgradeStatus, upgradeInventoryItem } from "../items/upgrades";
 import { getItemStats, MARKET_RARITIES, MARKET_SLOTS, MARKET_STATS } from "../world/marketplace";
 import {
   CONSUMABLES,
@@ -49,6 +51,7 @@ import {
   getKeyItems,
   getKeyItemEffect,
   keyItemTooltip,
+  toggleKeyItem,
   drinkConsumable,
 } from "../items/consumables";
 import {
@@ -85,6 +88,8 @@ import { TITLES, titleTooltip } from "../character/titles";
 import { getRespecCost, getUnspentPoints, respecSkills, respecStatPoints, spendStatPoint } from "../character/progression";
 import RichText from "./RichText";
 import ItemPopup from "./ItemPopup";
+import { ItemSockets } from "./SocketIcon";
+import { getItemGemstones, getItemSocketCount } from "../items/sockets";
 import ChangelogScreen from "./ChangelogScreen";
 import LeaderboardScreen from "./LeaderboardScreen";
 import ArenaScreen from "./ArenaScreen";
@@ -122,7 +127,7 @@ import LabyrinthScreen from "./LabyrinthExpeditionScreen";
 import { GroupLobby, GroupRunScreen } from "./GroupDungeonScreen";
 import { getGroupStatus } from "../world/groupParty";
 import { GROUP_DUNGEONS } from "../world/groupDungeonData";
-import { getUnreadCount } from "../world/inbox";
+import { getUnreadCount, isAdmin } from "../world/inbox";
 import { DUNGEON_MIN_LEVEL, DUNGEON_REROLL_COST, describeOffer, formatTime, getBoard, getBoardRefreshMs, getRun, getStages, getTimeLeftMs, rerollDungeons, startDungeon } from "../world/dungeons";
 /*
  Game screens. A scene picks one with `screen: "<key>"` (and optional `screenData`); the sidebar can
@@ -547,6 +552,7 @@ const CraftingScreen = ({ data, onChange }) => {
 
 const ForgeScreen = ({ onChange }) => {
   const [tab, setTab] = useState("relic");
+  const [selectedUpgradeId, setSelectedUpgradeId] = useState(null);
   const [name, setName] = useState("");
   const [slot, setSlot] = useState("weapon");
   const [rarity, setRarity] = useState("Rare");
@@ -577,22 +583,69 @@ const ForgeScreen = ({ onChange }) => {
     onChange?.();
     setNote(result.message);
   };
+  const upgrade = (itemId) => {
+    const result = upgradeInventoryItem(itemId);
+    setNote(result.message);
+    if (result.ok) onChange?.();
+  };
+  const inventoryGear = (player.inventory || []).filter((item) =>
+    item?.id && !item.twoHandedOf && SLOTS.some((entry) => entry.type === item.slot) &&
+    !Object.values(player.equipment || {}).some((equipped) => equipped?.id === item.id));
+  const selectedUpgradeItem = inventoryGear.find((item) => item.id === selectedUpgradeId);
   return (
     <div className='workshop relic-forge'>
       <header className='relic-forge-header'>
         <div>
-          <h3>Relic Forge</h3>
-          <p>Design one custom item. Random choices are free; fragment costs are shown before forging.</p>
+          <h3>{tab === "upgrading" ? "Gear Upgrading" : "Relic Forge"}</h3>
+          <p>{tab === "upgrading"
+            ? "Upgrade unequipped gear by 1 item level. Maximum item level: 100. Maximum upgrades per item: 10."
+            : "Design one custom item. Random choices are free; fragment costs are shown before forging."}</p>
         </div>
         <div className='relic-forge-wallet' aria-label='Crafting materials'>
+          {tab === "upgrading" && <span><strong>{player.astra || 0}</strong> astra</span>}
           <span><strong>{relicCount}</strong> Sealed Relics</span>
           <span><strong>{fragmentCount}</strong> Relic Fragments</span>
         </div>
       </header>
       <div className='inventory-tabs' role='tablist' aria-label='Forge'>
-        <button type='button' role='tab' aria-selected={tab === "relic"} className={`inventory-tab ${tab === "relic" ? "active" : ""}`} onClick={() => setTab("relic")}>Relic Crafting</button>
+        <button type='button' role='tab' aria-selected={tab === "relic"} className={`inventory-tab ${tab === "relic" ? "active" : ""}`} onClick={() => { setTab("relic"); setNote(""); setSelectedUpgradeId(null); }}>Relic Crafting</button>
         <button type='button' role='tab' aria-selected='false' className='inventory-tab' disabled title='Material crafting is not available yet'>Material Crafting</button>
+        <button type='button' role='tab' aria-selected={tab === "upgrading"} className={`inventory-tab ${tab === "upgrading" ? "active" : ""}`} onClick={() => { setTab("upgrading"); setNote(""); }}>Upgrading</button>
       </div>
+      {tab === "upgrading" && (
+        <div className='relic-forge-content'>
+          {!inventoryGear.length && <p className='recipe-note'>Unequip some gear or add gear to your inventory to upgrade it here.</p>}
+          <div className='relic-forge-substats'>
+            {inventoryGear.map((item) => {
+              const slotLabel = SLOTS.find((entry) => entry.type === item.slot)?.label;
+              const details = itemTooltip(item);
+              const status = getItemUpgradeStatus(item);
+              return (
+                <section key={item.id} className='relic-forge-section forge-upgrade-card' aria-label={`${item.name} upgrade`}>
+                  <Tooltip content={details}>
+                    <button type='button' className='inventory-item gear-card' style={getHolofoilStyle(item)} onClick={() => setSelectedUpgradeId(item.id)}>
+                      <strong style={{ color: RARITY_COLORS[item.rarity] }}>{item.name}</strong>
+                      <span>{details.subtitle}</span>
+                      <span>Upgrades: {item.upgrades ?? 0}</span>
+                      <ItemSockets item={item} />
+                    </button>
+                  </Tooltip>
+                  <span className='forge-upgrade-summary'>{slotLabel}</span>
+                  {status.ok
+                    ? <span className='forge-upgrade-summary'>Item Level {item.iLevel} → {status.nextLevel} · {status.cost} astra</span>
+                    : <span className='forge-upgrade-summary'>{status.message}</span>}
+                  {status.ok && (player.astra || 0) < status.cost && <span className='forge-upgrade-summary'>Not enough astra.</span>}
+                  <button type='button' className='buttons' aria-label={`Upgrade ${item.name}`} disabled={!status.ok || (player.astra || 0) < status.cost} onClick={() => upgrade(item.id)}>Upgrade</button>
+                </section>
+              );
+            })}
+          </div>
+          <div className='recipe-note' role='status'>{note || "Choose an unequipped item from your inventory to upgrade."}</div>
+          {selectedUpgradeItem && (
+            <ItemPopup item={selectedUpgradeItem} onClose={() => setSelectedUpgradeId(null)} />
+          )}
+        </div>
+      )}
       {tab === "relic" && (
         <div className='relic-forge-content'>
           <section className='relic-forge-section'>
@@ -823,7 +876,7 @@ const GearTraderScreen = ({ data, onChange }) => {
     <Tooltip key={key} content={itemTooltip(item)}>
       <button
         type='button'
-        className={`inventory-item ${isEquipped ? "equipped-gear" : ""} ${canFavorite && isFavorite(player, "gear", item) ? "favorite-item" : ""}`}
+        className={`inventory-item gear-card ${isEquipped ? "equipped-gear" : ""} ${canFavorite && isFavorite(player, "gear", item) ? "favorite-item" : ""}`}
         style={getHolofoilStyle(item)}
         aria-disabled={unavailable || undefined}
         onClick={() => {
@@ -841,6 +894,7 @@ const GearTraderScreen = ({ data, onChange }) => {
           {item.name}
         </strong>
         <span>{label}</span>
+        <ItemSockets item={item} />
       </button>
     </Tooltip>
   );
@@ -1072,6 +1126,19 @@ const GearTraderScreen = ({ data, onChange }) => {
             New stock arrives every 30 minutes. Higher town reputation improves
             gear quality.
           </div>
+          {isAdmin() && (
+            <button
+              type='button'
+              className='buttons'
+              onClick={() => {
+                refreshGearTraderStock(player);
+                setNote("Gear trader stock refreshed.");
+                refresh();
+              }}
+            >
+              Force refresh stock
+            </button>
+          )}
           {!stock.length && (
             <div className='equip-empty'>This stock has sold out.</div>
           )}
@@ -1129,11 +1196,44 @@ const GearTraderScreen = ({ data, onChange }) => {
 const Equipment = ({ player, onChange, locked }) => {
   const [selectedGear, setSelectedGear] = useState(null);
   const [compareSelected, setCompareSelected] = useState(false);
+  const [socketPicker, setSocketPicker] = useState(false);
+  const [gemMessage, setGemMessage] = useState("");
   const equipment = player.equipment || {};
+  // Resolve two-handed placeholders to the slot that holds the real item.
+  const gemSlotKey = selectedGear
+    ? equipment[selectedGear.slotKey]?.twoHandedOf || selectedGear.slotKey
+    : null;
+  const refreshSelectedItem = () => {
+    const fresh = getPlayer()?.equipment?.[gemSlotKey];
+    setSelectedGear((current) => (current && fresh ? { ...current, item: fresh } : current));
+  };
+  const handleSocket = (gemstoneId) => {
+    const result = socketGemstone(gemstoneId, { kind: "equipment", slotKey: gemSlotKey });
+    if (result.ok) {
+      setSocketPicker(false);
+      setGemMessage("Gemstone socketed.");
+      refreshSelectedItem();
+    } else {
+      setGemMessage(gemstoneResultMessage(result));
+    }
+    onChange();
+  };
+  const handleUnsocket = (socketIndex) => {
+    const cost = getGemstoneRemovalCost(getItemGemstones(selectedGear?.item)[socketIndex]);
+    const result = removeGemstone({ kind: "equipment", slotKey: gemSlotKey }, socketIndex);
+    if (result.ok) {
+      setGemMessage(`Gemstone removed for ${result.cost} astra.`);
+      refreshSelectedItem();
+    } else {
+      setGemMessage(gemstoneResultMessage(result, cost));
+    }
+    onChange();
+  };
   return (
     <div className='equip-section'>
       <div className='equip-col'>
         <h3>Equipment</h3>
+        {gemMessage && !selectedGear && <div className='gemstone-message' role='status'>{gemMessage}</div>}
         <div className='equip-slots'>
           {SLOTS.map((slot) => {
             const slotItem = equipment[slot.key];
@@ -1150,6 +1250,7 @@ const Equipment = ({ player, onChange, locked }) => {
                   onClick={() => {
                     if (item) {
                       setCompareSelected(false);
+                      setGemMessage("");
                       setSelectedGear({ item, slotKey: slot.key });
                     }
                   }}
@@ -1163,16 +1264,21 @@ const Equipment = ({ player, onChange, locked }) => {
                   >
                     {item ? item.name : "Empty"}
                   </span>
+                  {item && <ItemSockets item={item} />}
                 </button>
               </Tooltip>
             );
           })}
         </div>
       </div>
-      {selectedGear && (
+      {selectedGear && !socketPicker && (
         <ItemPopup
           item={selectedGear.item}
-          onClose={() => setSelectedGear(null)}
+          message={gemMessage}
+          onClose={() => {
+            setSelectedGear(null);
+            setSocketPicker(false);
+          }}
           comparison={{ open: compareSelected, onToggle: () => setCompareSelected((open) => !open) }}
           actions={[
             {
@@ -1182,6 +1288,13 @@ const Equipment = ({ player, onChange, locked }) => {
                 onChange();
               },
             },
+            ...gemstoneSocketActions({
+              item: selectedGear.item,
+              player,
+              locked,
+              onOpenPicker: () => setSocketPicker(true),
+              onUnsocket: handleUnsocket,
+            }),
             {
               label: "Unequip",
               disabled: locked,
@@ -1192,6 +1305,16 @@ const Equipment = ({ player, onChange, locked }) => {
               },
             },
           ]}
+        />
+      )}
+      {selectedGear && socketPicker && (
+        <GemstonePickerPopup
+          gemstones={player.gemstones || []}
+          itemName={selectedGear.item.name}
+          locked={locked}
+          message={gemMessage}
+          onPick={handleSocket}
+          onClose={() => setSocketPicker(false)}
         />
       )}
     </div>
@@ -1306,6 +1429,134 @@ const ItemTargetPopup = ({
   );
 };
 
+const GemstonePickerPopup = ({ gemstones, itemName, onPick, onClose, locked, message }) => {
+  const popup = useRef(null);
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    (
+      popup.current?.querySelector("input") ||
+      popup.current?.querySelector("button:not(:disabled)")
+    )?.focus();
+  }, []);
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = gemstones.filter((gemstone) => {
+    const searchText = `${gemstone.name} ${gemstone.rarity} ${STAT_LABELS[gemstone.stat] || gemstone.stat}`.toLowerCase();
+    return terms.every((term) => searchText.includes(term));
+  });
+  return (
+    <div
+      className='item-popup-backdrop gemstone-popup-backdrop'
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        ref={popup}
+        className='item-popup gemstone-popup'
+        role='dialog'
+        aria-modal='true'
+        aria-label={`Socket a gemstone into ${itemName}`}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onClose();
+          if (event.key === "Tab") {
+            const focusable = event.currentTarget.querySelectorAll(
+              "button:not(:disabled), input:not(:disabled)",
+            );
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+          }
+        }}
+      >
+        <button
+          type='button'
+          className='item-popup-close'
+          aria-label='Close gemstone selection'
+          onClick={onClose}
+        >
+          ×
+        </button>
+        <h4>Socket a gemstone</h4>
+        <p className='gemstone-popup-description'>Choose a gemstone to socket into {itemName}.</p>
+        {message && <div className='gemstone-message' role='status'>{message}</div>}
+        {gemstones.length > 0 && (
+          <input
+            className='input-field gemstone-popup-search'
+            type='search'
+            aria-label='Search gemstones'
+            placeholder='Search name, stat, or rarity'
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        )}
+        {gemstones.length === 0 ? (
+          <div className='equip-empty'>You have no gemstones. Enemies may drop them.</div>
+        ) : matches.length === 0 ? (
+          <div className='equip-empty'>No gemstones match this search.</div>
+        ) : (
+          <div className='gemstone-popup-targets'>
+            {matches.map((gemstone) => (
+              <Tooltip key={gemstone.id} content={gemstoneTooltip(gemstone)}>
+                <button
+                  type='button'
+                  className='gemstone-popup-target'
+                  aria-label={`Socket ${gemstone.name} into ${itemName}`}
+                  disabled={locked}
+                  onClick={() => onPick(gemstone.id)}
+                >
+                  <strong style={{ color: RARITY_COLORS[gemstone.rarity] }}>{gemstone.name}</strong>
+                  <span>{STAT_LABELS[gemstone.stat] || gemstone.stat} +{gemstone.value}</span>
+                  <span>{gemstone.rarity}</span>
+                </button>
+              </Tooltip>
+            ))}
+          </div>
+        )}
+        <div className='item-popup-actions'>
+          <button type='button' className='buttons' onClick={onClose}>Cancel</button>
+        </div>
+      </section>
+    </div>
+  );
+};
+
+const gemstoneSocketActions = ({ item, player, locked, onOpenPicker, onUnsocket }) => {
+  if (!item || item.twoHandedOf) return [];
+  const gemstones = getItemGemstones(item);
+  const socketCount = getItemSocketCount(item);
+  const actions = gemstones.length < socketCount
+    ? [{ label: "Socket gemstone", disabled: locked, onClick: onOpenPicker }]
+    : [];
+  return [
+    ...actions,
+    ...gemstones.map((gemstone, index) => {
+      const cost = getGemstoneRemovalCost(gemstone);
+      return {
+        label: socketCount <= 1
+          ? `Unsocket gemstone (${cost} astra)`
+          : `Unsocket socket ${index + 1}: ${gemstone.name} (${cost} astra)`,
+        disabled: locked || cost === null || (player.astra || 0) < cost,
+        onClick: () => onUnsocket(index),
+      };
+    }),
+  ];
+};
+
+const gemstoneResultMessage = (result, cost) => {
+  if (result.ok) return null;
+  if (result.reason === "combat") return "You can't change gemstones during combat.";
+  if (result.reason === "astra") return `You need ${cost} astra to remove this gemstone.`;
+  if (result.reason === "occupied") return "That gear has no empty sockets.";
+  if (result.reason === "noSockets") return "That gear has no gemstone sockets.";
+  return "That gear can't accept a gemstone.";
+};
+
 const Inventory = ({ player, onChange, locked }) => {
   const [tab, setTab] = useState("gear");
   const [favoriteFilter, setFavoriteFilter] = useState("");
@@ -1317,9 +1568,7 @@ const Inventory = ({ player, onChange, locked }) => {
   const favoriteOrder = (category, a, b) =>
     Number(isFavorite(player, category, b)) - Number(isFavorite(player, category, a));
   const favoriteClass = (category, item) => isFavorite(player, category, item) ? "favorite-item" : "";
-  const [selectedGemstone, setSelectedGemstone] = useState(null);
-  const gemstonePopup = useRef(null);
-  const gemstoneTrigger = useRef(null);
+  const [socketPicker, setSocketPicker] = useState(false);
   const itemTargetTrigger = useRef(null);
   const [gemstoneMessage, setGemstoneMessage] = useState("");
   const [gemstoneFilters, setGemstoneFilters] = useState({
@@ -1353,7 +1602,6 @@ const Inventory = ({ player, onChange, locked }) => {
   });
   const [gearFiltersOpen, setGearFiltersOpen] = useState(false);
   const gemstones = player.gemstones || [];
-  const chosenGemstone = gemstones.find((gemstone) => gemstone.id === selectedGemstone) || null;
   const gemstoneTerms = gemstoneFilters.query.toLowerCase().split(/\s+/).filter(Boolean);
   const filteredGemstones = gemstones
     .filter((gemstone) => {
@@ -1371,35 +1619,7 @@ const Inventory = ({ player, onChange, locked }) => {
       };
       return (sorters[gemstoneFilters.sort]?.() || 0) || gemstones.indexOf(a) - gemstones.indexOf(b);
     });
-  const availableGemstoneTargets = [
-    ...SLOTS.filter((slot) => player.equipment?.[slot.key] && !player.equipment[slot.key].twoHandedOf)
-      .map((slot) => ({
-        target: { kind: "equipment", slotKey: slot.key },
-        label: slot.label,
-        item: player.equipment[slot.key],
-      })),
-    ...gear.map((item, index) => ({
-      target: { kind: "inventory", index },
-      label: "In pack",
-      item,
-    })).filter(({ item }) => !item.twoHandedOf),
-  ].filter(({ item }) => !item.gemstone);
-  const equippedGemstoneTargets = SLOTS.filter((slot) => {
-    const item = player.equipment?.[slot.key];
-    return item?.gemstone && !item.twoHandedOf;
-  }).map((slot) => ({
-    target: { kind: "equipment", slotKey: slot.key },
-    label: slot.label,
-    item: player.equipment[slot.key],
-  }));
   const gemstoneFilterActive = gemstoneFilters.query || gemstoneFilters.stat || gemstoneFilters.rarity;
-  useEffect(() => {
-    if (selectedGemstone) {
-      gemstonePopup.current?.querySelector("button:not(:disabled)")?.focus();
-    } else if (gemstoneTrigger.current?.isConnected) {
-      gemstoneTrigger.current.focus();
-    }
-  }, [selectedGemstone]);
   const consumables = getConsumables(player);
   const keyItems = getKeyItems(player);
   const materials = getMaterials(player);
@@ -1438,7 +1658,7 @@ const Inventory = ({ player, onChange, locked }) => {
           item.ability?.name,
           item.ability?.description,
           ...Object.keys(getItemStats(item)).map((key) => STAT_LABELS[key] || key),
-          item.gemstone?.name,
+          ...getItemGemstones(item).map((gemstone) => gemstone.name),
         ].filter(Boolean).join(" ").toLowerCase();
         if (!gearTerms.every((term) => searchText.includes(term))) return false;
       }
@@ -1573,28 +1793,32 @@ const Inventory = ({ player, onChange, locked }) => {
     markInventoryItemViewed(category, key);
     onChange();
   };
-  const applyGemstone = (target) => {
-    const result = socketGemstone(selectedGemstone, target);
+  const refreshSelectedItem = () => {
+    setSelectedGear((current) => {
+      const fresh = current ? getPlayer()?.inventory?.[current.index] : null;
+      return current && fresh ? { ...current, item: fresh } : current;
+    });
+  };
+  const handleSocket = (gemstoneId) => {
+    const result = socketGemstone(gemstoneId, { kind: "inventory", index: selectedGear?.index });
     if (result.ok) {
-      setSelectedGemstone(null);
+      setSocketPicker(false);
       setGemstoneMessage("Gemstone socketed.");
+      refreshSelectedItem();
     } else {
-      setGemstoneMessage(result.reason === "combat" ? "You can't change gemstones during combat." : "That gear can't accept a gemstone.");
+      setGemstoneMessage(gemstoneResultMessage(result));
     }
     onChange();
   };
-  const extractGemstone = (target, gemstone) => {
-    const cost = getGemstoneRemovalCost(gemstone);
-    const result = removeGemstone(target);
-    setGemstoneMessage(
-      result.ok
-        ? `Gemstone removed for ${result.cost} astra.`
-        : result.reason === "combat"
-          ? "You can't change gemstones during combat."
-          : result.reason === "astra"
-            ? `You need ${cost} astra to remove this gemstone.`
-            : "That gemstone can't be removed.",
-    );
+  const handleUnsocket = (socketIndex) => {
+    const cost = getGemstoneRemovalCost(getItemGemstones(selectedGear?.item)[socketIndex]);
+    const result = removeGemstone({ kind: "inventory", index: selectedGear?.index }, socketIndex);
+    if (result.ok) {
+      setGemstoneMessage(`Gemstone removed for ${result.cost} astra.`);
+      refreshSelectedItem();
+    } else {
+      setGemstoneMessage(gemstoneResultMessage(result, cost));
+    }
     onChange();
   };
   return (
@@ -1626,6 +1850,7 @@ const Inventory = ({ player, onChange, locked }) => {
           ))}
         </div>
         {tab === "gear" && <p className='recipe-kind'>Select gear to inspect its details and choose an action.</p>}
+        {tab === "gear" && gemstoneMessage && !selectedGear && <div className='gemstone-message' role='status'>{gemstoneMessage}</div>}
         {tab === "gear" && <select className='input-field inventory-favorite-filter' aria-label='Filter favorites' value={favoriteFilter} onChange={(event) => setFavoriteFilter(event.target.value)}>
           <option value=''>All items</option>
           <option value='favorites'>Favorites only</option>
@@ -1732,12 +1957,14 @@ const Inventory = ({ player, onChange, locked }) => {
                 <Tooltip key={item.id || index} content={itemTooltip(item)}>
                   <button
                     type='button'
-                    className={`inventory-item ${canEquip(item, player.level) ? "" : "too-high"} ${favoriteClass("gear", item)}`}
+                    className={`inventory-item gear-card ${canEquip(item, player.level) ? "" : "too-high"} ${favoriteClass("gear", item)}`}
                     style={getHolofoilStyle(item)}
                     onClick={() => {
                       markInventoryItemViewed("gear", getInventoryItemKey(item));
                       onChange();
                       setCompareSelected(false);
+                      setSocketPicker(false);
+                      setGemstoneMessage("");
                       setSelectedGear({ item, index });
                     }}
                   >
@@ -1747,6 +1974,7 @@ const Inventory = ({ player, onChange, locked }) => {
                     <strong style={{ color: RARITY_COLORS[item.rarity] }}>
                       {item.name}
                     </strong>
+                    <ItemSockets item={item} />
                   </button>
                 </Tooltip>
               ))}
@@ -1874,17 +2102,11 @@ const Inventory = ({ player, onChange, locked }) => {
           <div className='gemstone-workbench'>
             <div className='gemstone-intro'>
               <div>
-                <h4>Gemstone Socketing</h4>
-                <p>Socket and unsocket gemstones into your gear.</p>
+                <h4>Gemstones</h4>
+                <p>Open a gear item's popup from the Gear tab or your equipment to socket or unsocket gemstones.</p>
               </div>
               <span className='gemstone-count'>{gemstones.length} available</span>
             </div>
-            {locked && (
-              <div className='progression-locked' role='status'>
-                You can't socket or remove gemstones during combat.
-              </div>
-            )}
-            {gemstoneMessage && <div className='gemstone-message' role='status'>{gemstoneMessage}</div>}
             <section className='gemstone-section' aria-labelledby='gemstone-inventory-heading'>
               <div className='gemstone-section-heading'>
                 <h4 id='gemstone-inventory-heading'>Your gemstones</h4>
@@ -1955,18 +2177,8 @@ const Inventory = ({ player, onChange, locked }) => {
                       onView={() => viewItem("gemstones", gemstone.id)}
                       content={gemstoneTooltip(gemstone)}
                     >
-                      <button
-                        type='button'
-                        aria-haspopup='dialog'
+                      <div
                         className={`inventory-item gemstone-item ${favoriteClass("gemstones", gemstone)}`}
-                        disabled={locked}
-                        onClick={(event) => {
-                          markInventoryItemViewed("gemstones", gemstone.id);
-                          gemstoneTrigger.current = event.currentTarget;
-                          setSelectedGemstone(gemstone.id);
-                          setGemstoneMessage("");
-                          onChange();
-                        }}
                       >
                         {isNew("gemstones", gemstone.id) && (
                           <span className='inventory-new-dot' aria-label='New item' />
@@ -1978,117 +2190,14 @@ const Inventory = ({ player, onChange, locked }) => {
                           {STAT_LABELS[gemstone.stat] || gemstone.stat} +{gemstone.value}
                         </span>
                         <span className='gemstone-item-hint'>
-                          {gemstone.rarity} · click to socket
+                          {gemstone.rarity}
                         </span>
-                      </button>
+                      </div>
                     </Tooltip>
                   ))}
                 </div>
               )}
             </section>
-            <section className='gemstone-section' aria-labelledby='gemstone-equipped-heading'>
-              <div className='gemstone-section-heading'>
-                <h4 id='gemstone-equipped-heading'>Equipped gemstones</h4>
-                <span>Click an equipped item to remove its gemstone</span>
-              </div>
-              {!equippedGemstoneTargets.length ? (
-                <div className='equip-empty'>No equipped gear has a gemstone socketed.</div>
-              ) : (
-                <div className='gemstone-targets'>
-                  {equippedGemstoneTargets.map(({ target, label, item }) => {
-                    const cost = getGemstoneRemovalCost(item.gemstone);
-                    return (
-                      <button
-                        type='button'
-                        className={`gemstone-equipped-card ${target.kind === "equipment" ? "equipped-gear" : ""}`}
-                        style={getHolofoilStyle(item)}
-                        key={`${target.kind}-${target.slotKey ?? target.index}`}
-                        disabled={locked || (player.astra || 0) < cost}
-                        aria-label={`Remove ${item.gemstone.name} from ${item.name} for ${cost} astra`}
-                        onClick={() => extractGemstone(target, item.gemstone)}
-                      >
-                        <span className='gemstone-target-location'>{label}</span>
-                        <strong style={{ color: RARITY_COLORS[item.rarity] }}>{item.name}</strong>
-                        <span className='gemstone-socket-status'>
-                          Socketed: {item.gemstone.name} · {STAT_LABELS[item.gemstone.stat] || item.gemstone.stat} +{item.gemstone.value}
-                        </span>
-                        <span className='gemstone-unsocket-hint'>
-                          {locked ? "Unavailable during combat" : (player.astra || 0) < cost ? `Need ${cost} astra` : `Click to remove · ${cost} astra`}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-            {chosenGemstone && (
-              <div
-                className='item-popup-backdrop gemstone-popup-backdrop'
-                onMouseDown={(event) => {
-                  if (event.target === event.currentTarget) setSelectedGemstone(null);
-                }}
-              >
-                <section
-                  ref={gemstonePopup}
-                  className='item-popup gemstone-popup'
-                  role='dialog'
-                  aria-modal='true'
-                  aria-labelledby='gemstone-popup-title'
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") setSelectedGemstone(null);
-                    if (event.key === "Tab") {
-                      const buttons = event.currentTarget.querySelectorAll("button:not(:disabled)");
-                      const first = buttons[0];
-                      const last = buttons[buttons.length - 1];
-                      if (event.shiftKey && document.activeElement === first) {
-                        event.preventDefault();
-                        last.focus();
-                      } else if (!event.shiftKey && document.activeElement === last) {
-                        event.preventDefault();
-                        first.focus();
-                      }
-                    }
-                  }}
-                >
-                  <button
-                    type='button'
-                    className='item-popup-close'
-                    aria-label='Close gemstone gear selection'
-                    onClick={() => setSelectedGemstone(null)}
-                  >
-                    ×
-                  </button>
-                  <h4 id='gemstone-popup-title'>Socket {chosenGemstone.name}</h4>
-                  <p className='gemstone-popup-description'>
-                    {STAT_LABELS[chosenGemstone.stat] || chosenGemstone.stat} +{chosenGemstone.value}. Choose gear with an empty socket.
-                  </p>
-                  {availableGemstoneTargets.length ? (
-                    <div className='gemstone-popup-targets'>
-                      {availableGemstoneTargets.map(({ target, label, item }) => (
-                        <button
-                          key={`${target.kind}-${target.slotKey ?? target.index}`}
-                          type='button'
-                          className='gemstone-popup-target'
-                          aria-label={`Socket ${chosenGemstone.name} into ${item.name} (${label})`}
-                          style={getHolofoilStyle(item)}
-                          disabled={locked}
-                          onClick={() => applyGemstone(target)}
-                        >
-                          <span>{label}</span>
-                          <strong style={{ color: RARITY_COLORS[item.rarity] }}>{item.name}</strong>
-                          <span>Empty socket · Socket into {item.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className='equip-empty'>No gear with an empty socket can accept this gemstone.</div>
-                  )}
-                  <div className='item-popup-actions'>
-                    <button type='button' className='buttons' onClick={() => setSelectedGemstone(null)}>Cancel</button>
-                  </div>
-                </section>
-              </div>
-            )}
           </div>
         )}
         {tab === "materials" && (
@@ -2128,24 +2237,46 @@ const Inventory = ({ player, onChange, locked }) => {
                 <Tooltip
                   key={k.key}
                   onView={() => viewItem("keyItems", k.key)}
-                  content={keyItemTooltip(k.key)}
+                  content={keyItemTooltip(k.key, player)}
                 >
-                  <div className={`inventory-item ${favoriteClass("keyItems", k)}`}>
-                    {isNew("keyItems", k.key) && (
-                      <span className='inventory-new-dot' aria-label='New item' />
-                    )}
-                    <strong>{k.name}</strong>
-                  </div>
+                  {k.toggleable ? (
+                    <button
+                      type='button'
+                      className={`inventory-item ${favoriteClass("keyItems", k)} ${k.enabled ? "" : "key-item-disabled"}`}
+                      aria-pressed={k.enabled}
+                      onClick={() => {
+                        toggleKeyItem(k.key);
+                        onChange();
+                      }}
+                    >
+                      {isNew("keyItems", k.key) && (
+                        <span className='inventory-new-dot' aria-label='New item' />
+                      )}
+                      <strong>{k.name}</strong>
+                      {!k.enabled && <span>Disabled</span>}
+                    </button>
+                  ) : (
+                    <div className={`inventory-item ${favoriteClass("keyItems", k)}`}>
+                      {isNew("keyItems", k.key) && (
+                        <span className='inventory-new-dot' aria-label='New item' />
+                      )}
+                      <strong>{k.name}</strong>
+                    </div>
+                  )}
                 </Tooltip>
               ))}
             </div>
           </>
         )}
       </div>
-      {selectedGear && tab === "gear" && (
+      {selectedGear && tab === "gear" && !socketPicker && (
         <ItemPopup
           item={selectedGear.item}
-          onClose={() => setSelectedGear(null)}
+          message={gemstoneMessage}
+          onClose={() => {
+            setSelectedGear(null);
+            setSocketPicker(false);
+          }}
           comparison={{ open: compareSelected, onToggle: () => setCompareSelected((open) => !open) }}
           actions={[
             {
@@ -2156,6 +2287,13 @@ const Inventory = ({ player, onChange, locked }) => {
                 onChange();
               },
             },
+            ...gemstoneSocketActions({
+              item: selectedGear.item,
+              player,
+              locked,
+              onOpenPicker: () => setSocketPicker(true),
+              onUnsocket: handleUnsocket,
+            }),
             {
               label: "Equip",
               disabled: locked || !canEquip(selectedGear.item, player.level),
@@ -2166,6 +2304,16 @@ const Inventory = ({ player, onChange, locked }) => {
               },
             },
           ]}
+        />
+      )}
+      {selectedGear && tab === "gear" && socketPicker && (
+        <GemstonePickerPopup
+          gemstones={gemstones}
+          itemName={selectedGear.item.name}
+          locked={locked}
+          message={gemstoneMessage}
+          onPick={handleSocket}
+          onClose={() => setSocketPicker(false)}
         />
       )}
     </div>

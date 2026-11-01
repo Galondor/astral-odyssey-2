@@ -30,6 +30,7 @@ import {
 } from "../world/marketplace";
 import Tooltip from "./Tooltip";
 import PlayerName from "./PlayerName";
+import { ItemSockets } from "./SocketIcon";
 
 const TABS = [
   ["browse", "Browse"],
@@ -53,7 +54,7 @@ const ItemCard = ({ item, tooltip, selected, dimmed, favorite, onClick, children
   <Tooltip content={tooltip}>
     <button
       type='button'
-      className={`market-card ${selected ? "selected" : ""} ${dimmed ? "dimmed" : ""} ${favorite ? "favorite-item" : ""}`}
+      className={`market-card ${item.slot ? "gear-card" : ""} ${selected ? "selected" : ""} ${dimmed ? "dimmed" : ""} ${favorite ? "favorite-item" : ""}`}
       aria-disabled={favorite || undefined}
       style={{ "--rarity": itemColor(item), ...getHolofoilStyle(item) }}
       onClick={onClick}
@@ -80,6 +81,7 @@ const ItemCard = ({ item, tooltip, selected, dimmed, favorite, onClick, children
       )}
       {item.ability?.name && <span className='market-card-ability'>{item.ability.name}</span>}
       {children}
+      {item.slot && <ItemSockets item={item} />}
     </button>
   </Tooltip>
 );

@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { itemTooltip, itemComparisonTooltip } from "../items/items";
 import { TooltipContent } from "./Tooltip";
 
-export default function ItemPopup({ item, onClose, actions = [], comparison }) {
+export default function ItemPopup({ item, onClose, actions = [], comparison, message }) {
   const details = itemTooltip(item);
   const comparisonDetails = comparison?.open ? itemComparisonTooltip(item) : null;
 
@@ -34,6 +34,7 @@ export default function ItemPopup({ item, onClose, actions = [], comparison }) {
           ×
         </button>
         <TooltipContent data={details} />
+        {message && <div className='gemstone-message' role='status'>{message}</div>}
         {comparison?.open && comparisonDetails && (
           <div className='item-popup-comparison'>
             <TooltipContent data={{ sections: comparisonDetails.sections }} />

@@ -737,7 +737,7 @@ export const scenes = {
     screen: "forge",
     clearLog: true,
     input: INPUT_MODES[0],
-    text: "The Forge's star-forged anvils are ready. Shape a relic into a custom item.",
+    text: "The Forge's star-forged anvils are ready. Shape a relic into a custom item, or upgrade unequipped gear from your inventory.",
     options: [
       { label: "Leave Forge", keywords: ["leave", "1"], next: "town" },
     ],

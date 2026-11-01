@@ -6,7 +6,6 @@ import {
   clearWorldBossError,
   forceWorldBossRespawn,
   getWorldBossError,
-  getWorldBossTentativeRewards,
   hasPendingWorldBossAttempt,
   retryWorldBossAttempt,
   startWorldBossAttempt,
@@ -163,7 +162,7 @@ const WorldBossScreen = ({ player, goToScene, onChange, inCombat }) => {
         <div className='table-scroll'>
           <table>
             <thead>
-              <tr><th>Rank</th><th>Player</th><th>Damage</th><th>Contribution</th><th>Tentative reward</th></tr>
+              <tr><th>Rank</th><th>Player</th><th>Damage</th><th>Contribution</th></tr>
             </thead>
             <tbody>
               {ranked.map((entry, index) => {
@@ -175,7 +174,6 @@ const WorldBossScreen = ({ player, goToScene, onChange, inCombat }) => {
                     <td>{entry.name || "Unknown"}</td>
                     <td>{entry.damage.toLocaleString()}</td>
                     <td>{percent.toFixed(2)}%</td>
-                    <td>{entry.damage > 0 ? getWorldBossTentativeRewards(rank, entry.damage) : "No damage contribution yet"}</td>
                   </tr>
                 );
               })}

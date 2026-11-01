@@ -17,7 +17,6 @@ jest.mock("../../world/worldBoss", () => ({
   clearWorldBossError: jest.fn(),
   finishWorldBossAttempt: jest.fn(() => Promise.resolve()),
   getWorldBossError: () => "",
-  getWorldBossTentativeRewards: (rank) => rank === 1 ? "First-place reward" : "Rank reward",
   getWorldBossUniqueDropChance: () => 15,
   hasPendingWorldBossAttempt: () => false,
   retryWorldBossAttempt: jest.fn(),
@@ -59,12 +58,14 @@ test("locked World Boss view does not describe the level requirement", () => {
   expect(screen.queryByText(/level 35/i)).toBeNull();
 });
 
-test("shows shared boss health, current rankings, and tentative placement rewards", () => {
+test("shows shared boss health and current rankings without tentative rewards", () => {
   render(<WorldBossScreen player={{ name: "Alice", level: 35, stats: {} }} />);
 
   expect(screen.getByRole("heading", { name: "World Boss: The Astral Colossus" })).toBeTruthy();
   expect(screen.getByText("975,000 / 1,000,000 health")).toBeTruthy();
-  expect(screen.getByRole("row", { name: /#1 Alice 25,000 2.50% First-place reward/ })).toBeTruthy();
+  expect(screen.getByRole("row", { name: /#1 Alice 25,000 2.50%/ })).toBeTruthy();
+  expect(screen.queryByText("Tentative reward")).toBeNull();
+  expect(screen.queryByText("First-place reward")).toBeNull();
   expect(screen.getByText(/three attempts per day/i)).toBeTruthy();
 });
 

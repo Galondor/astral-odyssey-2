@@ -3,6 +3,8 @@ import { getEnemy } from "../../combat/combat";
 import { applyPrismaticAlloy, canApplyPrismaticAlloy } from "../../items/prismaticAlloy";
 import { drinkConsumable } from "../../items/consumables";
 import { HOLOFOIL_EFFECTS } from "../../items/holofoil";
+import { getItemSocketCount } from "../../items/sockets";
+import { getSubStatTier } from "../../items/items";
 
 jest.mock("../../character/player", () => ({ getPlayer: jest.fn(), setPlayer: jest.fn() }));
 jest.mock("../../combat/combat", () => ({ getEnemy: jest.fn() }));
@@ -68,4 +70,30 @@ test("applies foils to equipped gear but rejects missing items, placeholders, an
   expect(applyPrismaticAlloy("sword").ok).toBe(false);
   expect(player.consumables.prismaticAlloy).toBe(1);
   expect(setPlayer).not.toHaveBeenCalled();
+});
+
+test("Alloy grants bonuses once and immediately recalculates equipped stats", () => {
+  player = {
+    level: 25, stats: {}, baseStats: { strength: 2, dexterity: 2, intelligence: 2 },
+    inventory: [], equipment: {
+      mainHand: {
+        ...item, rarity: "Epic", socketCount: 2, iLevel: 25, price: 500,
+        mainStat: { stat: "strength", value: 1 }, subStats: { speed: 1 },
+      },
+    },
+    consumables: { prismaticAlloy: 2 },
+  };
+  expect(applyPrismaticAlloy("sword").ok).toBe(true);
+  const upgraded = player.equipment.mainHand;
+  expect(upgraded.price).toBe(1000);
+  expect(upgraded.mainStat.tier).toBeGreaterThanOrEqual(5);
+  expect(getSubStatTier("speed", upgraded.subStats.speed, 25)).toBeGreaterThanOrEqual(5);
+  expect(getItemSocketCount(upgraded)).toBe(3);
+  expect(player.stats.strength).toBe(2 + upgraded.mainStat.value);
+  expect(applyPrismaticAlloy("sword").ok).toBe(true);
+  expect(player.equipment.mainHand.price).toBe(1000);
+  expect(player.equipment.mainHand.mainStat).toEqual(upgraded.mainStat);
+  expect(player.equipment.mainHand.subStats).toEqual(upgraded.subStats);
+  expect(getItemSocketCount(player.equipment.mainHand)).toBe(3);
+  expect(player.consumables).toEqual({});
 });
