@@ -1,8 +1,9 @@
 import { createUniqueItem, generateRandomSlotItem } from "../items/items";
+import { CONSUMABLES } from "../items/consumables";
 import { MATERIALS, addToMaterials } from "../items/materials";
 import { expForLevel, gainExp } from "../character/stats";
 import { updateRecords } from "../character/records";
-import { STATUSES } from "../combat/statuses";
+import { getEnemyCriticalChance, getEnemyStatusResistance } from "../combat/enemies";
 import {
   GROUP_ROUND_MS,
   createGroupCombat,
@@ -14,6 +15,7 @@ import {
 import { UNIQUES } from "./dungeonData";
 import { GROUP_DUNGEONS, GROUP_RUN_MS, GROUP_WIPE_PENALTY_MS } from "./groupDungeonData";
 import { PUZZLE_ROUND_MS, createPuzzle, resolvePuzzle } from "./groupPuzzles";
+import { recordQuestKill } from "./quests";
 
 /*
  Group dungeon runs. Pure functions over the run JSON the party leader stores at groupParties/<id>/run.
@@ -42,11 +44,11 @@ const BASE_HP = 14;
 const BASE_ATTACK = 1.1;
 const BASE_DEFENSE = 0.55;
 const BASE_SPEED = 4;
-// Tuned with the trio balance simulation in src/tests/world/groupDungeons.test.js (Rare gear, 5 levels above).
+// Tuned with the trio/solo balance simulation in src/tests/world/groupDungeons.test.js.
 export const GROUP_TIER = {
-  basic: { label: "Basic", color: "#0070dd", hp: 2.6, atk: 2.4, def: 3.2, spd: 1, crit: 0.15, stunResist: 0.25, dotResist: 0.8 },
-  elite: { label: "Elite", color: "#a335ee", hp: 12, atk: 4.2, def: 4.5, spd: 1.1, crit: 0.2, stunResist: 0.6, dotResist: 0.6 },
-  boss: { label: "Boss", color: "#ff2a2a", hp: 22, atk: 4.8, def: 4.5, spd: 1.15, crit: 0.25, stunResist: 1, dotResist: 0.5 },
+  basic: { label: "Basic", color: "#0070dd", hp: 3.6, atk: 3.1, def: 3.5, spd: 1, crit: 0.15, stunResist: 0.25, dotResist: 0.8 },
+  elite: { label: "Elite", color: "#a335ee", hp: 16.8, atk: 5.5, def: 5, spd: 1.1, crit: 0.2, stunResist: 0.6, dotResist: 0.6 },
+  boss: { label: "Boss", color: "#ff2a2a", hp: 30.8, atk: 6.2, def: 5, spd: 1.15, crit: 0.25, stunResist: 1, dotResist: 0.5 },
 };
 
 const rnd = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
@@ -76,8 +78,9 @@ export function buildGroupEnemy(dungeonId, tplId) {
     attack: [Math.round(attack * 0.75), Math.round(attack * 1.25)],
     defense: Math.round(BASE_DEFENSE * level * t.def * m.def),
     speed: Math.round((BASE_SPEED + 0.35 * level) * t.spd * m.spd),
-    critical: t.crit,
+    critical: getEnemyCriticalChance(template.tier, t.crit),
     stunResist: t.stunResist,
+    statusResistance: getEnemyStatusResistance(template.tier, "group", (level - 35) / 100),
     dotResist: t.dotResist,
     abilities: clone(template.abilities || []),
     phases: clone(template.phases || []),
@@ -152,8 +155,8 @@ function startStage(run, index, now, carry = run.log) {
   } else {
     run.combat = createGroupCombat(run.party, stage.fight, spawnerFor(run).spawn);
     run.party = run.combat.players;
-    if (stage.fight.startStatus)
-      run.log = trimLog([...run.log, `[red]Everyone is afflicted with ${STATUSES[stage.fight.startStatus].name}![/red]`]);
+    run.log = trimLog([...run.log, ...run.combat.openingLog]);
+    run.combat.openingLog = [];
   }
   return run;
 }
@@ -338,6 +341,12 @@ export function reconcileGroupRun(player, run, identity, { leaving = false } = {
     if (!consumables[key]) delete consumables[key];
   }
   const patch = { consumables };
+  if (member.staminaRecovered > 0) {
+    patch.stats = {
+      ...player.stats,
+      stamina: Math.min(player.stats.maxStamina, player.stats.stamina + member.staminaRecovered),
+    };
+  }
   const stayed = !leaving && !run.left?.[identity];
   const cleared = run.status === "cleared" && stayed;
   const { exp, astra } = stayed ? groupRunRewards(dungeon, player.level || 1, run.stagesCleared || 0, cleared) : { exp: 0, astra: 0 };
@@ -363,10 +372,10 @@ export function reconcileGroupRun(player, run, identity, { leaving = false } = {
         lines.push(`You receive {{${item.name}|item:${item.id}}}!`);
       }
     }
-    for (const rune of ["architectsRune", "runeOfUnpredictability"])
+    for (const rune of ["architectsRune", "runeOfUnpredictability", "runeOfAscension", "polishingRune"])
       if (Math.random() < GROUP_RUNE_CHANCE) {
         patch.consumables[rune] = (patch.consumables[rune] || 0) + 1;
-        lines.push(`You receive a {{${rune === "architectsRune" ? "Architect's Rune" : "Rune of Unpredictability"}|consumable:${rune}}}!`);
+        lines.push(`You receive {{${CONSUMABLES[rune].name}|consumable:${rune}}}!`);
       }
     const unique = UNIQUES[dungeon.unique];
     if (unique && Math.random() < GROUP_UNIQUE_DROP_CHANCE) {
@@ -378,6 +387,11 @@ export function reconcileGroupRun(player, run, identity, { leaving = false } = {
     }
     patch.inventory = inventory;
     updateRecords(player, patch, { increments: { groupDungeonsCleared: 1 } });
+    const questKill = recordQuestKill(player.quests, { id: `group:${dungeon.id}`, tier: "boss", region: "GroupDungeon" });
+    if (questKill.messages.length) {
+      patch.quests = questKill.quests;
+      lines.push(...questKill.messages);
+    }
   }
   const history = Object.entries({ ...claims, [run.id]: run.endedAt || Date.now() })
     .sort((a, b) => b[1] - a[1])

@@ -23,6 +23,8 @@ export const GEAR_SCORE_STAT_WEIGHTS = {
   defense: 2.5,
   speed: 2.5,
   criticalDamage: 250,
+  criticalResistance: 250,
+  statusResistance: 250,
   criticalHitChance: 250,
   evasion: 250,
   attackPercent: 250,

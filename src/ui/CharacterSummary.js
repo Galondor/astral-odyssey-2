@@ -63,6 +63,8 @@ export default function CharacterSummary({ player }) {
     ["Evasion", `${Math.round((s.evasion || 0) * 100)}%`, ["evasion"]],
     ["Luck", s.luck, ["luck"]],
     ["Critical chance", `${Math.round((s.criticalHitChance || 0) * 100)}%`, ["criticalHitChance"]],
+    ["Critical Resistance", `${Math.round((s.criticalResistance || 0) * 100)}%`, ["criticalResistance"]],
+    ["Status Resistance", `${Math.round((s.statusResistance || 0) * 100)}%`, ["statusResistance"]],
     ["Speed", s.speed, ["speed"]],
     ["Gear score", s.gearScore || 0, ["gearScore"]],
   ];

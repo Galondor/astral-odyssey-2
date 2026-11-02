@@ -16,8 +16,9 @@ import {
   incomingMult,
   outgoingMult,
 } from "./statuses";
-import { CONSUMABLES, getKeyItemEffect } from "../items/consumables";
+import { CONSUMABLES, getKeyItemEffect, isCombatConsumable, applyConsumable } from "../items/consumables";
 import { MAX_PLAYER_CHANCE } from "../character/stats";
+import { getEnemyStatusResistance } from "./enemies";
 import { SKILLS, applySupportSkill, skillMultiplier } from "../character/skills";
 
 /*
@@ -87,7 +88,7 @@ export function createGroupMember(id, player) {
   const equipped = (player.equippedSkills || []).filter((key) => SKILLS[key] && (player.skills?.[key] || 0) > 0);
   const consumables = {};
   for (const [key, count] of Object.entries(player.consumables || {}))
-    if ((CONSUMABLES[key]?.heal || CONSUMABLES[key]?.power) && count > 0) consumables[key] = count;
+    if (isCombatConsumable(CONSUMABLES[key]) && count > 0) consumables[key] = count;
   return {
     id,
     name: player.name,
@@ -140,6 +141,7 @@ export function normalizeCombat(c) {
     m.ab.uniqueEffects = m.ab.uniqueEffects || [];
   }
   for (const e of c.enemies) {
+    e.statusResistance = e.statusResistance ?? getEnemyStatusResistance(e.tier, e.worldBossCycle ? "worldBoss" : "group");
     e.statuses = e.statuses || [];
     e.cooldowns = e.cooldowns || {};
     e.phasesDone = e.phasesDone || [];
@@ -194,11 +196,12 @@ export function createGroupCombat(players, fight, spawn) {
     lastBigHit: null,
     roundBigHit: null,
     nextUid: 1,
+    openingLog: [],
   };
   const first = c.waves.length ? c.waves[0] : fight.enemies || [];
   for (const tpl of first) addEnemy(c, spawn(tpl));
   if (fight.startStatus)
-    for (const m of livingMembers(c)) addStatus(m.statuses, fight.startStatus, {});
+    for (const m of livingMembers(c)) inflictOnMember(m, fight.startStatus, {}, c.openingLog);
   return c;
 }
 
@@ -212,6 +215,7 @@ export function addEnemy(c, enemy) {
     dead: false,
     stunGrace: false,
     ...enemy,
+    statusResistance: enemy.statusResistance ?? getEnemyStatusResistance(enemy.tier, enemy.worldBossCycle ? "worldBoss" : "group"),
     uid: `e${c.nextUid}`,
     hp: enemy.hp ?? enemy.maxHp,
   };
@@ -228,10 +232,6 @@ const findEnemy = (c, uid) => targetableEnemies(c).find((e) => e.uid === uid) ||
 function inflictOnEnemy(c, e, id, opts, log) {
   const def = STATUSES[id];
   if (def.kind === "skip") {
-    if (e.channel) {
-      log.push(`[gold]${The(e)}'s ${e.channel.name} is interrupted![/gold]`);
-      e.channel = null;
-    }
     if (Math.random() < (e.stunResist || 0)) {
       log.push(`${The(e)} resists being ${lower(id)}!`);
       return false;
@@ -242,7 +242,14 @@ function inflictOnEnemy(c, e, id, opts, log) {
     }
   }
   const power = (opts?.power ?? def.defaultPower) * (def.kind === "dot" ? e.dotResist ?? 1 : 1);
-  addStatus(e.statuses, id, { ...opts, power });
+  if (!addStatus(e.statuses, id, { ...opts, power, resistance: e.statusResistance })) {
+    log.push(`${The(e)} resists being ${lower(id)}!`);
+    return false;
+  }
+  if (def.kind === "skip" && e.channel) {
+    log.push(`[gold]${The(e)}'s ${e.channel.name} is interrupted![/gold]`);
+    e.channel = null;
+  }
   log.push(`${The(e)} is now ${lower(id)}.`);
   return true;
 }
@@ -252,8 +259,8 @@ function inflictOnMember(m, id, opts, log) {
     log.push(`${m.name} shakes off the stun.`);
     return false;
   }
-  if (!addStatus(m.statuses, id, opts)) {
-    log.push(`${m.name}'s ward repels ${lower(id)}.`);
+  if (!addStatus(m.statuses, id, { ...opts, resistance: m.stats.statusResistance })) {
+    log.push(`${m.name} resists being ${lower(id)}.`);
     return false;
   }
   log.push(`${m.name} is now ${lower(id)}.`);
@@ -407,7 +414,7 @@ function saltbloodTide(c, actor, enemy, log, env) {
   inflictOnEnemy(c, enemy, "bleed", SALTBLOOD_TIDE.bleed, log);
   actor.tideHits = (actor.tideHits || 0) + 1;
   const bleed = enemy.statuses.find((st) => st.id === "bleed");
-  if (actor.tideHits < SALTBLOOD_TIDE.every || !bleed) return;
+  if (enemy.worldBossCycle || actor.tideHits < SALTBLOOD_TIDE.every || !bleed) return;
   actor.tideHits = 0;
   const burst = bleedRemaining(bleed, enemy.maxHp);
   enemy.statuses = enemy.statuses.filter((st) => st !== bleed);
@@ -443,11 +450,24 @@ function applyItem(c, actor, intent, log) {
   const item = CONSUMABLES[intent.key];
   const target = findMember(c, intent.target) || actor;
   const left = (actor.consumables[intent.key] || 0) - (actor.spent[intent.key] || 0);
-  if (!item || !(item.heal || item.power) || left < 1) {
+  if (!isCombatConsumable(item) || left < 1) {
     log.push(`${actor.name} fumbles for an item they don't have.`);
     return;
   }
   const s = target.stats;
+  if (item.cleanse || item.stamina) {
+    const staminaBefore = s.stamina;
+    const result = applyConsumable({ consumables: { [intent.key]: left } }, intent.key, s, { statuses: target.statuses });
+    if (!result.ok) {
+      log.push(`${actor.name}: ${result.message}`);
+      return;
+    }
+    if (item.stamina)
+      target.staminaRecovered = (target.staminaRecovered || 0) + s.stamina - staminaBefore;
+    actor.spent[intent.key] = (actor.spent[intent.key] || 0) + 1;
+    log.push(`${actor.name} uses a ${item.name}${target === actor ? "" : ` on ${target.name}`}: ${item.cleanse ? "all cleansable negative status effects are removed." : `${s.stamina - staminaBefore} stamina restored.`}`);
+    return;
+  }
   const healed = Math.min(
     Math.floor((item.heal || 0) * (1 + (actor.potionBonus || 0)) * healMult(target.statuses) * s.maxHealth),
     s.maxHealth - s.health,
@@ -561,7 +581,7 @@ function attackAction(c, actor, intent, log, env) {
   }
   if (ab.uniqueEffects.includes("undyingHunger") && enemy.statuses.some((st) => ["burn", "poison", "bleed"].includes(st.id)))
     healMember(actor, Math.round(s.maxHealth * 0.08), log, "Undying Hunger");
-  const burn = ab.uniqueEffects.includes("moltenGrip") && !enemy.dead && enemy.statuses.find((st) => st.id === "burn");
+  const burn = !enemy.worldBossCycle && ab.uniqueEffects.includes("moltenGrip") && !enemy.dead && enemy.statuses.find((st) => st.id === "burn");
   if (burn) {
     const burst = Math.max(1, Math.round(enemy.maxHp * burn.power * burn.stacks)) * 2;
     enemy.statuses = enemy.statuses.filter((st) => st.id !== "burn");
@@ -600,9 +620,9 @@ function attackAction(c, actor, intent, log, env) {
     if (ab.poison && Math.random() < ab.poison) inflictOnEnemy(c, enemy, "poison", {}, log);
     if (ab.uniqueEffects.includes("bloomOfDecay")) {
       const stacks = Math.min(5, (enemy.statuses.find((st) => st.id === "poison")?.stacks || 0) + 1);
-      inflictOnEnemy(c, enemy, "poison", {}, log);
+      const applied = inflictOnEnemy(c, enemy, "poison", {}, log);
       const poison = enemy.statuses.find((st) => st.id === "poison");
-      if (poison) poison.stacks = stacks;
+      if (applied && poison) poison.stacks = stacks;
     }
     if (cls === "Trickster" && Math.random() < HEX_CHANCE)
       inflictOnEnemy(c, enemy, Math.random() < 0.5 ? "weaken" : "vulnerable", { turns: 2 }, log);
@@ -721,6 +741,7 @@ function enemyStrike(c, e, target, ability, log, { scale = 1, telegraphed = fals
   if (blocked && telegraphed) dmg = Math.max(1, Math.floor(dmg * TELEGRAPH_BLOCKED));
   dmg *= incomingMult(victim.statuses);
   dmg *= 1 - Math.min(DAMAGE_REDUCTION_CAP, victim.ab.damageReduction || 0);
+  if (crit) dmg *= 1 - Math.min(0.5, Math.max(0, s.criticalResistance || 0));
   dmg = Math.max(1, Math.round(dmg));
   dmg = soak(victim, dmg, log);
   if (victim.ab.uniqueEffects.includes("temperedSteel")) {
@@ -793,11 +814,13 @@ function enemyAbility(c, e, ability, log) {
     case "soulLink": {
       if (living.length < 2) break;
       const [a, b] = [...living].sort(() => Math.random() - 0.5);
-      const ea = addStatus(a.statuses, "soulLink", {});
-      const eb = addStatus(b.statuses, "soulLink", {});
+      const ea = addStatus(a.statuses, "soulLink", { resistance: a.stats.statusResistance });
+      const eb = addStatus(b.statuses, "soulLink", { resistance: b.stats.statusResistance });
       if (ea) ea.link = b.id;
       if (eb) eb.link = a.id;
-      log.push(`[red]${The(e)} binds the souls of ${a.name} and ${b.name}! They now share damage.[/red]`);
+      if (ea || eb) log.push(`[red]${The(e)} binds the souls of ${a.name} and ${b.name}![/red]`);
+      if (!ea) log.push(`${a.name} resists the Soul Link.`);
+      if (!eb) log.push(`${b.name} resists the Soul Link.`);
       return;
     }
     case "doom": {
@@ -942,7 +965,7 @@ function tickEnemy(c, e, log, env) {
   const kept = [];
   for (const st of e.statuses) {
     const kind = STATUSES[st.id].kind;
-    if (kind === "dot") {
+    if (kind === "dot" && !e.worldBossCycle) {
       const amount = Math.max(1, Math.round(e.maxHp * st.power * st.stacks));
       log.push(`${The(e)} takes ${red(amount)} ${lower(st.id)} damage.`);
       damageEnemy(c, e, amount, log, env);
@@ -986,8 +1009,9 @@ function endOfRound(c, log, env) {
   const environment = c.environment;
   if (environment && c.round % (environment.every || 1) === 0)
     for (const m of livingMembers(c)) {
-      const entry = addStatus(m.statuses, environment.status, { power: environment.power, turns: environment.turns });
+      const entry = addStatus(m.statuses, environment.status, { power: environment.power, turns: environment.turns, resistance: m.stats.statusResistance });
       if (entry) log.push(`${environment.text || `${m.name} suffers ${lower(environment.status)}.`}`.replace("{name}", m.name));
+      else log.push(`${m.name} resists being ${lower(environment.status)}.`);
     }
   for (const e of livingEnemies(c)) {
     if (e.collapse) {
@@ -1000,8 +1024,8 @@ function endOfRound(c, log, env) {
       e.rewind.rounds -= 1;
       if (e.rewind.dealt >= e.rewind.need) {
         log.push(`[gold]The party overwhelms the rewind! ${The(e)} staggers.[/gold]`);
-        addStatus(e.statuses, "stun", {});
-        addStatus(e.statuses, "vulnerable", { turns: 2, power: 0.25 });
+        inflictOnEnemy(c, e, "stun", {}, log);
+        inflictOnEnemy(c, e, "vulnerable", { turns: 2, power: 0.25 }, log);
         e.rewind = null;
       } else if (e.rewind.rounds <= 0) {
         const restored = Math.max(0, Math.min(e.maxHp, e.rewind.hp + Math.round(e.maxHp * 0.08)) - e.hp);
@@ -1062,7 +1086,8 @@ function advanceEncounter(c, log, env) {
 */
 export function resolveGroupRound(combat, intents, env) {
   const c = normalizeCombat(combat);
-  const log = [`— Round ${c.round} —`];
+  const log = [...(c.openingLog || []), `— Round ${c.round} —`];
+  c.openingLog = [];
   Object.defineProperty(c, "env", { value: env, enumerable: false, configurable: true });
   applyStances(c, intents || {}, log);
   const actors = [

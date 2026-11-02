@@ -160,6 +160,15 @@ test("the final boss guarantees one and drops no more than two Unwritten Crown F
 
   expect(moveInLabyrinth(2, 1)).toMatchObject({ ok: true, encounter: "combat" });
   const boss = startCombat.mock.calls.at(-1)[0];
+  const level = finalFloor.level;
+  expect(boss).toMatchObject({
+    maxHp: Math.round(14 * level * 16 * 1.65),
+    attack: [Math.round(1.1 * level * 11 * 1.65 * 0.8), Math.round(1.1 * level * 11 * 1.65 * 1.25)],
+    defense: Math.round(0.55 * level * 14 * 1.65),
+    critical: 0.36,
+    astra: Math.round(level * 180 * 1.65),
+    exp: Math.round(level * 240 * 1.65),
+  });
   const crownDrop = boss.drops.find((drop) => drop.key === "labyrinth_crown_fragment");
   expect(crownDrop).toMatchObject({ chance: 1, min: 1, max: 2 });
   jest.spyOn(Math, "random")

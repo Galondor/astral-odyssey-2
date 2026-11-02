@@ -1,7 +1,8 @@
 import { get, onValue, ref, runTransaction, set } from "firebase/database";
 import { getCharacterIdentity, getPlayer } from "../character/player";
+import { getEnemyCriticalChance } from "../combat/enemies";
 import { db } from "../firebase";
-import { RUNE_OF_UNPREDICTABILITY_DROP_CHANCE } from "../items/consumables";
+import { CONSUMABLES, POLISHING_RUNE_DROP_CHANCE, RUNE_OF_UNPREDICTABILITY_DROP_CHANCE } from "../items/consumables";
 import { MATERIALS } from "../items/materials";
 import { TITLES } from "../character/titles";
 import { isAdmin } from "./inbox";
@@ -250,7 +251,7 @@ export const startWorldBossAttempt = async (player = getPlayer()) => {
     attack: [Math.round(level * 1.6), Math.round(level * 2.4)],
     defense: Math.round(level * 1.4),
     speed: Math.round(level * 1.1),
-    critical: 0.35,
+    critical: getEnemyCriticalChance("boss", 0.35),
     astra: 0,
     exp: 0,
     dropChance: 0,
@@ -266,6 +267,7 @@ export const startWorldBossAttempt = async (player = getPlayer()) => {
     ],
     stunResist: 1,
     dotResist: 0.7,
+    statusResistance: 0.65,
     worldBossCycle: cycle,
     worldBossStartHealth: summary.health,
     onDefeat: () => {},
@@ -357,17 +359,19 @@ export const deliverWorldBossResetNotice = async (cycle) => {
 
 export const getWorldBossTentativeRewards = (rank, damage = 0) => {
   let placement = rank === 1
-    ? "Unique Title, 2 Prismatic Alloy, 3 Architect's Runes, 800,000 Astra"
+    ? "Unique Title, 2 Prismatic Alloy, 3 Architect's Runes, 1 Rune of Ascension, 800,000 Astra"
     : rank === 2
-      ? "1 Prismatic Alloy, 2 Architect's Runes, 500,000 Astra"
+      ? "1 Prismatic Alloy, 2 Architect's Runes, 1 Rune of Ascension, 500,000 Astra"
       : rank === 3
-        ? "1 Prismatic Alloy, 1 Architect's Rune, 200,000 Astra"
+        ? "1 Prismatic Alloy, 1 Architect's Rune, 1 Rune of Ascension, 200,000 Astra"
         : rank <= 10
           ? "100,000 Astra"
           : "";
   if (damage >= WORLD_BOSS_REWARD_THRESHOLD) {
     const gearTier = rank <= 10 ? "T5+" : "T3+";
-    placement = [placement, "50,000 bonus Astra", `materials and 3–8 Epic ${gearTier} gear`, "1% Rune of Unpredictability chance"]
+    placement = [placement, "50,000 bonus Astra", `materials and 3–8 Epic ${gearTier} gear`,
+      `${RUNE_OF_UNPREDICTABILITY_DROP_CHANCE * 100}% Rune of Unpredictability chance`,
+      `${POLISHING_RUNE_DROP_CHANCE * 100}% Polishing Rune chance`]
       .filter(Boolean)
       .join("; ");
   } else if (rank > 10) {
@@ -398,22 +402,27 @@ const buildRewardMail = (cycle, entry, rank, total, ownsGiantSlayer) => {
       count: 3 + Math.floor(Math.random() * 6),
     }];
     summary.push(`1% contribution reward: 50,000 Astra, materials and 3–8 Epic T${rank <= 10 ? "5+" : "3+"} gear`);
-    if (Math.random() < RUNE_OF_UNPREDICTABILITY_DROP_CHANCE) {
-      attachments.consumables = { ...(attachments.consumables || {}), runeOfUnpredictability: 1 };
-      summary.push("1 Rune of Unpredictability");
+    for (const [key, chance] of [
+      ["runeOfUnpredictability", RUNE_OF_UNPREDICTABILITY_DROP_CHANCE],
+      ["polishingRune", POLISHING_RUNE_DROP_CHANCE],
+    ]) {
+      if (Math.random() < chance) {
+        attachments.consumables = { ...(attachments.consumables || {}), [key]: 1 };
+        summary.push(`1 ${CONSUMABLES[key].name}`);
+      }
     }
   }
   let placementAstra = 0;
   if (rank === 1) {
     placementAstra = 800_000;
-    attachments.consumables = { ...attachments.consumables, prismaticAlloy: 2, architectsRune: 3 };
+    attachments.consumables = { ...attachments.consumables, prismaticAlloy: 2, architectsRune: 3, runeOfAscension: 1 };
     if (!ownsGiantSlayer) attachments.titles = ["giantSlayer"];
   } else if (rank === 2) {
     placementAstra = 500_000;
-    attachments.consumables = { ...attachments.consumables, prismaticAlloy: 1, architectsRune: 2 };
+    attachments.consumables = { ...attachments.consumables, prismaticAlloy: 1, architectsRune: 2, runeOfAscension: 1 };
   } else if (rank === 3) {
     placementAstra = 200_000;
-    attachments.consumables = { ...attachments.consumables, prismaticAlloy: 1, architectsRune: 1 };
+    attachments.consumables = { ...attachments.consumables, prismaticAlloy: 1, architectsRune: 1, runeOfAscension: 1 };
   } else if (rank <= 10) {
     placementAstra = 100_000;
   }
@@ -427,6 +436,8 @@ const buildRewardMail = (cycle, entry, rank, total, ownsGiantSlayer) => {
     ...(attachments.consumables?.prismaticAlloy ? [`${attachments.consumables.prismaticAlloy} Prismatic Alloy`] : []),
     ...(attachments.consumables?.architectsRune ? [`${attachments.consumables.architectsRune} Architect's Rune${attachments.consumables.architectsRune === 1 ? "" : "s"}`] : []),
     ...(attachments.consumables?.runeOfUnpredictability ? [`${attachments.consumables.runeOfUnpredictability} Rune of Unpredictability`] : []),
+    ...(attachments.consumables?.runeOfAscension ? [`${attachments.consumables.runeOfAscension} Rune of Ascension`] : []),
+    ...(attachments.consumables?.polishingRune ? [`${attachments.consumables.polishingRune} Polishing Rune`] : []),
     ...(attachments.titles || []).map((id) => TITLES[id].name),
     ...(attachments.uniques || []).map(() => "Astral Colossus Heart"),
   ];

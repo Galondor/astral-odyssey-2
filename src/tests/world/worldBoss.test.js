@@ -5,6 +5,7 @@ import {
   deliverWorldBossRewards,
   finishWorldBossAttempt,
   getWorldBossCycleId,
+  getWorldBossTentativeRewards,
   getWorldBossUniqueDropChance,
   startWorldBossAttempt,
   summarizeWorldBoss,
@@ -146,6 +147,8 @@ test("the Giant Slayer title is mailed only for a character's first first-place 
   expect(firstMail.attachments.titles).toEqual(["giantSlayer"]);
   expect(firstMail.attachments.astra).toBe(850_000);
   expect(firstMail.attachments.consumables.runeOfUnpredictability).toBe(1);
+  expect(firstMail.attachments.consumables.polishingRune).toBe(1);
+  expect(firstMail.attachments.consumables.runeOfAscension).toBe(1);
   expect(firstMail.attachments.gear).toEqual([{ slot: "weapon", minRarity: 3, minTier: 5, count: 3 }]);
   expect(state.get("worldBoss/titleAwards/alice")).toBe(true);
 
@@ -155,7 +158,7 @@ test("the Giant Slayer title is mailed only for a character's first first-place 
   Math.random.mockRestore();
 });
 
-test("only 1% damage contributors can roll the 1% world boss rune drop", async () => {
+test("only 1% damage contributors can roll the 5% world boss rune drops", async () => {
   getCharacterIdentity.mockReturnValue("player-11");
   const participants = Object.fromEntries(
     Array.from({ length: 10 }, (_, index) => [`player-${index + 1}`, { name: `Player ${index + 1}`, damage: 95_000 }])
@@ -163,21 +166,41 @@ test("only 1% damage contributors can roll the 1% world boss rune drop", async (
   );
   jest.spyOn(Math, "random")
     .mockReturnValueOnce(0.5)
-    .mockReturnValueOnce(0.009)
+    .mockReturnValueOnce(0.049999)
+    .mockReturnValueOnce(0.049999)
     .mockReturnValueOnce(0.99);
 
   await deliverWorldBossRewards("cycle-rune-drop", participants);
 
   expect(state.get("worldBossMail/player-11/cycle-rune-drop").attachments.consumables)
-    .toEqual({ runeOfUnpredictability: 1 });
+    .toEqual({ runeOfUnpredictability: 1, polishingRune: 1 });
 
   jest.spyOn(Math, "random")
     .mockReturnValueOnce(0.5)
-    .mockReturnValueOnce(0.01)
+    .mockReturnValueOnce(0.05)
+    .mockReturnValueOnce(0.05)
     .mockReturnValueOnce(0.99);
   await deliverWorldBossRewards("cycle-rune-miss", participants);
   expect(state.get("worldBossMail/player-11/cycle-rune-miss").attachments.consumables).toBeUndefined();
   Math.random.mockRestore();
+});
+
+test.each([1, 2, 3])("rank %s gets one guaranteed Ascension rune and unchanged Architect rewards", async (rank) => {
+  getCharacterIdentity.mockReturnValue(`player-${rank}`);
+  const participants = Object.fromEntries([400_000, 300_000, 200_000, 100_000].map((damage, index) =>
+    [`player-${index + 1}`, { name: `Player ${index + 1}`, damage }]));
+  const random = jest.spyOn(Math, "random").mockReturnValue(0.99);
+  try {
+    await deliverWorldBossRewards(`placement-${rank}`, participants);
+    const consumables = state.get(`worldBossMail/player-${rank}/placement-${rank}`).attachments.consumables;
+    expect(consumables.architectsRune).toBe(4 - rank);
+    expect(consumables.runeOfAscension).toBe(1);
+    expect(getWorldBossTentativeRewards(rank)).toContain("1 Rune of Ascension");
+    expect(consumables.polishingRune).toBeUndefined();
+    expect(consumables.runeOfUnpredictability).toBeUndefined();
+  } finally {
+    random.mockRestore();
+  }
 });
 
 test("1% contributors outside the top ten receive 50,000 Astra and 3-8 Epic T3+ gear", async () => {
@@ -201,6 +224,7 @@ test("three attempts per day consume the allowance and save each contribution", 
   expect(attempt).toMatchObject({ ok: true });
   expect(attempt.enemy.maxHp).toBe(WORLD_BOSS_HEALTH);
   expect(attempt.enemy.maxRounds).toBe(WORLD_BOSS_MAX_ROUNDS);
+  expect(attempt.enemy.critical).toBe(0.28);
   expect(attempt.remainingAttempts).toBe(WORLD_BOSS_DAILY_ATTEMPTS - 1);
 
   attempt.enemy.worldBossDamageDealt = 12_345;

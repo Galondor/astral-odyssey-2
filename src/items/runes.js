@@ -5,6 +5,9 @@ import { CONSUMABLES } from "./consumables";
 import {
   getCustomSubStatTiers,
   getSubStatTier,
+  getSubStatPool,
+  getNextItemQuality,
+  upgradeItemQuality,
   rollSubStatAtTier,
   STAT_LABELS,
   SUBSTAT_NAMES,
@@ -12,10 +15,12 @@ import {
 
 export const RUNE_MAIN_STATS = ["strength", "dexterity", "intelligence"];
 
-export const canApplyRune = (item) =>
-  !!item?.mainStat && !item.twoHandedOf && !item.crafted;
+export const canApplyRune = (item, key) =>
+  !!item?.mainStat && !item.twoHandedOf &&
+  (!key || (CONSUMABLES[key]?.rune && !(item.usedRunes || []).includes(CONSUMABLES[key].name))) &&
+  (key !== "runeOfAscension" || !!getNextItemQuality(item, "rarity")) &&
+  (key !== "polishingRune" || !!getNextItemQuality(item, "condition"));
 
-// All rune effects go through this entry point so Crafted protection is shared.
 export function applyRune(key, itemId, stat) {
   const player = getPlayer();
   if (!player) return { ok: false, message: "No character loaded." };
@@ -29,10 +34,12 @@ export function applyRune(key, itemId, stat) {
   const slot = Object.keys(equipment).find((key) =>
     !equipment[key]?.twoHandedOf && equipment[key]?.id === itemId);
   const item = index >= 0 ? inventory[index] : equipment[slot];
-  if (item?.crafted)
-    return { ok: false, message: "Crafted items cannot receive runes." };
+  if ((item?.usedRunes || []).includes(rune.name))
+    return { ok: false, message: `This item has already received ${rune.name}.` };
   if (!canApplyRune(item))
     return { ok: false, message: "Choose an equipment item with a main stat." };
+  if (!canApplyRune(item, key))
+    return { ok: false, message: `This item cannot receive ${rune.name} at its current quality.` };
   if (key === "architectsRune" && (!RUNE_MAIN_STATS.includes(stat) || stat === item.mainStat.stat))
     return { ok: false, message: "Choose a different main stat." };
   if (
@@ -40,7 +47,7 @@ export function applyRune(key, itemId, stat) {
     (!Number.isSafeInteger(item.iLevel) || item.iLevel < 1)
   )
     return { ok: false, message: "This item has no valid item level for substat changes." };
-  if (key !== "architectsRune" && key !== "runeOfUnpredictability")
+  if (!["architectsRune", "runeOfUnpredictability", "runeOfAscension", "polishingRune"].includes(key))
     return { ok: false, message: "That rune's effect is not supported." };
 
   let updated = item;
@@ -48,9 +55,18 @@ export function applyRune(key, itemId, stat) {
   if (key === "architectsRune") {
     updated = { ...item, mainStat: { ...item.mainStat, stat } };
     effectMessage = `its main stat is now ${STAT_LABELS[stat]}`;
+  } else if (key === "runeOfAscension" || key === "polishingRune") {
+    const field = key === "runeOfAscension" ? "rarity" : "condition";
+    const result = upgradeItemQuality(item, field);
+    if (!result.ok) return result;
+    updated = result.item;
+    effectMessage = `its ${field} is now ${updated[field]}`;
   } else {
     const subStats = { ...(item.subStats || {}) };
     const subTiers = { ...(item.subTiers || {}) };
+    // Runes can cross normal pools, but resistance stats retain their armor/jewelry restriction.
+    const availableStats = SUBSTAT_NAMES.filter((candidate) =>
+      !["criticalResistance", "statusResistance"].includes(candidate) || getSubStatPool(item.slot).includes(candidate));
     const effect = Math.floor(Math.random() * 4);
     if (effect === 1 && Object.keys(subStats).length) {
       const currentStat = Object.keys(subStats)[Math.floor(Math.random() * Object.keys(subStats).length)];
@@ -75,7 +91,7 @@ export function applyRune(key, itemId, stat) {
       );
       if (tier === null)
         return { ok: false, message: `Could not determine the ${STAT_LABELS[currentStat] || currentStat} substat tier.` };
-      const replacements = SUBSTAT_NAMES.filter((candidate) => !(candidate in subStats));
+      const replacements = availableStats.filter((candidate) => !(candidate in subStats));
       if (replacements.length) {
         const newStat = replacements[Math.floor(Math.random() * replacements.length)];
         const value = rollSubStatAtTier(newStat, item.iLevel, tier, item.twoHanded);
@@ -88,7 +104,7 @@ export function applyRune(key, itemId, stat) {
         effectMessage = `${STAT_LABELS[currentStat] || currentStat} became ${STAT_LABELS[newStat] || newStat} at T${tier}`;
       }
     } else if (effect === 3) {
-      const additions = SUBSTAT_NAMES.filter((candidate) => !(candidate in subStats));
+      const additions = availableStats.filter((candidate) => !(candidate in subStats));
       if (additions.length) {
         const newStat = additions[Math.floor(Math.random() * additions.length)];
         const tiers = getCustomSubStatTiers(newStat, item.iLevel, item.twoHanded);
@@ -103,7 +119,7 @@ export function applyRune(key, itemId, stat) {
     effectMessage ||= "nothing happened";
     updated = { ...item, subStats, subTiers };
   }
-  updated = { ...updated, crafted: true };
+  updated = { ...updated, usedRunes: [...(item.usedRunes || []), rune.name] };
   const consumables = { ...player.consumables, [key]: player.consumables[key] - 1 };
   if (consumables[key] === 0) delete consumables[key];
   const changes = { consumables };
@@ -115,5 +131,5 @@ export function applyRune(key, itemId, stat) {
     changes.equipment = equipment;
   }
   setPlayer(recalculateStats(player, changes));
-  return { ok: true, message: `You use an ${rune.name} on ${item.name}: ${effectMessage}. It is now Crafted.` };
+  return { ok: true, message: `You use ${rune.name} on ${item.name}: ${effectMessage}. Added the ${rune.name} tag.` };
 }

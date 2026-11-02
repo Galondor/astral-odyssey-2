@@ -8,6 +8,42 @@ beforeEach(() => {
   getPlayer.mockReturnValue({ level: 1 });
 });
 
+test.each(["helmet", "chestplate", "gauntlets", "legs", "boots", "ring", "necklace"])(
+  "%s rolls fractional resistance substats with percent tooltips",
+  (slot) => {
+    expect(getSubStatPool(slot)).toEqual(expect.arrayContaining(["criticalResistance", "statusResistance"]));
+    const item = createCustomItem({
+      name: "Resistance gear", slot, rarity: "Rare", condition: "Average", iLevel: 100, price: 100,
+      mainStat: { stat: "strength", tier: 0 },
+      subStats: { criticalResistance: 7, statusResistance: 7 },
+    });
+    expect(item.subStats.criticalResistance).toBeGreaterThan(0.09);
+    expect(item.subStats.criticalResistance).toBeLessThanOrEqual(0.1);
+    expect(item.subStats.statusResistance).toBeGreaterThan(0.13);
+    expect(item.subStats.statusResistance).toBeLessThanOrEqual(0.14);
+    expect(itemTooltip(item).stats).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Critical Resistance", value: expect.stringContaining("%") }),
+      expect.objectContaining({ label: "Status Resistance", value: expect.stringContaining("%") }),
+    ]));
+  },
+);
+
+test.each(["weapon", "offhand"])("%s cannot roll resistance substats", (slot) => {
+  expect(getSubStatPool(slot)).not.toContain("criticalResistance");
+  expect(getSubStatPool(slot)).not.toContain("statusResistance");
+});
+
+test.each(["helmet", "chestplate", "gauntlets", "legs", "boots", "ring", "necklace"])(
+  "random %s gear can roll both resistance substats",
+  (slot) => {
+    const random = jest.spyOn(Math, "random").mockReturnValue(0.999);
+    const item = generateRandomItem(slot);
+    random.mockRestore();
+    expect(item.subStats.criticalResistance).toBeGreaterThan(0);
+    expect(item.subStats.statusResistance).toBeGreaterThan(0);
+  },
+);
+
 test.each([
   [0, 0],
   [7, 2],

@@ -1,4 +1,4 @@
-import { getPlayer, setPlayer } from "../character/player";
+import { getInventoryItemKey, getPlayer, setPlayer } from "../character/player";
 import { getBaseStats, recalculateStats } from "../character/stats";
 import { getEnemy } from "../combat/combat";
 import { ABILITIES, UNIQUE_ABILITIES, findAbility } from "../combat/abilities";
@@ -107,6 +107,8 @@ const PERCENT_STATS = [
   "criticalDamage",
   "attackPercent",
   "magicAttackPercent",
+  "criticalResistance",
+  "statusResistance",
 ];
 export const STAT_LABELS = {
   defense: "Defense",
@@ -128,6 +130,8 @@ export const STAT_LABELS = {
   dexterity: "Dexterity",
   intelligence: "Intelligence",
   maxPower: "Power",
+  criticalResistance: "Critical Resistance",
+  statusResistance: "Status Resistance",
 };
 
 const RARITIES = [
@@ -214,12 +218,16 @@ const SUBSTAT_CAPS = { // DO NOT CHANGE
   criticalDamage: 0.006, // Maximum Roll: 0.63
   attackPercent: 0.001, // Maximum Roll: 0.105
   magicAttackPercent: 0.001, // Maximum Roll: 0.105
+  criticalResistance: 0.001, // Maximum Roll: 0.105
+  statusResistance: 0.0014, // Maximum Roll: 0.147
 };
 
 const SUBSTAT_PRECISION = {
   criticalDamage: 100,
   attackPercent: 1000,
   magicAttackPercent: 1000,
+  criticalResistance: 1000,
+  statusResistance: 1000,
 };
 const getSubStatPrecision = (key) => SUBSTAT_PRECISION[key] || 1;
 const isFractionalSubStat = (key) => getSubStatPrecision(key) > 1;
@@ -246,6 +254,8 @@ const SUBSTAT_PRICE = {
   criticalDamage: 90,
   attackPercent: 3000,
   magicAttackPercent: 3000,
+  criticalResistance: 250,
+  statusResistance: 250,
 };
 
 const SUBSTAT_POOLS = {
@@ -348,6 +358,9 @@ const SUBSTAT_POOLS = {
     "resilience",
   ],
 };
+
+for (const slot of ["helmet", "chestplate", "gauntlets", "legs", "boots", "ring", "necklace"])
+  SUBSTAT_POOLS[slot].push("criticalResistance", "statusResistance");
 
 export const getSubStatPool = (slot) => [...(SUBSTAT_POOLS[slot] || [])];
 
@@ -889,6 +902,69 @@ export const createUniqueItem = (def, iLevel = 1, holofoil) => {
 export const GEAR_SLOT_TYPES = Object.keys(SLOT_CONFIG);
 export const RARITY_NAMES = RARITIES.map((r) => r.name);
 export const CONDITION_NAMES = CONDITIONS.map((c) => c.name);
+
+export const getNextItemQuality = (item, field) => {
+  const names = field === "rarity" ? RARITY_NAMES.slice(0, 5)
+    : field === "condition" ? CONDITION_NAMES : [];
+  const index = names.indexOf(item?.[field]);
+  return index >= 0 && index < names.length - 1 ? names[index + 1] : null;
+};
+
+export const upgradeItemQuality = (item, field) => {
+  const next = getNextItemQuality(item, field);
+  if (!next) return { ok: false, message: `This item's ${field} cannot be increased.` };
+  const rarity = RARITIES.find((entry) => entry.name === item.rarity);
+  const condition = CONDITIONS.find((entry) => entry.name === item.condition);
+  if (!rarity || !condition || !SLOT_CONFIG[item.slot] ||
+      !Number.isSafeInteger(item.iLevel) || item.iLevel < 1 ||
+      !Number.isSafeInteger(item.price) || item.price < 0 ||
+      !Number.isSafeInteger(item.mainStat?.value) || item.mainStat.value < 0 ||
+      Object.entries(item.subStats || {}).some(([stat, value]) =>
+        !SUBSTAT_NAMES.includes(stat) || !Number.isFinite(value)))
+    return { ok: false, message: "This item has invalid quality, level, stats, or value." };
+  const nextRarity = field === "rarity" ? RARITIES.find((entry) => entry.name === next) : rarity;
+  const nextCondition = field === "condition" ? CONDITIONS.find((entry) => entry.name === next) : condition;
+  const scale = item.twoHanded ? TWO_HANDED_MULT : 1;
+  const value = item.mainStat.value +
+    Math.round((nextRarity.mainStatBonus - rarity.mainStatBonus) * scale) +
+    nextCondition.mainStatModifier - condition.mainStatModifier;
+  if (!Number.isSafeInteger(value))
+    return { ok: false, message: "That upgrade exceeds the main stat limit." };
+  const updated = {
+    ...item, [field]: next,
+    mainStat: { ...item.mainStat, value, tier: getMainStatTier(value) },
+  };
+  if (field === "rarity") {
+    updated.subStats = { ...(item.subStats || {}) };
+    updated.subTiers = { ...(item.subTiers || {}) };
+    const pool = getSubStatPool(item.slot).filter((stat) => !(stat in updated.subStats));
+    const additions = Math.min(nextRarity.substats - rarity.substats, pool.length);
+    for (let i = 0; i < additions; i += 1) {
+      const stat = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+      const roll = rollSubStatValue(stat, item.iLevel, item.holofoil ? HOLOFOIL_MIN_TIER : 0, scale);
+      updated.subStats[stat] = scaleValue(stat, roll, scale);
+      updated.subTiers[stat] = rollTier(stat, roll, item.iLevel, scale);
+    }
+    const abilityPool = ABILITIES.filter((ability) => ability.slots.includes(item.slot));
+    if (!item.ability && abilityPool.length && Math.random() < nextRarity.abilityChance) {
+      const { name, description } = pick(abilityPool);
+      updated.ability = { name, description };
+    }
+    updated.socketCount = Math.max(getItemBaseSocketCount(item), rollItemSocketCount(next));
+  }
+  // Scale the existing value so custom prices, Holofoil and forge bonuses are retained.
+  const baseValue = (gear) => 5 + gear.iLevel * 2 + gear.mainStat.value * 2 +
+    Object.entries(gear.subStats || {}).reduce((sum, [stat, amount]) => sum + amount * SUBSTAT_PRICE[stat], 0) +
+    (gear.ability ? gear.iLevel * 5 : 0);
+  const price = Math.round(item.price * baseValue(updated) / baseValue(item) *
+    nextRarity.priceMult / rarity.priceMult *
+    nextCondition.valueMultiplier / condition.valueMultiplier);
+  if (!Number.isSafeInteger(price) || price < 0)
+    return { ok: false, message: "That upgrade exceeds the item value limit." };
+  updated.price = price;
+  return { ok: true, item: updated };
+};
+
 export const MAIN_STAT_NAMES = Object.values(GEMSTONES).map((g) => g.stat);
 export const SUBSTAT_NAMES = Object.keys(SUBSTAT_CAPS);
 
@@ -1146,6 +1222,7 @@ export const itemTooltip = (item, extra) => {
     slotLabel,
     item.twoHanded && "Two-handed",
     item.crafted && "Crafted",
+    ...(item.usedRunes || []),
     item.prismatic && "Prismatic",
     `Gear score ${getItemGearScore(item)}`,
     item.originalOwner && `Original Owner: ${item.originalOwner}`,
@@ -1157,7 +1234,7 @@ export const itemTooltip = (item, extra) => {
     title: item.name,
     backgroundStyle: getHolofoilStyle(item),
     titleColor: RARITY_COLORS[item.rarity],
-    subtitle: `${item.holofoil ? "Holofoil " : ""}${item.rarity}, Item Level ${item.iLevel} • Equip level ${getEquipLevel(item)}`,
+    subtitle: `${item.holofoil ? "Holofoil " : ""}${item.rarity}${item.condition ? `, ${item.condition}` : ""}, Item Level ${item.iLevel} • Equip level ${getEquipLevel(item)}`,
     upgrades: item.upgrades ?? 0,
     description: [abilityText].filter(Boolean),
     stats,
@@ -1478,6 +1555,42 @@ export function sellInventoryItem(index) {
     gearTraderBuyback: buyback,
   });
   return { ok: true, item, value };
+}
+
+export function deleteOwnedItem(item, target) {
+  const player = getPlayer();
+  if (getEnemy()) return { ok: false, message: "You can't delete items during combat." };
+  if (!player || !item) return { ok: false, message: "That item is no longer owned." };
+  const category = target?.kind === "consumable" ? "consumables" : "gear";
+  if (isFavorite(player, category, item))
+    return { ok: false, message: "Unfavorite this item before deleting it." };
+  const key = getInventoryItemKey(item);
+  let patch;
+  if (target?.kind === "consumable") {
+    const count = player.consumables?.[item.key] || 0;
+    if (count < 1) return { ok: false, message: "You don't have that consumable." };
+    const consumables = { ...player.consumables, [item.key]: count - 1 };
+    if (count === 1) delete consumables[item.key];
+    patch = { consumables };
+  } else if (target?.kind === "inventory") {
+    const inventory = [...(player.inventory || [])];
+    const index = inventory.findIndex((owned) => getInventoryItemKey(owned) === key);
+    if (index < 0) return { ok: false, message: "That item is no longer in your inventory." };
+    inventory.splice(index, 1);
+    patch = { inventory };
+  } else if (target?.kind === "equipment") {
+    const equipment = { ...(player.equipment || {}) };
+    const owned = equipment[target.slotKey];
+    if (!owned || owned.twoHandedOf || getInventoryItemKey(owned) !== key)
+      return { ok: false, message: "That item is no longer equipped." };
+    delete equipment[target.slotKey];
+    if (owned.twoHanded) delete equipment.offHand;
+    patch = recalculateStats(player, { equipment });
+  } else {
+    return { ok: false, message: "That item can't be deleted here." };
+  }
+  setPlayer(patch);
+  return { ok: true, message: `Deleted ${category === "consumables" ? "one " : ""}${item.name}.` };
 }
 
 export function sellEquippedItem(slotKey) {

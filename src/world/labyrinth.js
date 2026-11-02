@@ -1,7 +1,7 @@
 import { getPlayer, setPlayer } from "../character/player";
 import { updateRecords } from "../character/records";
 import { gainExp } from "../character/stats";
-import { getEffectiveLevel } from "../combat/enemies";
+import { getEffectiveLevel, getEnemyCriticalChance, getEnemyStatusResistance } from "../combat/enemies";
 import { applyDeathPenalties, startCombat } from "../combat/combat";
 import { createUniqueItem } from "../items/items";
 import { addToMaterials } from "../items/materials";
@@ -35,9 +35,9 @@ const BOSS = {
   id: "the_unwritten_king",
   name: "The Unwritten King",
   material: "labyrinth_crown_fragment",
-  hp: 19,
-  attack: 13,
-  defense: 16,
+  hp: 16,
+  attack: 11,
+  defense: 14,
   exp: 240,
   astra: 180,
 };
@@ -301,7 +301,7 @@ function makeEnemy(player, state, floor, tile) {
     attack: [Math.max(1, Math.round(attackBase * (tier === "boss" ? 0.8 : 0.65))), Math.max(2, Math.round(attackBase * (tier === "boss" ? 1.25 : 1)))],
     defense,
     speed: Math.max(1, Math.round(4 + level * (tier === "boss" ? 0.12 : 0.025))),
-    critical: tier === "boss" ? 0.45 : tier === "elite" ? 0.3 : 0.18,
+    critical: getEnemyCriticalChance(tier, tier === "boss" ? 0.45 : tier === "elite" ? 0.3 : 0.18),
     astra: Math.round(level * definition.astra * tierScale),
     exp: Math.round(level * definition.exp * tierScale),
     dropChance: tier === "boss" ? 1 : tier === "elite" ? 0.85 : 0.65,
@@ -311,6 +311,7 @@ function makeEnemy(player, state, floor, tile) {
     drops,
     dungeon: true,
     labyrinth: true,
+    statusResistance: getEnemyStatusResistance(tier, "labyrinth", (floor.number - 1) / (LABYRINTH_FLOOR_COUNT - 1)),
     onDefeat: (p, stats, patch, replies) => {
       resolveLabyrinthFight(p, stats, patch, replies, state, floor.number - 1, tile, fragmentReward);
       const resultState = clone(patch.labyrinth || state);

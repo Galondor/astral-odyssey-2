@@ -265,20 +265,25 @@ test("exact gear attachments are restricted to the slot's substat pool", async (
   );
 });
 
-test("Architect's Rune attachments are recognized and claimed", async () => {
+test.each([
+  ["architectsRune", "Architect's Rune"],
+  ["runeOfAscension", "Rune of Ascension"],
+  ["polishingRune", "Polishing Rune"],
+  ["runeOfUnpredictability", "Rune of Unpredictability"],
+])("%s attachments are recognized and claimed", async (key, name) => {
   stop();
   onValue.mockImplementation((path, callback) => {
     callback({ val: () => path === "inbox/alice"
-      ? { rune: { subject: "Rune gift", attachments: { consumables: { architectsRune: 3 } } } }
+      ? { rune: { subject: "Rune gift", attachments: { consumables: { [key]: 3 } } } }
       : {} });
     return () => {};
   });
 
   stop = startInbox("alice", () => {});
-  expect(normalizeAttachments({ consumables: { architectsRune: 3 } }).consumables)
-    .toEqual([["architectsRune", 3]]);
-  expect(await claimMessage("rune")).toEqual({ ok: true, lines: ["3× Architect's Rune"] });
-  expect(player.consumables.architectsRune).toBe(3);
+  expect(normalizeAttachments({ consumables: { [key]: 3 } }).consumables)
+    .toEqual([[key, 3]]);
+  expect(await claimMessage("rune")).toEqual({ ok: true, lines: [`3× ${name}`] });
+  expect(player.consumables[key]).toBe(3);
   expect(writes).toEqual({
     "inboxState/alice/rune/claimed": true,
     "inboxState/alice/rune/read": true,

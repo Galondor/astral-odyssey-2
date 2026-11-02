@@ -15,13 +15,15 @@ import { getItemGemstones } from "../items/sockets";
 */
 const CORE_STATS = ["strength", "dexterity", "intelligence"];
 export const MAX_PLAYER_CHANCE = 0.6;
+export const MAX_CRITICAL_RESISTANCE = 0.5;
+export const MAX_STATUS_RESISTANCE = 0.7;
 
 const round = (n, d = 3) => Math.round(n * 10 ** d) / 10 ** d;
 const line = (label, value) => ({ label, value });
-const capChanceLines = (lines) => {
+const capChanceLines = (lines, cap = MAX_PLAYER_CHANCE) => {
   const total = lines.reduce((sum, entry) => sum + entry.value, 0);
-  return total > MAX_PLAYER_CHANCE
-    ? [...lines, line("60% maximum", MAX_PLAYER_CHANCE - total)]
+  return total > cap
+    ? [...lines, line(`${cap * 100}% maximum`, cap - total)]
     : lines;
 };
 
@@ -128,6 +130,8 @@ const compute = (player) => {
   define("speed", [line(`Agility ${agility} ÷ 3 (rounded down)`, Math.floor(agility / 3)), ...gearLines("speed"), ...bonusLines("speed")]);
   define("criticalHitChance", capChanceLines([line("Base", 0.05), line(`Luck ${luck} ÷ 5 × 1% (rounded down)`, Math.floor(luck / 5) * 0.01), ...gearLines("criticalHitChance"), ...bonusLines("criticalHitChance")]), "percent");
   define("criticalDamageBonus", [line("Base", 1.5), ...gearLines("criticalDamage"), ...bonusLines("criticalDamage", "criticalDamageBonus")], "percent");
+  define("criticalResistance", capChanceLines([...gearLines("criticalResistance"), ...bonusLines("criticalResistance")], MAX_CRITICAL_RESISTANCE), "percent");
+  define("statusResistance", capChanceLines([...gearLines("statusResistance"), ...bonusLines("statusResistance")], MAX_STATUS_RESISTANCE), "percent");
 
   define("maxHealth", [
     line("Base", 90),
@@ -239,6 +243,8 @@ export const STAT_INFO = {
   speed: { title: "Speed", description: "How quickly you act.", formula: "Agility ÷ 3 + equipment." },
   criticalHitChance: { title: "Critical chance", description: "Chance for an attack to be a critical hit.", formula: "Base + 1% per 5 Luck + equipment, capped at 60%." },
   criticalDamageBonus: { title: "Critical damage", description: "Damage multiplier applied on a critical hit.", formula: "Base + equipment critical damage." },
+  criticalResistance: { title: "Critical Resistance", description: "Reduces damage taken from critical hits.", formula: "Equipment + permanent bonuses, capped at 50%." },
+  statusResistance: { title: "Status Resistance", description: "Chance to prevent an incoming harmful status effect.", formula: "Equipment + permanent bonuses, capped at 70%." },
   maxHealth: { title: "Maximum health", description: "How much damage you can take before collapsing.", formula: "Base + 5 per 3 Vitality (rounded down)." },
   maxStamina: { title: "Maximum stamina", description: "Your energy reserve for actions.", formula: "Base + 1 every other level." },
   gearScore: { title: "Gear score", description: "The overall power of all equipped gear.", formula: "Per item: stats × weights × 1.5 if two-handed, +25 with an ability." },

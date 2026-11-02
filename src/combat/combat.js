@@ -2,10 +2,12 @@ import { getPlayer as getSavedPlayer, setPlayer as setSavedPlayer } from "../cha
 import { generateRandomGemstone, generateRandomSlotItem } from "../items/items";
 import {
   applyConsumable,
+  CONSUMABLES,
   getKeyItemEffect,
   ITEM_CERTIFICATE_DROP_CHANCE,
   PRISMATIC_ALLOY_DROP_CHANCE,
   RUNE_OF_UNPREDICTABILITY_DROP_CHANCE,
+  POLISHING_RUNE_DROP_CHANCE,
 } from "../items/consumables";
 import {
   SKILLS,
@@ -14,7 +16,7 @@ import {
   skillCost,
   skillMultiplier,
 } from "../character/skills";
-import { gainExp, MAX_PLAYER_CHANCE } from "../character/stats";
+import { gainExp, MAX_PLAYER_CHANCE, MAX_CRITICAL_RESISTANCE } from "../character/stats";
 import { updateRecords } from "../character/records";
 import {
   SALTBLOOD_TIDE,
@@ -33,7 +35,7 @@ import {
   incomingMult,
   outgoingMult,
 } from "./statuses";
-import { rollMaterialDrops } from "./enemies";
+import { getEnemyStatusResistance, rollMaterialDrops } from "./enemies";
 import { MATERIALS, addToMaterials } from "../items/materials";
 import { recordQuestKill } from "../world/quests";
 
@@ -104,6 +106,10 @@ export const startCombat = (template, { enemyFirst = false } = {}) => {
     abilities: [],
     phases: [],
     ...template,
+    statusResistance: template.statusResistance ?? getEnemyStatusResistance(
+      template.tier,
+      template.worldBossCycle ? "worldBoss" : template.labyrinth ? "labyrinth" : template.dungeon ? "dungeon" : template.colosseum ? "colosseum" : "travel",
+    ),
     hp: template.maxHp,
     defending: false,
     statuses: [],
@@ -115,6 +121,8 @@ export const startCombat = (template, { enemyFirst = false } = {}) => {
   playerDefending = false;
   playerStatuses = [];
   openingReplies = [];
+  if (enemy.worldBossCycle)
+    openingReplies.push(`${enemy.name} is immune to health-percentage damage.`);
 
   const p = getPlayer();
   const ab = getAbilityTotals(p);
@@ -183,7 +191,10 @@ function inflictOnEnemy(id, opts, replies) {
   const power =
     (opts?.power ?? def.defaultPower) *
     (def.kind === "dot" ? (enemy.dotResist ?? 1) : 1);
-  addStatus(enemy.statuses, id, { ...opts, power });
+  if (!addStatus(enemy.statuses, id, { ...opts, power, resistance: enemy.statusResistance })) {
+    replies.push(`The ${enemy.name} resists being ${lower(id)}!`);
+    return false;
+  }
   replies.push(`The ${enemy.name} is now ${lower(id)}.`);
   return true;
 }
@@ -194,7 +205,10 @@ function inflictOnPlayer(id, opts, replies) {
     replies.push("You shake off the stun.");
     return false;
   }
-  addStatus(playerStatuses, id, opts);
+  if (!addStatus(playerStatuses, id, { ...opts, resistance: getPlayer().stats.statusResistance })) {
+    replies.push(`You resist being ${lower(id)}!`);
+    return false;
+  }
   replies.push(`You are now ${lower(id)}.`);
   return true;
 }
@@ -262,10 +276,10 @@ function hurtEnemy(amount, replies, source, calculation) {
 
 // Ticks a status list: damage/healing over time through `apply(amount, label)` (negative = healing), then durations drop.
 // Stun-like statuses last until they cost a turn. Returns the remaining statuses.
-const tickStatuses = (list, maxHp, apply) => {
+const tickStatuses = (list, maxHp, apply, percentDamageImmune = false) => {
   for (const st of list) {
     const kind = STATUSES[st.id].kind;
-    if (kind === "dot") {
+    if (kind === "dot" && !percentDamageImmune) {
       const raw = maxHp * st.power * st.stacks;
       apply(Math.max(1, Math.round(raw)), lower(st.id), [
         `Maximum health: ${maxHp}.`,
@@ -299,6 +313,7 @@ function endOfRound(s, replies) {
         `The ${enemy.name} takes ${damageNumber(amount, calculation)} ${label} damage.`,
       );
     },
+    !!enemy.worldBossCycle,
   );
   if (enemy.hp <= 0) return "victory";
 
@@ -421,6 +436,11 @@ function enemyStrike(s, replies, ability) {
   dmg *= 1 - reduction;
   if (reduction)
     calculation.push(`Damage reduction: ×${1 - reduction} = ${dmg}.`);
+  if (critical && s.criticalResistance > 0) {
+    const resistance = Math.min(MAX_CRITICAL_RESISTANCE, s.criticalResistance);
+    dmg *= 1 - resistance;
+    calculation.push(`Critical Resistance: ×${1 - resistance} = ${dmg}.`);
+  }
   const beforeRounding = dmg;
   dmg = Math.max(1, Math.round(dmg));
   calculation.push(`Final rounding: ${beforeRounding} → ${dmg} (minimum 1).`);
@@ -463,8 +483,8 @@ function enemyStrike(s, replies, ability) {
     fight.ab.uniqueEffects.includes("frozenResolve") &&
     Math.random() < 0.1
   ) {
-    inflictOnEnemy("stun", {}, replies);
-    replies.push("Frozen Resolve stuns the attacker!");
+    if (inflictOnEnemy("stun", {}, replies))
+      replies.push("Frozen Resolve stuns the attacker!");
   }
   if (fight.ab.reflect) {
     const reflected = Math.max(1, Math.round(dmg * fight.ab.reflect));
@@ -654,11 +674,18 @@ function winCombat(p, s, replies, patch) {
       patch.consumables = consumables;
       replies.push(`The ${enemy.name} dropped a {{Prismatic Alloy|consumable:prismaticAlloy}}!`);
     }
-    if (!enemy.dungeon && Math.random() < RUNE_OF_UNPREDICTABILITY_DROP_CHANCE) {
-      const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
-      consumables.runeOfUnpredictability = (consumables.runeOfUnpredictability || 0) + 1;
-      patch.consumables = consumables;
-      replies.push(`The ${enemy.name} dropped a {{Rune of Unpredictability|consumable:runeOfUnpredictability}}!`);
+    if (!enemy.dungeon) {
+      for (const [key, chance] of [
+        ["runeOfUnpredictability", RUNE_OF_UNPREDICTABILITY_DROP_CHANCE],
+        ["polishingRune", POLISHING_RUNE_DROP_CHANCE],
+      ]) {
+        if (Math.random() < chance) {
+          const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
+          consumables[key] = (consumables[key] || 0) + 1;
+          patch.consumables = consumables;
+          replies.push(`The ${enemy.name} dropped a {{${CONSUMABLES[key].name}|consumable:${key}}}!`);
+        }
+      }
     }
     if (Math.random() < 0.08 + luckBonus) {
       const gemstone = generateRandomGemstone();
@@ -934,6 +961,11 @@ export function attackRound(type, skillKey) {
       `Enemy defending: floor(${beforeBlock} × ${blockMultiplier}) = ${dealt} (minimum 1).`,
     );
   }
+  if (contestContext && ctx.crit) {
+    const resistance = Math.min(MAX_CRITICAL_RESISTANCE, Math.max(0, contestContext.defender.player.stats.criticalResistance || 0));
+    dealt = Math.max(1, Math.round(dealt * (1 - resistance)));
+    if (resistance) calculation.push(`Critical Resistance: ×${1 - resistance} = ${dealt}.`);
+  }
   if (contestContext) dealt = defendContestStrike(dealt, s, replies);
   ctx.dealt = dealt;
   dealEnemyDamage(dealt);
@@ -968,7 +1000,7 @@ export function attackRound(type, skillKey) {
       enemy.statuses.some((status) => ["burn", "poison", "bleed"].includes(status.id))) {
     healPlayer(s, Math.round(s.maxHealth * 0.08), replies, "Undying Hunger");
   }
-  if (ab.uniqueEffects.includes("moltenGrip") && dealt > 0 && enemy.hp > 0 &&
+  if (!enemy.worldBossCycle && ab.uniqueEffects.includes("moltenGrip") && dealt > 0 && enemy.hp > 0 &&
       enemy.statuses.some((status) => status.id === "burn")) {
     const burn = enemy.statuses.find((status) => status.id === "burn");
     const burnTick = Math.max(
@@ -1031,16 +1063,18 @@ export function attackRound(type, skillKey) {
     if (ab.uniqueEffects.includes("bloomOfDecay")) {
       const existing = enemy.statuses.find((status) => status.id === "poison");
       const stacks = Math.min(5, (existing?.stacks || 0) + 1);
-      inflictOnEnemy("poison", {}, replies);
+      const applied = inflictOnEnemy("poison", {}, replies);
       const poison = enemy.statuses.find((status) => status.id === "poison");
-      if (poison) poison.stacks = stacks;
-      replies.push(`Bloom of Decay grows to ${stacks} poison stack${stacks === 1 ? "" : "s"}.`);
+      if (applied && poison) {
+        poison.stacks = stacks;
+        replies.push(`Bloom of Decay grows to ${stacks} poison stack${stacks === 1 ? "" : "s"}.`);
+      }
     }
     if (ab.uniqueEffects.includes("saltbloodTide")) {
       inflictOnEnemy("bleed", SALTBLOOD_TIDE.bleed, replies);
       fight.tideHits = (fight.tideHits || 0) + 1;
       const bleed = enemy.statuses.find((status) => status.id === "bleed");
-      if (fight.tideHits >= SALTBLOOD_TIDE.every && bleed) {
+      if (!enemy.worldBossCycle && fight.tideHits >= SALTBLOOD_TIDE.every && bleed) {
         fight.tideHits = 0;
         const burst = bleedRemaining(bleed, enemy.maxHp);
         enemy.statuses = enemy.statuses.filter((status) => status !== bleed);
@@ -1106,8 +1140,10 @@ export function defendRound() {
 export function consumeItemRound(key) {
   const p = getPlayer();
   const used = { ...p.stats };
+  const statuses = [...playerStatuses];
   const result = applyConsumable(p, key, used, {
     healScale: healMult(playerStatuses),
+    statuses,
   });
   if (!result.ok)
     return { replies: [result.message], over: false, used: false };
@@ -1116,6 +1152,7 @@ export function consumeItemRound(key) {
   // A stunned player loses the turn without spending the item.
   if (loseTurnToStun(replies))
     return { ...finishRound(p, { ...p.stats }, replies, {}), used: true };
+  playerStatuses = statuses;
   replies.push(result.message);
   return {
     ...finishRound(p, used, replies, { consumables: result.consumables }),
@@ -1219,6 +1256,7 @@ export const playContestAction = (actor, target, action) => {
       statuses: defender.statuses || [],
       defending: defender.defending,
       stunGrace: defender.combat.playerStunGrace,
+      statusResistance: defender.player.stats.statusResistance || 0,
     };
     let result;
     if (action.type === "melee" || action.type === "magic") result = attackRound(action.type);

@@ -8,9 +8,11 @@ import { getRandomEnemy, hasEnemy } from "../../combat/enemies";
 import {
   isEventEligible,
   REGIONS,
+  runTravelEvent,
   travelEvents,
 } from "../../world/events";
-import { scenes } from "../../world/gameLogic";
+import { REGION_ORDER } from "../../world/regions";
+import { getPortalFare, scenes } from "../../world/gameLogic";
 
 jest.mock("../../firebase", () => ({ auth: {}, db: {} }));
 jest.mock("../../character/player", () => ({
@@ -148,7 +150,7 @@ test("the unstable rift offers a large reward or a potentially lethal injury", (
 test("the sealed vault is level-gated and starts a boss fight with the enemy first", () => {
   const event = travelEvents.find(({ id }) => id === "sealedWardenVault");
   const player = {
-    level: 12,
+    level: 90,
     astra: 0,
     stats: { gearScore: 0 },
   };
@@ -159,7 +161,7 @@ test("the sealed vault is level-gated and starts a boss fight with the enemy fir
   getRandomEnemy.mockReturnValue(boss);
   getEnemy.mockReturnValue(boss);
 
-  expect(isEventEligible(event, { ...ctx, player: { level: 11 } })).toBe(false);
+  expect(isEventEligible(event, { ...ctx, player: { level: 4 } })).toBe(false);
   expect(isEventEligible(event, ctx)).toBe(true);
 
   const result = event
@@ -167,8 +169,9 @@ test("the sealed vault is level-gated and starts a boss fight with the enemy fir
     .options.find(({ label }) => label === "Break the seal")
     .onSelect();
 
-  expect(setPlayer).toHaveBeenCalledWith({ astra: 120 });
-  expect(getRandomEnemy).toHaveBeenCalledWith("boss", "ShatteredFront", 12, 0, undefined);
+  // 10 astra per level, scaled by the Shattered Front's 2x reward.
+  expect(setPlayer).toHaveBeenCalledWith({ astra: 1800 });
+  expect(getRandomEnemy).toHaveBeenCalledWith("boss", "ShatteredFront", 90, 0, undefined);
   expect(startCombat).toHaveBeenCalledWith(boss, { enemyFirst: true });
   expect(result).toMatchObject({
     next: "combat",
@@ -177,26 +180,63 @@ test("the sealed vault is level-gated and starts a boss fight with the enemy fir
 });
 
 test.each([
-  ["Suncleft Expanse", "SuncleftExpanse", 65, "suncleft"],
-  ["Tempest Reach", "TempestReach", 75, "tempest"],
-  ["Frostfall Range", "FrostfallRange", 85, "frostfall"],
-  ["Shattered Front", "ShatteredFront", 95, "shattered"],
-])("the portal can send the player to %s", (label, region, fareMultiplier, keyword) => {
+  ["Darkwood", "Darkwood", 10, 500, "darkwood"],
+  ["Ashen Peaks", "AshenPeaks", 20, 2000, "ashen"],
+  ["Tempest Reach", "TempestReach", 40, 5000, "tempest"],
+  ["Frostfall Range", "FrostfallRange", 55, 10000, "frostfall"],
+  ["Suncleft Expanse", "SuncleftExpanse", 70, 18000, "suncleft"],
+  ["Shattered Front", "ShatteredFront", 85, 30000, "shattered"],
+])("the portal can send the player to %s", (label, region, entryLevel, fare, keyword) => {
   const option = scenes.portal.options.find(
     (entry) => entry.label === label && entry.keywords.includes(keyword),
   );
-  const player = { level: 2, astra: fareMultiplier * 2 + 10 };
+  const player = { level: entryLevel, astra: fare + 10, region: "Meadowlands" };
   const setPlayer = jest.fn();
 
+  expect(getPortalFare(player, region)).toBe(fare);
   const result = option.onSelect({ player, setPlayer });
 
   expect(result.next).toBe("menu");
-  expect(setPlayer).toHaveBeenCalledWith(
-    expect.objectContaining({
-      astra: 10,
-      region,
-      regionSteps: 0,
-      regionLimit: expect.any(Number),
-    }),
-  );
+  expect(setPlayer).toHaveBeenCalledWith(expect.objectContaining({ astra: 10, region }));
+  expect(setPlayer.mock.calls[0][0]).not.toHaveProperty("regionSteps");
+});
+
+test("portal fares are static and climb steeply with each region", () => {
+  const fares = REGION_ORDER.map((id) => getPortalFare({ level: 100 }, id));
+  expect(fares).toEqual([100, 500, 2000, 5000, 10000, 18000, 30000]);
+  expect(getPortalFare({ level: 1 }, "ShatteredFront")).toBe(30000);
+});
+
+test("traveling never forces a region change, but under-leveled saves retreat to a region they can enter", () => {
+  const setPlayer = jest.fn();
+  jest.spyOn(Math, "random").mockReturnValue(0.5);
+  for (let trip = 0; trip < 30; trip += 1)
+    runTravelEvent({ player: { level: 15, region: "Darkwood", stats: { gearScore: 0 } }, setPlayer });
+  expect(setPlayer).not.toHaveBeenCalledWith(expect.objectContaining({ region: expect.anything() }));
+
+  const result = runTravelEvent({ player: { level: 25, region: "FrostfallRange" }, setPlayer });
+  expect(setPlayer).toHaveBeenCalledWith({ region: "AshenPeaks" });
+  expect(result.reply).toContain("Ashen Peaks");
+});
+
+test("the portal refuses regions above the player's level without charging", () => {
+  const option = scenes.portal.options.find((entry) => entry.label === "Ashen Peaks");
+  const setPlayer = jest.fn();
+
+  const result = option.onSelect({ player: { level: 19, astra: 99999, region: "Darkwood" }, setPlayer });
+
+  expect(result.reply).toContain("requires level 20");
+  expect(result.next).toBeUndefined();
+  expect(setPlayer).not.toHaveBeenCalled();
+});
+
+test("the portal does not charge for the current region and needs enough astra", () => {
+  const option = scenes.portal.options.find((entry) => entry.label === "Darkwood");
+  const setPlayer = jest.fn();
+
+  expect(option.onSelect({ player: { level: 15, astra: 9999, region: "Darkwood" }, setPlayer }).reply)
+    .toContain("already in the Darkwood");
+  expect(option.onSelect({ player: { level: 15, astra: 499, region: "Meadowlands" }, setPlayer }).reply)
+    .toContain("need 500");
+  expect(setPlayer).not.toHaveBeenCalled();
 });

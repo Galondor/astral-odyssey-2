@@ -36,11 +36,81 @@ const env = (spawn = () => dummy()) => ({ spawn });
 beforeEach(() => jest.spyOn(Math, "random").mockReturnValue(0.5));
 afterEach(() => jest.restoreAllMocks());
 
+test.each([[0, 900], [0.25, 925], [0.5, 950], [1, 950]])(
+  "group critical resistance %s caps at 50%%",
+  (resistance, health) => {
+    const c = createGroupCombat(party("A"), { enemies: ["x"] }, () => dummy({ critical: 1 }));
+    c.players.A.stats.criticalResistance = resistance;
+    resolveGroupRound(c, { A: { type: "pass" } }, env());
+    expect(c.players.A.stats.health).toBe(health);
+  },
+);
+
+test("group status resistance blocks enemy statuses and environmental afflictions", () => {
+  const c = createGroupCombat(party("A"), { enemies: ["x"], environment: { status: "temporalRot" } }, () => dummy({
+    abilities: [{ name: "Curse", power: 1, weight: 100, status: { id: "poison" } }],
+  }));
+  c.players.A.stats.statusResistance = 0.7;
+  const { log } = resolveGroupRound(c, { A: { type: "pass" } }, env());
+  expect(c.players.A.statuses).toEqual([]);
+  expect(log.join(" ")).toContain("resists being poisoned");
+  expect(log.join(" ")).toContain("resists being temporal rot");
+});
+
+test("resisting a stun prevents channel interruption", () => {
+  const c = createGroupCombat(party("A"), { enemies: ["x"] }, () => dummy({ statusResistance: 0.7 }));
+  c.players.A.ab.uniqueEffects.push("rootstride");
+  c.enemies[0].channel = { name: "Channel", rounds: 5, need: 10000, dealt: 0 };
+  resolveGroupRound(c, { A: { type: "melee" } }, env());
+  expect(c.enemies[0].statuses).toEqual([]);
+  expect(c.enemies[0].channel).not.toBeNull();
+});
+
+test.each(["moltenGrip", "saltbloodTide"])("group world boss is immune to DoTs and %s detonations", (effect) => {
+  const c = createGroupCombat(party("A"), { enemies: ["x"] }, () => dummy({
+    maxHp: 1000000, worldBossCycle: "cycle", statusResistance: 0,
+  }));
+  c.players.A.ab.uniqueEffects.push(effect);
+  c.enemies[0].statuses = ["burn", "poison", "bleed"].map((id) => ({ id, turns: 99, power: 0.04, stacks: 1 }));
+  for (let i = 0; i < 4; i += 1) resolveGroupRound(c, { A: { type: "melee" } }, env());
+  expect(c.enemies[0].hp).toBe(999600);
+});
+
 test("createGroupMember starts at full health and only keeps combat consumables", () => {
   const m = createGroupMember("a", player("A", { stats: { ...player("A").stats, health: 1 }, consumables: { healthPotion: 2, itemCertificate: 4 } }));
   expect(m.stats.health).toBe(1000);
   expect(m.consumables).toEqual({ healthPotion: 2 });
   expect(m.equipped).toEqual(["mendingLight", "purify", "provoke"]);
+});
+
+test("group cleansing potions cleanse an ally without removing buffs or stage effects", () => {
+  const members = party("A", "B");
+  members.A.consumables = { cleansingPotion: 2 };
+  const c = createGroupCombat(members, { enemies: ["x"] }, () => dummy());
+  c.players.B.statuses = ["poison", "burn", "corruption", "fortify", "temporalRot"].map((id) => ({ id, turns: 5, power: 0.01, stacks: 1 }));
+  resolveGroupRound(c, { A: { type: "item", key: "cleansingPotion", target: "B" }, B: { type: "pass" } }, env());
+  expect(c.players.B.statuses.map((st) => st.id)).toEqual(["fortify", "temporalRot"]);
+  expect(c.players.A.spent.cleansingPotion).toBe(1);
+  resolveGroupRound(c, { A: { type: "item", key: "cleansingPotion", target: "B" }, B: { type: "pass" } }, env());
+  expect(c.players.A.spent.cleansingPotion).toBe(1);
+});
+
+test("group stamina potions restore an ally and track recovery for settlement", () => {
+  const members = party("A", "B");
+  members.A.consumables = { staminaPotion: 2 };
+  members.B.stats.stamina = 1;
+  const c = createGroupCombat(members, { enemies: ["x"] }, () => dummy());
+  resolveGroupRound(c, { A: { type: "item", key: "staminaPotion", target: "B" }, B: { type: "pass" } }, env());
+  expect(c.players.B.stats.stamina).toBe(10);
+  expect(c.players.B.staminaRecovered).toBe(9);
+  expect(c.players.A.spent.staminaPotion).toBe(1);
+  resolveGroupRound(c, { A: { type: "item", key: "staminaPotion", target: "B" }, B: { type: "pass" } }, env());
+  expect(c.players.A.spent.staminaPotion).toBe(1);
+});
+
+test("group snapshots include stamina and cleansing potions, not special inventory items", () => {
+  const member = createGroupMember("A", player("A", { consumables: { staminaPotion: 1, cleansingPotion: 2, itemCertificate: 3 } }));
+  expect(member.consumables).toEqual({ staminaPotion: 1, cleansingPotion: 2 });
 });
 
 test("players attack enemies and the encounter is won when every enemy dies", () => {

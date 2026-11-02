@@ -29,7 +29,7 @@ const ARCHETYPES = {
   rogue: { split: { strength: 0.3, dexterity: 0.7, intelligence: 0 }, skills: { backstab: 3, aegis: 3, battleHymn: 2 } },
 };
 
-const buildPlayer = (name, level, archetype) => {
+const buildPlayer = (name, level, archetype, minRarity = 2, minTier = 0) => {
   mockLevel = level;
   const { split, skills } = ARCHETYPES[archetype];
   const points = 15 + 3 * (level - 1);
@@ -37,7 +37,7 @@ const buildPlayer = (name, level, archetype) => {
   const equipment = {};
   for (const slot of SLOTS) {
     if (slot.key === "offHand" && equipment.mainHand?.twoHanded) continue;
-    equipment[slot.key] = generateRandomItem(slot.type, 2);
+    equipment[slot.key] = generateRandomItem(slot.type, minRarity, undefined, minTier);
   }
   const player = {
     name, level, baseStats, equipment,
@@ -124,12 +124,14 @@ const chooseIntents = (run) => {
   return intents;
 };
 
-const simulate = (dungeonId, { roundSeconds = 12, puzzleSeconds = 30 } = {}) => {
+const simulate = (dungeonId, { roundSeconds = 8, puzzleSeconds = 30, archetypes = ["warrior", "mage", "rogue"], levelOffset = 5, minRarity = 3, minTier = 3 } = {}) => {
   const dungeon = GROUP_DUNGEONS[dungeonId];
-  const level = dungeon.level + 5;
-  const snapshots = { a: buildPlayer("Ana", level, "warrior"), b: buildPlayer("Bo", level, "mage"), c: buildPlayer("Cy", level, "rogue") };
+  const level = dungeon.level + levelOffset;
+  const members = archetypes.map((_, index) => String(index));
+  const snapshots = Object.fromEntries(members.map((id, index) =>
+    [id, buildPlayer(id, level, archetypes[index], minRarity, minTier)]));
   let now = 1_000_000;
-  let run = createGroupRun({ id: "r", dungeonId, members: ["a", "b", "c"], snapshots, now, actor: "a" });
+  let run = createGroupRun({ id: "r", dungeonId, members, snapshots, now, actor: members[0] });
   if (process.env.GROUP_BALANCE === "2") {
     console.log(dungeonId, Object.values(run.party).map((m) => `${m.name} ${m.cls} hp${m.stats.maxHealth} atk${m.stats.attackMin}-${m.stats.attackMax} mag${m.stats.magicAttackMin}-${m.stats.magicAttackMax} def${m.stats.defense} spd${m.stats.speed}`).join(" | "));
     for (const tpl of Object.keys(GROUP_DUNGEONS[dungeonId].enemies)) {
@@ -216,6 +218,36 @@ describe("co-op puzzles", () => {
 
 describe("group dungeon runs", () => {
 
+  test.each(Object.keys(GROUP_DUNGEONS))("%s strengthens every enemy without scaling down for a solo party", (dungeonId) => {
+    const dungeon = GROUP_DUNGEONS[dungeonId];
+    const level = dungeon.level + 5;
+    const tiers = {
+      basic: { hp: 3.6, atk: 3.1, def: 3.5, crit: 0.15 },
+      elite: { hp: 16.8, atk: 5.5, def: 5, crit: 0.2 },
+      boss: { hp: 30.8, atk: 6.2, def: 5, crit: 0.2 },
+    };
+    for (const [id, template] of Object.entries(dungeon.enemies)) {
+      const tier = tiers[template.tier];
+      const mod = { hp: 1, atk: 1, def: 1, ...template.mod };
+      const attack = 1.1 * level * tier.atk * mod.atk * dungeon.scale.atk + 3;
+      expect(buildGroupEnemy(dungeonId, id)).toMatchObject({
+        maxHp: Math.round(14 * level * tier.hp * mod.hp * dungeon.scale.hp),
+        attack: [Math.round(attack * 0.75), Math.round(attack * 1.25)],
+        defense: Math.round(0.55 * level * tier.def * mod.def),
+        critical: tier.crit,
+      });
+    }
+    const players = { a: buildPlayer("Ana", level, "warrior") };
+    const solo = createGroupRun({ id: "solo", dungeonId, members: ["a"], snapshots: players, now: 0, actor: "a" });
+    const trio = createGroupRun({
+      id: "trio", dungeonId, members: ["a", "b", "c"],
+      snapshots: { ...players, b: buildPlayer("Bo", level, "mage"), c: buildPlayer("Cy", level, "rogue") },
+      now: 0, actor: "a",
+    });
+    expect(solo.combat.enemies.map(({ maxHp, attack, defense }) => ({ maxHp, attack, defense })))
+      .toEqual(trio.combat.enemies.map(({ maxHp, attack, defense }) => ({ maxHp, attack, defense })));
+  });
+
   test("a run starts at stage 1 with a 15 minute deadline", () => {
     const run = createGroupRun({ id: "r1", dungeonId: "tidewrack", members: ["a", "b"], snapshots: snapshots(), now: 0, actor: "a" });
     expect(run.deadline).toBe(GROUP_RUN_MS);
@@ -298,6 +330,38 @@ describe("group dungeon runs", () => {
     expect(reconcileGroupRun({ ...players.a, ...claim.patch }, run, "a")).toBeNull();
   });
 
+  test.each([[0.299999, true], [0.3, false]])("all rune clear rewards use the exact 30%% threshold (roll=%s)", (roll, drops) => {
+    const players = snapshots();
+    const run = createGroupRun({ id: "rune-clear", dungeonId: "tidewrack", members: ["a"], snapshots: players, now: 0, actor: "a" });
+    run.status = "cleared";
+    run.stagesCleared = 4;
+    run.endedAt = 10;
+    const random = jest.spyOn(Math, "random").mockReturnValue(roll);
+    try {
+      const claim = reconcileGroupRun(players.a, run, "a");
+      for (const key of ["architectsRune", "runeOfUnpredictability", "runeOfAscension", "polishingRune"])
+        expect(claim.patch.consumables[key]).toBe(drops ? 1 : undefined);
+      expect(claim.patch.consumables.healthPotion).toBe(3);
+      expect(reconcileGroupRun({ ...players.a, ...claim.patch }, run, "a")).toBeNull();
+    } finally {
+      random.mockRestore();
+    }
+  });
+
+  test.each(["failed", "left"])("%s members receive no rune rewards", (status) => {
+    const players = snapshots();
+    const run = createGroupRun({ id: "no-runes", dungeonId: "tidewrack", members: ["a"], snapshots: players, now: 0, actor: "a" });
+    run.status = status === "failed" ? "failed" : "cleared";
+    const random = jest.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const claim = reconcileGroupRun(players.a, run, "a", { leaving: status === "left" });
+      for (const key of ["architectsRune", "runeOfUnpredictability", "runeOfAscension", "polishingRune"])
+        expect(claim.patch.consumables[key]).toBeUndefined();
+    } finally {
+      random.mockRestore();
+    }
+  });
+
   test("a failed run only deducts items and gives partial exp", () => {
     const players = snapshots();
     const run = createGroupRun({ id: "r2", dungeonId: "tidewrack", members: ["a"], snapshots: players, now: 0, actor: "a" });
@@ -306,6 +370,21 @@ describe("group dungeon runs", () => {
     const claim = reconcileGroupRun(players.a, run, "a");
     expect(claim.patch.inventory).toBeUndefined();
     expect(claim.patch.astra).toBe(Math.round(40 * 450 * 0.15));
+  });
+
+  test.each([false, true])("stamina recovered during a run persists once, including when leaving=%s", (leaving) => {
+    const players = snapshots();
+    players.b.stats.stamina = 1;
+    players.a.consumables.staminaPotion = 1;
+    const run = createGroupRun({ id: "stamina-run", dungeonId: "tidewrack", members: ["a", "b"], snapshots: players, now: 0, actor: "a" });
+    run.party.a.spent = { staminaPotion: 1 };
+    run.party.b.staminaRecovered = players.b.stats.maxStamina - 1;
+    if (!leaving) run.status = "failed";
+    const buyer = reconcileGroupRun(players.a, run, "a", { leaving });
+    expect(buyer.patch.consumables.staminaPotion).toBeUndefined();
+    const recipient = reconcileGroupRun(players.b, run, "b", { leaving });
+    expect(recipient.patch.stats.stamina).toBe(players.b.stats.maxStamina);
+    expect(reconcileGroupRun({ ...players.b, ...recipient.patch }, run, "b", { leaving })).toBeNull();
   });
 
   test("the puzzle stage is resolved through member intents", () => {
@@ -322,11 +401,24 @@ describe("group dungeon runs", () => {
   });
 });
 
-describe("group dungeon balance (trio 5 levels above the dungeon)", () => {
+const simulateSeeded = (dungeonId, seed, options) => {
+  let value = seed;
+  const random = jest.spyOn(Math, "random").mockImplementation(() => {
+    value = (Math.imul(value, 1664525) + 1013904223) >>> 0;
+    return value / 4294967296;
+  });
+  try {
+    return simulate(dungeonId, options);
+  } finally {
+    random.mockRestore();
+  }
+};
+
+describe("group dungeon balance (Epic+ T3+ trio 5 levels above the dungeon)", () => {
   const RUNS = 12;
   for (const dungeonId of Object.keys(GROUP_DUNGEONS)) {
     test(`${dungeonId} is beatable within the timer`, () => {
-      const results = Array.from({ length: RUNS }, () => simulate(dungeonId));
+      const results = Array.from({ length: RUNS }, (_, index) => simulateSeeded(dungeonId, index + 1));
       const cleared = results.filter((r) => r.status === "cleared").length;
       const avg = (f) => Math.round((results.reduce((s, r) => s + f(r), 0) / RUNS) * 10) / 10;
       const summary = {
@@ -343,4 +435,21 @@ describe("group dungeon balance (trio 5 levels above the dungeon)", () => {
       expect(summary.rounds[3]).toBeGreaterThanOrEqual(6);
     });
   }
+});
+
+describe("group dungeons resist solo clears at their listed and enemy levels", () => {
+  test.each(Object.keys(GROUP_DUNGEONS).flatMap((id) => [[id, 0], [id, 5]]))(
+    "%s cannot usually be soloed at level offset %s, even with Epic+ T3+ gear",
+    (dungeonId, levelOffset) => {
+      const results = Object.keys(ARCHETYPES).flatMap((archetype) =>
+        Array.from({ length: 12 }, (_, index) => simulateSeeded(dungeonId, index + 1, {
+          archetypes: [archetype], levelOffset,
+        })));
+      const cleared = results.filter((result) => result.status === "cleared").length;
+      if (process.env.GROUP_BALANCE) console.log(`${dungeonId} solo (offset ${levelOffset}) clears: ${cleared}/${results.length}`);
+      expect(cleared / results.length).toBeLessThanOrEqual(0.05);
+      expect(results.filter((result) => result.status === "failed" && result.endStage !== 1).length / results.length)
+        .toBeGreaterThanOrEqual(0.95);
+    },
+  );
 });

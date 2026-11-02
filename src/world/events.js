@@ -8,6 +8,13 @@ import { getRandomEnemy, hasEnemy } from "../combat/enemies";
 import { addConsumable, getKeyItemEffect } from "../items/consumables";
 import { MATERIALS, addMaterial, getMaterials, spendMaterials } from "../items/materials";
 import { getPlayer, setPlayer as savePlayer } from "../character/player";
+import {
+  REGIONS,
+  canEnterRegion,
+  clampToRegion,
+  getHighestAccessibleRegion,
+  getRegion,
+} from "./regions";
 
 /*
  Travel events. Add or remove entries in `travelEvents` to change the pool.
@@ -25,24 +32,10 @@ import { getPlayer, setPlayer as savePlayer } from "../character/player";
                choices. onSelect receives the same ctx plus { player, setPlayer } and may return
                { reply, next, options } again, so dialogues can branch, teleport
                (setPlayer({ region })), or hand off to another scene such as combat via `next`.
+ Region level ranges, danger and reward multipliers live in regions.js; event astra rewards scale with
+ the region via `regionAstra`.
 */
-export const REGIONS = {
-  Meadowlands: { name: "Meadowlands" },
-  Darkwood: { name: "Darkwood" },
-  AshenPeaks: { name: "Ashen Peaks" },
-  SuncleftExpanse: { name: "Suncleft Expanse" },
-  TempestReach: { name: "Tempest Reach" },
-  FrostfallRange: { name: "Frostfall Range" },
-  ShatteredFront: { name: "Shattered Front" },
-};
-export const DEFAULT_REGION = "Meadowlands";
-
-export const getRegion = (player) => {
-  const saved = player?.region;
-  if (REGIONS[saved]) return saved;
-  // Older saves stored the display name (e.g. "Ashen Peaks").
-  return Object.keys(REGIONS).find((id) => REGIONS[id].name === saved) || DEFAULT_REGION;
-};
+export { REGIONS, DEFAULT_REGION, getRegion } from "./regions";
 
 const OPTIONS_RETURN = [
   {
@@ -53,6 +46,13 @@ const OPTIONS_RETURN = [
 ];
 
 const playerLevel = (player) => Math.max(1, Number(player?.level) || 1);
+
+// Astra for an event: `perLevel` times the player's level (kept inside the region's range), times the region's reward multiplier.
+export const regionAstra = ({ player, region }, perLevel, min = 1) =>
+  Math.max(
+    min,
+    Math.round(clampToRegion(playerLevel(player), region) * perLevel * (REGIONS[region]?.reward || 1)),
+  );
 
 // Builds an encounter event for an enemy tier; boss and elite fights can be fled.
 function encounter(id, tier, text, extra) {
@@ -221,8 +221,8 @@ const regionalEvents = [
     id: "peddlersWager",
     regions: ["Meadowlands"],
     weight: 1.5,
-    run: ({ player }) => {
-      const cost = Math.max(5, playerLevel(player) * 5);
+    run: (ctx) => {
+      const cost = regionAstra(ctx, 5, 5);
       return {
         reply: `A cheerful peddler waves you down. "A mystery pouch for just ${cost} {{astra|astra}}! Could be a treasure, could be pebbles!"`,
         options: [
@@ -360,8 +360,8 @@ const regionalEvents = [
     id: "rockslideLedge",
     regions: ["AshenPeaks"],
     weight: 1.5,
-    run: ({ player }) => {
-      const reward = Math.max(1, playerLevel(player) * 4);
+    run: (ctx) => {
+      const reward = regionAstra(ctx, 4, 1);
       return {
         reply: "A narrow ledge is strewn with loose rocks. Pebbles skitter down the cliff above you.",
         options: [
@@ -409,8 +409,8 @@ const regionalEvents = [
     id: "emberShrine",
     regions: ["AshenPeaks"],
     weight: 1.5,
-    run: ({ player }) => {
-      const reward = Math.max(1, playerLevel(player) * 8);
+    run: (ctx) => {
+      const reward = regionAstra(ctx, 8, 1);
       return {
         reply: "A blackened shrine glows with an inner fire. An altar waits for an offering of blood.",
         options: [
@@ -454,17 +454,19 @@ const globalEvents = [
     weight: 1.5,
     run: (ctx) => {
       const level = playerLevel(ctx.player);
+      const safe = regionAstra(ctx, 1);
+      const risky = regionAstra(ctx, 4);
       return {
         reply: "The road splits in two. One path is winding but well traveled, the other is short and overgrown.",
         options: [
           choice("Safe path", 1, () => {
-            gainAstra(level);
-            return { reply: `You take the long way and pick up ${level} {{astra|astra}} along the road.`, next: "menu" };
+            gainAstra(safe);
+            return { reply: `You take the long way and pick up ${safe} {{astra|astra}} along the road.`, next: "menu" };
           }),
           choice("Short path", 2, () => {
             if (chance(0.5) || !hasEnemy("basic", ctx.region, level)) {
-              gainAstra(level * 4);
-              return { reply: `The shortcut pays off! You find ${level * 4} {{astra|astra}}.`, next: "menu" };
+              gainAstra(risky);
+              return { reply: `The shortcut pays off! You find ${risky} {{astra|astra}}.`, next: "menu" };
             }
             return { reply: "Something was waiting along the overgrown path!", options: [fightOption("basic", ctx), fleeOption("basic", ctx)] };
           }, { tooltip: { title: "Short path", description: "50% chance of a larger reward, 50% chance of an ambush." } }),
@@ -493,8 +495,8 @@ const globalEvents = [
     regions: "all",
     minLevel: 5,
     weight: 0.75,
-    run: ({ player }) => {
-      const reward = playerLevel(player) * 20;
+    run: (ctx) => {
+      const reward = regionAstra(ctx, 20);
       return {
         reply: "A volatile rift tears open beside the trail. Its unstable core could be worth a fortune—or blast you apart.",
         options: [
@@ -524,11 +526,11 @@ const globalEvents = [
   {
     id: "sealedWardenVault",
     regions: "all",
-    minLevel: 12,
+    minLevel: 5,
     weight: 0.5,
     when: ({ player, region }) => hasEnemy("boss", region, playerLevel(player)),
     run: (ctx) => {
-      const reward = playerLevel(ctx.player) * 10;
+      const reward = regionAstra(ctx, 10);
       return {
         reply: "An ancient vault cracks open, and a battle-scarred boss rises to defend its hoard. Only the strongest should challenge it.",
         options: [
@@ -590,16 +592,16 @@ const globalEvents = [
     id: "sealedPyramid",
     regions: ["SuncleftExpanse"],
     weight: 1.5,
-    run: ({ player }) => ({
+    run: (ctx) => ({
       reply: "A buried pyramid has cracked open, revealing a chamber glittering beneath the sand.",
       options: [
         choice("Search the chamber", 1, () => {
-          const reward = Math.max(5, playerLevel(player) * 8);
+          const reward = regionAstra(ctx, 8, 5);
           gainAstra(reward);
-          if (hasEnemy("elite", "SuncleftExpanse", playerLevel(player)) && chance(0.4)) {
+          if (hasEnemy("elite", ctx.region, playerLevel(ctx.player)) && chance(0.4)) {
             return {
               reply: `You claim ${reward} {{astra|astra}}, but something stirs beneath the sarcophagus.`,
-              options: [fightOption("elite", { player, region: "SuncleftExpanse" }), fleeOption("elite", { player, region: "SuncleftExpanse" })],
+              options: [fightOption("elite", ctx), fleeOption("elite", ctx)],
             };
           }
           return { reply: `You uncover an old offering worth ${reward} {{astra|astra}}.`, next: "menu" };
@@ -615,7 +617,7 @@ const globalEvents = [
     regions: ["TempestReach"],
     weight: 1.5,
     run: (ctx) => {
-      const toll = Math.max(5, playerLevel(ctx.player) * 5);
+      const toll = regionAstra(ctx, 5, 5);
       return {
         reply: "A pirate vessel cuts across your route. Its crew signals for you to surrender your cargo.",
         options: [
@@ -636,7 +638,7 @@ const globalEvents = [
     id: "whirlpool",
     regions: ["TempestReach"],
     weight: 1.5,
-    run: ({ player }) => ({
+    run: (ctx) => ({
       reply: "A whirlpool opens across the sea lane, pulling your vessel toward its center.",
       options: [
         choice("Steer wide", 1, () => {
@@ -645,7 +647,7 @@ const globalEvents = [
         }, { when: () => hasStamina(1), tooltip: { title: "Steer wide", description: "Avoid the whirlpool safely.", footer: "Cost 1 Stamina" } }),
         choice("Ride the current", 2, () => {
           if (chance(0.5)) {
-            const reward = Math.max(5, playerLevel(player) * 5);
+            const reward = regionAstra(ctx, 5, 5);
             gainAstra(reward);
             return { reply: `The current carries you past a wreck. You salvage ${reward} {{astra|astra}}.`, next: "menu" };
           }
@@ -662,12 +664,12 @@ const globalEvents = [
       reply: "A broken ship's cargo bobs among the waves. Something moves beneath it.",
       options: [
         choice("Grab nearby cargo", 1, () => {
-          const reward = Math.max(5, playerLevel(ctx.player) * 4);
+          const reward = regionAstra(ctx, 4, 5);
           gainAstra(reward);
           return { reply: `You snatch a floating strongbox containing ${reward} {{astra|astra}}.`, next: "menu" };
         }),
         choice("Search the wreck", 2, () => {
-          const reward = Math.max(10, playerLevel(ctx.player) * 8);
+          const reward = regionAstra(ctx, 8, 10);
           gainAstra(reward);
           const elite = hasEnemy("elite", ctx.region, playerLevel(ctx.player));
           const tier = elite ? "elite" : "basic";
@@ -687,7 +689,7 @@ const globalEvents = [
     id: "avalanchePass",
     regions: ["FrostfallRange"],
     weight: 1.5,
-    run: ({ player }) => ({
+    run: (ctx) => ({
       reply: "Snow cracks high above the trail. An avalanche is beginning to spill down the pass.",
       options: [
         choice("Take the sheltered path", 1, () => {
@@ -696,7 +698,7 @@ const globalEvents = [
         }, { when: () => hasStamina(1), tooltip: { title: "Take the sheltered path", description: "Avoid injury by taking the longer route.", footer: "Cost 1 Stamina" } }),
         choice("Sprint across the slope", 2, () => {
           if (chance(0.5)) {
-            const reward = Math.max(5, playerLevel(player) * 5);
+            const reward = regionAstra(ctx, 5, 5);
             gainAstra(reward);
             return { reply: `You outrun the slide and find ${reward} {{astra|astra}} in a lost pack.`, next: "menu" };
           }
@@ -717,7 +719,7 @@ const globalEvents = [
           return { reply: "You salvage a Minor Health Potion from the supply chest.", next: "menu" };
         }),
         choice("Search the supply cache", 2, () => {
-          const reward = Math.max(10, playerLevel(ctx.player) * 7);
+          const reward = regionAstra(ctx, 7, 10);
           gainAstra(reward);
           const elite = hasEnemy("elite", ctx.region, playerLevel(ctx.player));
           const tier = elite ? "elite" : "basic";
@@ -770,8 +772,8 @@ const globalEvents = [
     id: "fieldMedic",
     regions: ["ShatteredFront"],
     weight: 1.5,
-    run: ({ player }) => {
-      const cost = Math.max(5, playerLevel(player) * 4);
+    run: (ctx) => {
+      const cost = regionAstra(ctx, 4, 5);
       return {
         reply: `A field medic offers treatment for ${cost} {{astra|astra}}.`,
         options: [
@@ -796,12 +798,12 @@ const globalEvents = [
       reply: "A supply cache sits exposed in the ruins between the front lines.",
       options: [
         choice("Take a small bundle", 1, () => {
-          const reward = Math.max(5, playerLevel(ctx.player) * 4);
+          const reward = regionAstra(ctx, 4, 5);
           gainAstra(reward);
           return { reply: `You take ${reward} {{astra|astra}} worth of supplies and retreat.`, next: "menu" };
         }),
         choice("Search the entire cache", 2, () => {
-          const reward = Math.max(10, playerLevel(ctx.player) * 8);
+          const reward = regionAstra(ctx, 8, 10);
           gainAstra(reward);
           const boss = hasEnemy("boss", ctx.region, playerLevel(ctx.player));
           const elite = !boss && hasEnemy("elite", ctx.region, playerLevel(ctx.player));
@@ -817,11 +819,6 @@ const globalEvents = [
     }),
   },
 ];
-
-export const REGION_TRIPS_MIN = 10;
-export const REGION_TRIPS_MAX = 20;
-export const rollRegionLimit = () =>
-  REGION_TRIPS_MIN + Math.floor(Math.random() * (REGION_TRIPS_MAX - REGION_TRIPS_MIN + 1));
 
 export const travelEvents = [
   {
@@ -839,8 +836,9 @@ export const travelEvents = [
     regions: "all",
     weight: 2,
     clearLog: true,
-    run: ({ player, setPlayer, region }) => {
-      const amount = Math.max(1, (player.level || 1) * 2);
+    run: (ctx) => {
+      const { player, setPlayer } = ctx;
+      const amount = regionAstra(ctx, 2);
       setPlayer({ astra: (player.astra || 0) + amount });
       return {
         reply: `You find a glowing shard and gain +${amount} {{astra|astra}}.`,
@@ -884,19 +882,16 @@ export function pickTravelEvent(ctx, pool = travelEvents, rng = Math.random) {
 }
 
 export function runTravelEvent({ player, setPlayer }) {
-  const region = getRegion(player);
-  const steps = (player?.regionSteps || 0) + 1;
-  const limit = player?.regionLimit || rollRegionLimit();
-  if (steps >= limit) {
-    const others = Object.keys(REGIONS).filter((r) => r !== region);
-    const next = others[Math.floor(Math.random() * others.length)];
-    setPlayer({ region: next, regionSteps: 0, regionLimit: rollRegionLimit() });
+  let region = getRegion(player);
+  // Saves from before region level requirements may sit in a region they can no longer enter.
+  if (!canEnterRegion(player, region)) {
+    region = getHighestAccessibleRegion(player);
+    setPlayer({ region });
     return {
-      reply: `After a long journey you arrive in the [gold]${REGIONS[next].name}[/gold]. New dangers await.`,
+      reply: `You are not ready for the dangers ahead and retreat to the [gold]${REGIONS[region].name}[/gold].`,
       options: OPTIONS_RETURN,
     };
   }
-  setPlayer({ regionSteps: steps, regionLimit: limit });
   const ctx = { player: player || {}, setPlayer, region };
   const event = pickTravelEvent(ctx);
   return (event && event.run(ctx)) || {};

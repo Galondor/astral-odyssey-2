@@ -12,7 +12,7 @@ import {
 } from "../../world/inbox";
 
 jest.mock("../../items/consumables", () => ({
-  CONSUMABLES: { architectsRune: { name: "Architect's Rune" } }, KEY_ITEMS: {},
+  CONSUMABLES: jest.requireActual("../../items/consumables").CONSUMABLES, KEY_ITEMS: {},
 }));
 jest.mock("../../character/player", () => ({ getPlayer: jest.fn() }));
 jest.mock("../../combat/combat", () => ({ getEnemy: jest.fn() }));
@@ -168,7 +168,12 @@ test("legacy player reports without a type are displayed as bugs", async () => {
   expect(screen.getByText("Bug")).toBeTruthy();
 });
 
-test.each(["broadcast", "individual"])("admins can attach runes to a %s message", async (mode) => {
+test.each(["broadcast", "individual"].flatMap((mode) => [
+  [mode, "architectsRune", "Architect's Rune"],
+  [mode, "runeOfAscension", "Rune of Ascension"],
+  [mode, "polishingRune", "Polishing Rune"],
+  [mode, "runeOfUnpredictability", "Rune of Unpredictability"],
+]))("admins can attach %s %s to messages", async (mode, key, name) => {
   getDirectory.mockResolvedValue([{ uid: "player-1", name: "Nova", level: 20 }]);
   sendMessage.mockResolvedValue();
   render(<AdminScreen />);
@@ -182,13 +187,14 @@ test.each(["broadcast", "individual"])("admins can attach runes to a %s message"
   const kind = screen.getAllByRole("combobox").find((select) =>
     Array.from(select.options || []).some((option) => option.value === "consumable"));
   fireEvent.change(kind, { target: { value: "consumable" } });
-  expect(screen.getByRole("option", { name: "Architect's Rune" })).toBeTruthy();
+  const runeOption = screen.getByRole("option", { name });
+  fireEvent.change(runeOption.parentElement, { target: { value: key } });
   fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "2" } });
   fireEvent.click(screen.getByRole("button", { name: "Attach" }));
   fireEvent.click(screen.getByRole("button", { name: /send/i }));
   await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
     to: mode === "broadcast" ? "all" : "player-1",
-    attachments: expect.objectContaining({ consumables: { architectsRune: 2 } }),
+    attachments: expect.objectContaining({ consumables: { [key]: 2 } }),
   })));
 });
 

@@ -8,9 +8,10 @@ import {
   takeOpeningReplies,
 } from "../combat/combat";
 import { createUniqueItem } from "../items/items";
+import { CONSUMABLES, RUNE_OF_ASCENSION_DROP_CHANCE } from "../items/consumables";
 import { MATERIALS, addToMaterials } from "../items/materials";
 import { expForLevel } from "../character/stats";
-import { getEffectiveLevel } from "../combat/enemies";
+import { getEffectiveLevel, getEnemyCriticalChance, getEnemyStatusResistance } from "../combat/enemies";
 import { DUNGEON_TYPES, DUNGEON_TYPE_IDS, TRAP_COUNTERS, UNIQUES, UNIQUE_DROP_CHANCE } from "./dungeonData";
 import { isLabyrinthActive } from "./labyrinth";
 import { isInGroupDungeon } from "./groupState";
@@ -30,7 +31,7 @@ export const DUNGEON_TIME_LIMIT_MS = 5 * 60 * 1000;
 export const DUNGEON_REROLL_COST = 300_000;
 export const DUNGEON_MIN_LEVEL = 12;
 export const NAME_ELIXIR_DROP_CHANCE = 0.05;
-export const ARCHITECTS_RUNE_DROP_CHANCE = { elite: 0.05, boss: 0.1 };
+export const ARCHITECTS_RUNE_DROP_CHANCE = { elite: 0.1, boss: 0.1 };
 const OFFER_COUNT = 3;
 const BASIC_COUNT = 3;
 const SWAP_CHANCE = 0.15;
@@ -43,7 +44,7 @@ const BASE_SPEED = 4;
 const TIER = {
   basic: { label: "Basic", color: "#0070dd", hp: 4, atk: 3.6, def: 5.5, spd: 1, crit: 0.15, exp: 0.02, astra: 10, dropChance: 0.3, minRarity: 1, stunResist: 0.25, dotResist: 0.8 },
   elite: { label: "Elite", color: "#a335ee", hp: 6, atk: 5, def: 8.5, spd: 1.1, crit: 0.25, exp: 0.06, astra: 30, dropChance: 0.75, minRarity: 2, stunResist: 0.6, dotResist: 0.6 },
-  boss: { label: "Boss", color: "#ff2a2a", hp: 10, atk: 7.2, def: 10.5, spd: 1.15, crit: 0.35, exp: 0.14, astra: 70, dropChance: 1, minRarity: 4, stunResist: 1, dotResist: 0.5 },
+  boss: { label: "Boss", color: "#ff2a2a", hp: 8.5, atk: 6.1, def: 9.5, spd: 1.15, crit: 0.35, exp: 0.14, astra: 70, dropChance: 1, minRarity: 4, stunResist: 1, dotResist: 0.5 },
 };
 const PUZZLE_ASTRA = 15;
 const MISTAKE_DAMAGE = [0.3, 0.4, 0.55, 0.7];
@@ -290,7 +291,7 @@ const buildEnemy = (run, step) => {
     attack: [Math.round(attack * 0.75), Math.round(attack * 1.25)],
     defense: Math.round(BASE_DEFENSE * level * t.def * mod.def),
     speed: Math.round((BASE_SPEED + 0.35 * level) * t.spd * mod.spd),
-    critical: t.crit,
+    critical: getEnemyCriticalChance(step.tier, t.crit),
     astra: halfReward(Math.round(level * t.astra)),
     exp: halfReward(Math.round(levelExp * t.exp)),
     abilities: template.abilities || [],
@@ -308,6 +309,7 @@ const buildEnemy = (run, step) => {
     minRarity: t.minRarity,
     dotResist: t.dotResist,
     stunResist: t.stunResist,
+    statusResistance: getEnemyStatusResistance(step.tier, "dungeon", (level - 12) / 100),
     materialAmount: 1,
     dungeon: true,
     onDefeat: (p, s, patch, replies) => onFightWon(p, s, patch, replies, template),
@@ -326,12 +328,17 @@ function onFightWon(p, s, patch, replies, template) {
   const run = p.dungeon;
   if (!run) return;
   const step = currentStep(run);
-  const runeChance = ARCHITECTS_RUNE_DROP_CHANCE[step?.tier];
-  if (runeChance && Math.random() < runeChance) {
-    const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
-    consumables.architectsRune = (consumables.architectsRune || 0) + 1;
-    patch.consumables = consumables;
-    replies.push(`The ${step.tier} drops an Architect's Rune!`);
+  for (const [key, chances] of [
+    ["architectsRune", ARCHITECTS_RUNE_DROP_CHANCE],
+    ["runeOfAscension", RUNE_OF_ASCENSION_DROP_CHANCE],
+  ]) {
+    const chance = chances[step?.tier];
+    if (chance && Math.random() < chance) {
+      const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
+      consumables[key] = (consumables[key] || 0) + 1;
+      patch.consumables = consumables;
+      replies.push(`The ${step.tier} drops {{${CONSUMABLES[key].name}|consumable:${key}}}!`);
+    }
   }
   if (step?.tier !== "boss") {
     patch.dungeon = prepareStep({ ...run, index: run.index + 1 });

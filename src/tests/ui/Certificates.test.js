@@ -35,6 +35,7 @@ beforeEach(() => {
 function openCertificate() {
   fireEvent.click(screen.getByRole("tab", { name: /Consumables/ }));
   fireEvent.click(screen.getByRole("button", { name: "Item Certificate x2" }));
+  fireEvent.click(screen.getByRole("button", { name: "Use" }));
 }
 
 test("renames gear through the certificate UI and updates the remaining count", () => {
@@ -67,8 +68,10 @@ test("invalid names display an error without consuming a certificate; cancelling
   expect(player.consumables.itemCertificate).toBe(2);
 });
 
-test("combat prevents opening the certificate flow", () => {
+test("combat permits inspecting certificates but prevents using them", () => {
   render(<CharacterScreen player={player} inCombat />);
   fireEvent.click(screen.getByRole("tab", { name: /Consumables/ }));
-  expect(screen.getByRole("button", { name: "Item Certificate x2" }).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Item Certificate x2" }));
+  expect(screen.getByRole("button", { name: "Use" }).disabled).toBe(true);
+  expect(screen.queryByRole("dialog", { name: "Use Item Certificate" })).toBeNull();
 });

@@ -110,6 +110,24 @@ test("skills cost power, inflict statuses, and reject unequipped skills", () => 
   expect(match.fighters.alice.statuses.some((status) => status.id === "burn")).toBe(true);
 });
 
+test("Contest critical resistance mitigates player critical hits at the 50% cap", () => {
+  let state = paired();
+  const fighters = matchOf(state).fighters;
+  fighters.bob.player.stats.criticalHitChance = 0.6;
+  fighters.alice.player.stats.criticalResistance = 1;
+  Math.random.mockReturnValue(0.5);
+  state = command(state, "bob", "action", { type: "melee" });
+  expect(matchOf(state).fighters.alice.player.stats.health).toBe(79);
+});
+
+test("Contest status resistance prevents a player's incoming skill debuff", () => {
+  let state = paired();
+  matchOf(state).fighters.alice.player.stats.statusResistance = 0.7;
+  Math.random.mockReturnValue(0.5);
+  state = command(state, "bob", "action", { type: "skill", key: "fireball" });
+  expect(matchOf(state).fighters.alice.statuses).toEqual([]);
+});
+
 test("stunning skills produce Firebase-safe state and make the opponent lose one turn", () => {
   let state = paired();
   const fighter = matchOf(state).fighters.bob;

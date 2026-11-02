@@ -1,11 +1,13 @@
 import { getPlayer, setPlayer } from "../character/player";
 import { isInGroupDungeon } from "./groupState";
+import { getEnemyCriticalChance, getEnemyStatusResistance } from "../combat/enemies";
 
 export const COLOSSEUM_MIN_LEVEL = 5;
 export const COLOSSEUM_COOLDOWN_MS = 15 * 60 * 1000;
 
 const WAVE_PATTERN = ["basic", "elite", "basic", "elite", "boss"];
 const ENEMY_STAT_MULTIPLIER = 0.25;
+const BASE_STATS = { maxHealth: 100, attackMax: 10, defense: 5, speed: 10 };
 const NAMES = {
   basic: ["Pit Recruit", "Arena Swordsman", "Bronze Shieldbearer"],
   elite: ["Ironclad Duelist", "Veteran Spearmaster", "Gladiator Captain"],
@@ -24,15 +26,15 @@ export const getColosseumRun = () => activeRun;
 export const getColosseumWaveTier = (wave) =>
   WAVE_PATTERN[(wave - 1) % WAVE_PATTERN.length];
 
-export const createColosseumEnemy = (wave, player = getPlayer()) => {
+export const createColosseumEnemy = (wave) => {
   const tier = getColosseumWaveTier(wave);
   const tierScale = TIER_SCALE[tier];
   const waveScale = 1 + (wave - 1) * 0.18;
-  const level = Math.max(COLOSSEUM_MIN_LEVEL, player?.level || 1);
-  const levelScale = 1 + (level - COLOSSEUM_MIN_LEVEL) * 0.12;
-  const stats = player?.stats || {};
-  const baseHealth = Math.max(80, stats.maxHealth || 100);
-  const baseAttack = Math.max(5, stats.attackMax || 10);
+  const level = wave;
+  const levelScale = 1 + (level - 1) * 0.12;
+  const stats = BASE_STATS;
+  const baseHealth = stats.maxHealth;
+  const baseAttack = stats.attackMax;
   const nameList = NAMES[tier];
   const name = nameList[(wave - 1) % nameList.length];
   const isBoss = tier === "boss";
@@ -41,7 +43,7 @@ export const createColosseumEnemy = (wave, player = getPlayer()) => {
     id: `colosseum-${tier}-${wave}`,
     name,
     tier,
-    level: level + wave - 1,
+    level,
     colosseum: true,
     colosseumWave: wave,
     colosseumWaveType: tier,
@@ -50,9 +52,9 @@ export const createColosseumEnemy = (wave, player = getPlayer()) => {
       Math.max(1, Math.floor(baseAttack * tierScale.attack * waveScale * levelScale * 0.55 * ENEMY_STAT_MULTIPLIER)),
       Math.max(2, Math.ceil(baseAttack * tierScale.attack * waveScale * levelScale * 0.85 * ENEMY_STAT_MULTIPLIER)),
     ],
-    defense: Math.max(0, Math.round(((stats.defense || 0) * tierScale.defense * waveScale + wave) * ENEMY_STAT_MULTIPLIER)),
-    speed: Math.max(1, Math.round((stats.speed || 5) * (0.65 + wave * 0.015) * ENEMY_STAT_MULTIPLIER)),
-    critical: 0.05 + Math.min(0.2, wave * 0.005),
+    defense: Math.max(0, Math.round((stats.defense * tierScale.defense * waveScale * levelScale + wave) * ENEMY_STAT_MULTIPLIER)),
+    speed: Math.max(1, Math.round(stats.speed * levelScale * (0.65 + wave * 0.015) * ENEMY_STAT_MULTIPLIER)),
+    critical: getEnemyCriticalChance(tier, 0.05 + Math.min(0.2, wave * 0.005)),
     astra: Math.round(20 * tierScale.reward * waveScale),
     exp: Math.round(24 * tierScale.reward * waveScale),
     abilities: isBoss
@@ -71,6 +73,7 @@ export const createColosseumEnemy = (wave, player = getPlayer()) => {
         }]
       : [],
     stunResist: isBoss ? 0.5 : tier === "elite" ? 0.25 : 0,
+    statusResistance: getEnemyStatusResistance(tier, "colosseum", (wave - 1) / 100),
     drops: isBoss
       ? [{ key: "champions_medallion", chance: 1, min: 1, max: 1 }]
       : [{ key: "broken_blade_fragments", chance: tier === "elite" ? 0.3 : 0.2, min: 1, max: 2 }],
@@ -109,15 +112,14 @@ export const beginColosseumRun = (now = Date.now()) => {
 
   setPlayer({ lastColosseumRunAt: now });
   activeRun = { wave: 1, waitingForBossDecision: false };
-  return { ok: true, enemy: createColosseumEnemy(1, player) };
+  return { ok: true, enemy: createColosseumEnemy(1) };
 };
 
 export const advanceColosseumRun = () => {
   if (!activeRun) return null;
   const wave = activeRun.wave + 1;
-  const player = getPlayer();
   activeRun = { wave, waitingForBossDecision: false };
-  return createColosseumEnemy(wave, player);
+  return createColosseumEnemy(wave);
 };
 
 export const awaitColosseumBossDecision = () => {

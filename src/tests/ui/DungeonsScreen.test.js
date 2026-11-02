@@ -29,8 +29,8 @@ test("screen registry keeps permanent navigation grouped before contextual scree
   expect(groups).toEqual([
     ["adventure", "dungeons", "arena"],
     ["character", "progression", "quests", "inbox", "social"],
-    ["leaderboards", "changelog", "bugReport"],
-    ["admin", "combat", "dungeonRun", "groupRun", "crafting", "gearTrader", "marketplace", "questBoard", "forge"],
+    ["leaderboards", "changelog", "roadmap", "bugReport"],
+    ["admin", "combat", "dungeonRun", "groupRun", "crafting", "gearTrader", "apothecary", "marketplace", "questBoard", "forge"],
   ]);
   expect(Object.keys(SCREENS)).toEqual(groups.flat());
   expect(SCREENS.worldBoss).toBeUndefined();

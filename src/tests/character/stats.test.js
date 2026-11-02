@@ -2,6 +2,7 @@ import {
   calculateStats,
   expForLevel,
   gainExp,
+  getStatBreakdown,
   migratePowerProgression,
 } from "../../character/stats";
 
@@ -11,6 +12,24 @@ const makePlayer = (overrides = {}) => ({
   equipment: {},
   stats: { health: 95, stamina: 8, power: 5, exp: 0 },
   ...overrides,
+});
+
+test("resistances sum gear and permanent bonuses and cap their tooltip totals", () => {
+  const hero = makePlayer({
+    equipment: {
+      helmet: { name: "Helmet", subStats: { criticalResistance: 0.3, statusResistance: 0.4 } },
+      boots: { name: "Boots", subStats: { criticalResistance: 0.3, statusResistance: 0.4 } },
+    },
+    bonusStats: { criticalResistance: 0.1, statusResistance: 0.1 },
+  });
+  const stats = calculateStats(hero);
+  const breakdown = getStatBreakdown(hero);
+  expect(stats.criticalResistance).toBe(0.5);
+  expect(stats.statusResistance).toBe(0.7);
+  expect(breakdown.criticalResistance.lines.at(-1).label).toBe("50% maximum");
+  expect(breakdown.statusResistance.lines.at(-1).label).toBe("70% maximum");
+  expect(calculateStats(makePlayer()).criticalResistance).toBe(0);
+  expect(calculateStats(makePlayer()).statusResistance).toBe(0);
 });
 
 test("intelligence adds one magic attack per point and does not increase max power", () => {

@@ -44,7 +44,7 @@ export const UNIQUES = {
     slot: "chestplate",
     stat: "strength",
     ability: "Marrow Ward",
-    subStats: ["defense", "resilience", "vitality", "agility", "luck", "attackPercent"]
+    subStats: ["defense", "resilience", "vitality", "criticalResistance", "statusResistance", "attackPercent"]
   },
   hoardkingAxe: { 
     id: "hoardkingAxe",
@@ -61,7 +61,7 @@ export const UNIQUES = {
     slot: "ring",
     stat: "intelligence",
     ability: "Fortune's Spark",
-    subStats: ["maxPower", "speed", "criticalDamage", "magicAttackPercent", "luck", "vitality"]
+    subStats: ["maxPower", "speed", "criticalDamage", "magicAttackPercent", "luck", "statusResistance"]
   },
   slagheartGauntlets: { 
     id: "slagheartGauntlets",
@@ -69,7 +69,7 @@ export const UNIQUES = {
     slot: "gauntlets",
     stat: "strength",
     ability: "Molten Grip",
-    subStats: ["defense", "attackMin", "attackMax", "criticalDamage", "attackPercent", "resilience"]
+    subStats: ["defense", "attackMin", "attackMax", "criticalDamage", "attackPercent", "criticalResistance"]
   },
   ulduGreaves: { 
     id: "ulduGreaves",
@@ -85,7 +85,7 @@ export const UNIQUES = {
     slot: "helmet",
     stat: "strength",
     ability: "Frozen Resolve",
-    subStats: ["resilience", "vitality", "agility", "luck", "attackPercent", "magicAttackPercent"]
+    subStats: ["resilience", "vitality", "agility", "luck", "criticalResistance", "statusResistance"]
   },
   ysoldeRapier: { 
     id: "ysoldeRapier",
@@ -126,7 +126,7 @@ export const UNIQUES = {
     slot: "ring",
     stat: "dexterity",
     ability: "Star-Charted",
-    subStats: ["maxPower", "defense", "speed", "criticalDamage", "attackPercent", "magicAttackPercent"]
+    subStats: ["maxPower", "statusResistance", "speed", "criticalDamage", "attackPercent", "magicAttackPercent"]
   },
   unwrittenPath: {
     id: "unwrittenPath",
@@ -168,7 +168,7 @@ export const UNIQUES = {
     slot: "helmet",
     stat: "strength",
     ability: "Star-Eater's Hunger",
-    subStats: ["resilience", "vitality", "agility", "luck", "attackPercent", "magicAttackPercent"],
+    subStats: ["resilience", "vitality", "criticalResistance", "luck", "attackPercent", "magicAttackPercent"],
   },
 };
 

@@ -25,13 +25,13 @@ import {
 import { finishWorldBossAttempt, reportWorldBossError } from "./worldBoss";
 import { createStarterInventory, getGearTraderStock } from "../items/items";
 import {
-  CONSUMABLES,
-  addConsumable,
   consumableTooltip,
   getConsumables,
   getKeyItemEffect,
+  isCombatConsumable,
 } from "../items/consumables";
-import { getRegion, REGIONS, rollRegionLimit } from "./events";
+import { getRegion, REGIONS } from "./events";
+import { REGION_ORDER, canEnterRegion } from "./regions";
 import {
   SKILLS,
   getEquippedSkills,
@@ -55,6 +55,48 @@ export const INPUT_MATCHING = ["strict", "open"];
 export const INPUT_TYPE = ["numbers", "letters", "both"];
 const DYNAMIC_SCENE = "dynamic";
 export const getInputMode = (scene) => scene.input || INPUT_MODES[0];
+
+// Static portal fare for a region, reduced by key items such as the Wayfinder's Compass.
+export const getPortalFare = (player, regionId) => {
+  const discount = Math.min(0.9, getKeyItemEffect(player, "portalDiscount") || 0);
+  return Math.round(REGIONS[regionId].fare * (1 - discount));
+};
+
+const portalOption = (id, n) => {
+  const region = REGIONS[id];
+  return {
+    label: region.name,
+    keywords: [...region.keywords, String(n)],
+    tooltip: () => {
+      const p = getPlayer();
+      const locked = !canEnterRegion(p, id);
+      return {
+        title: region.name,
+        subtitle: `Levels ${region.minLevel}-${region.maxLevel}`,
+        description: p && getRegion(p) === id
+          ? "You are already here."
+          : `Portal fare: ${getPortalFare(p, id)} astra.`,
+        footer: locked ? `Requires level ${region.entryLevel}` : undefined,
+      };
+    },
+    onSelect: ({ player, setPlayer }) => {
+      if (getRegion(player) === id)
+        return { reply: `You are already in the ${region.name}.` };
+      if (!canEnterRegion(player, id))
+        return {
+          reply: `The portal rejects you. The ${region.name} requires level ${region.entryLevel}.`,
+        };
+      const fare = getPortalFare(player, id);
+      if ((player.astra || 0) < fare)
+        return { reply: `You need ${fare} {{astra|astra}} to use the portal.` };
+      setPlayer({ ...player, astra: player.astra - fare, region: id });
+      return {
+        reply: `You step through the portal to the ${region.name}.`,
+        next: "menu",
+      };
+    },
+  };
+};
 
 /*
  Option fields (buttons and strict text answers):
@@ -120,8 +162,6 @@ export const scenes = {
               class: playerClass,
               astra: 0,
               region: "Meadowlands",
-              regionSteps: 0,
-              regionLimit: rollRegionLimit(),
               materials: {},
               crafted: {},
               baseStats: { strength, dexterity, intelligence },
@@ -149,16 +189,12 @@ export const scenes = {
         label: "Travel",
         tooltip: () => {
           const p = getPlayer();
+          const region = p ? REGIONS[getRegion(p)] : null;
           return {
             title: "Travel",
-            subtitle: p ? REGIONS[getRegion(p)].name : "Unknown",
-            description: "Venture out and face random events.",
+            subtitle: region ? `${region.name} • Levels ${region.minLevel}-${region.maxLevel}` : "Unknown",
+            description: "Venture out and face random events. Use the Portal to change regions.",
             footer: "Cost 1 Stamina",
-            ...(getKeyItemEffect(p, "compass") && p.regionLimit
-              ? {
-                  description: `Venture out and face random events. Trips until the region changes: ${Math.max(0, p.regionLimit - (p.regionSteps || 0))}.`,
-                }
-              : {}),
           };
         },
         keywords: ["travel", "1"],
@@ -210,197 +246,18 @@ export const scenes = {
     input: INPUT_MODES[0],
     clearLog: true,
     text: () => {
-      return `You have arrived at the portal.`;
+      const p = getPlayer();
+      const here = p ? REGIONS[getRegion(p)] : null;
+      return here
+        ? `You have arrived at the portal. You are in the ${here.name} (levels ${here.minLevel}-${here.maxLevel}).`
+        : "You have arrived at the portal.";
     },
-    options: [
-      {
-        label: "Leave",
-        keywords: ["leave", "1"],
-        next: "menu",
-      },
-      {
-        label: "Meadowlands",
-        keywords: ["meadow", "2"],
-        tooltip: {
-          title: "Meadowlands",
-          description: `Portal fare: ${25 * (getPlayer()?.level ?? 1)} astra.`,
-        },
-        onSelect: ({ player, setPlayer }) => {
-          const fare = 25 * player.level;
-          if ((player.astra || 0) < fare)
-            return {
-              reply: `You need ${fare} {{astra|astra}} to use the portal.`,
-            };
-          setPlayer({
-            ...player,
-            astra: player.astra - fare,
-            region: "Meadowlands",
-            regionSteps: 0,
-            regionLimit: rollRegionLimit(),
-          });
-          return {
-            reply: "You step through the portal to the Meadowlands.",
-            next: "menu",
-          };
-        },
-      },
-      {
-        label: "Darkwood",
-        keywords: ["darkwood", "3"],
-        tooltip: {
-          title: "Darkwood",
-          description: `Portal fare: ${35 * (getPlayer()?.level ?? 1)} astra.`,
-        },
-        onSelect: ({ player, setPlayer }) => {
-          const fare = 35 * player.level;
-          if ((player.astra || 0) < fare)
-            return {
-              reply: `You need ${fare} {{astra|astra}} to use the portal.`,
-            };
-          setPlayer({
-            ...player,
-            astra: player.astra - fare,
-            region: "Darkwood",
-            regionSteps: 0,
-            regionLimit: rollRegionLimit(),
-          });
-          return {
-            reply: "You step through the portal to Darkwood.",
-            next: "menu",
-          };
-        },
-      },
-      {
-        label: "Ashen Peaks",
-        keywords: ["ashen", "4"],
-        tooltip: {
-          title: "Ashen Peaks",
-          description: `Portal fare: ${55 * (getPlayer()?.level ?? 1)} astra.`,
-        },
-        onSelect: ({ player, setPlayer }) => {
-          const fare = 55 * player.level;
-          if ((player.astra || 0) < fare)
-            return {
-              reply: `You need ${fare} {{astra|astra}} to use the portal.`,
-            };
-          setPlayer({
-            ...player,
-            astra: player.astra - fare,
-            region: "AshenPeaks",
-            regionSteps: 0,
-            regionLimit: rollRegionLimit(),
-          });
-          return {
-            reply: "You step through the portal to Ashen Peaks.",
-            next: "menu",
-          };
-        },
-      },
-      {
-        label: "Suncleft Expanse",
-        keywords: ["suncleft", "desert", "5"],
-        tooltip: {
-          title: "Suncleft Expanse",
-          description: `Portal fare: ${65 * (getPlayer()?.level ?? 1)} astra.`,
-        },
-        onSelect: ({ player, setPlayer }) => {
-          const fare = 65 * player.level;
-          if ((player.astra || 0) < fare)
-            return {
-              reply: `You need ${fare} {{astra|astra}} to use the portal.`,
-            };
-          setPlayer({
-            ...player,
-            astra: player.astra - fare,
-            region: "SuncleftExpanse",
-            regionSteps: 0,
-            regionLimit: rollRegionLimit(),
-          });
-          return {
-            reply: "You step through the portal to the Suncleft Expanse.",
-            next: "menu",
-          };
-        },
-      },
-      {
-        label: "Tempest Reach",
-        keywords: ["tempest", "sea", "6"],
-        tooltip: {
-          title: "Tempest Reach",
-          description: `Portal fare: ${75 * (getPlayer()?.level ?? 1)} astra.`,
-        },
-        onSelect: ({ player, setPlayer }) => {
-          const fare = 75 * player.level;
-          if ((player.astra || 0) < fare)
-            return {
-              reply: `You need ${fare} {{astra|astra}} to use the portal.`,
-            };
-          setPlayer({
-            ...player,
-            astra: player.astra - fare,
-            region: "TempestReach",
-            regionSteps: 0,
-            regionLimit: rollRegionLimit(),
-          });
-          return {
-            reply: "You step through the portal to Tempest Reach.",
-            next: "menu",
-          };
-        },
-      },
-      {
-        label: "Frostfall Range",
-        keywords: ["frostfall", "cold mountain", "7"],
-        tooltip: {
-          title: "Frostfall Range",
-          description: `Portal fare: ${85 * (getPlayer()?.level ?? 1)} astra.`,
-        },
-        onSelect: ({ player, setPlayer }) => {
-          const fare = 85 * player.level;
-          if ((player.astra || 0) < fare)
-            return {
-              reply: `You need ${fare} {{astra|astra}} to use the portal.`,
-            };
-          setPlayer({
-            ...player,
-            astra: player.astra - fare,
-            region: "FrostfallRange",
-            regionSteps: 0,
-            regionLimit: rollRegionLimit(),
-          });
-          return {
-            reply: "You step through the portal to Frostfall Range.",
-            next: "menu",
-          };
-        },
-      },
-      {
-        label: "Shattered Front",
-        keywords: ["shattered", "warzone", "8"],
-        tooltip: {
-          title: "Shattered Front",
-          description: `Portal fare: ${95 * (getPlayer()?.level ?? 1)} astra.`,
-        },
-        onSelect: ({ player, setPlayer }) => {
-          const fare = 95 * player.level;
-          if ((player.astra || 0) < fare)
-            return {
-              reply: `You need ${fare} {{astra|astra}} to use the portal.`,
-            };
-          setPlayer({
-            ...player,
-            astra: player.astra - fare,
-            region: "ShatteredFront",
-            regionSteps: 0,
-            regionLimit: rollRegionLimit(),
-          });
-          return {
-            reply: "You step through the portal to the Shattered Front.",
-            next: "menu",
-          };
-        },
-      },
-    ],
+    get options() {
+      return [
+        { label: "Leave", keywords: ["leave", "1"], next: "menu" },
+        ...REGION_ORDER.map((id, index) => portalOption(id, index + 2)),
+      ];
+    },
   },
   travel: {
     input: INPUT_MODES[0],
@@ -638,38 +495,11 @@ export const scenes = {
     ],
   },
   apothecary: {
+    screen: "apothecary",
     input: INPUT_MODES[0],
     clearLog: true,
     text: "Welcome to the Apothecary. Potions and supplies, fresh on the shelf.",
-    get options() {
-      return [
-        { label: "Leave", keywords: ["leave", "1"], next: "town" },
-        ...Object.entries(CONSUMABLES)
-          .filter(([, c]) => c.price)
-          .map(([key, c]) => ({
-            label: `Buy ${c.name}`,
-            keywords: [c.name.toLowerCase()],
-            tooltip: () => {
-              const owned = getPlayer()?.consumables?.[key] || 0;
-              return {
-                ...consumableTooltip(key),
-                footer: `Cost: ${c.price} astra. Owned: ${owned}`,
-              };
-            },
-            onSelect: ({ player }) => {
-              if ((player.astra || 0) < c.price)
-                return {
-                  reply: `You need ${c.price} {{astra|astra}} to buy a ${c.name}.`,
-                };
-              setPlayer({ astra: player.astra - c.price });
-              addConsumable(key);
-              return {
-                reply: `You buy a ${c.name} for ${c.price} {{astra|astra}}.`,
-              };
-            },
-          })),
-      ];
-    },
+    options: [{ label: "Leave", keywords: ["leave", "1"], next: "town" }],
   },
   gearTrader: {
     screen: "gearTrader",
@@ -945,7 +775,7 @@ export const scenes = {
           keywords: ["back", "1"],
           onSelect: () => ({ next: "combat", keepLog: true }),
         },
-        ...getConsumables().filter((c) => c.heal || c.power).map((c) => ({
+        ...getConsumables().filter(isCombatConsumable).map((c) => ({
           label: `${c.name} x${c.count}`,
           keywords: [c.name.toLowerCase()],
           tooltip: () => consumableTooltip(c.key, "Takes your turn"),

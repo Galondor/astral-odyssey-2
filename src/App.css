@@ -254,7 +254,7 @@ input[type='checkbox']:disabled {
 .equip-section { margin-top: 12px; border-top: 1px solid #333; padding-top: 8px; }
 .equip-count { font-size: 13px; color: #999; font-weight: normal; }
 .equip-slots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-.equip-slot, .inventory-item { display: flex; flex-direction: column; gap: 0; text-align: left; padding: 3px 8px; background: #1b1b26; color: #ddd; border: 1px solid #3a3a4a; border-radius: 6px; font: inherit; cursor: pointer; }
+.equip-slot, .inventory-item { display: flex; flex-direction: column; gap: 0; text-align: center; padding: 3px 8px; background: #1b1b26; color: #ddd; border: 1px solid #3a3a4a; border-radius: 6px; font: inherit; cursor: pointer; }
 @keyframes holofoil-aurora {
   from { background-position: 0% 0%, 100% 100%, 0 0; }
   to { background-position: 100% 100%, 0% 0%, 0 0; }
@@ -554,7 +554,7 @@ input[type='checkbox']:disabled {
 
 .tooltip {
   position: fixed;
-  z-index: 1000;
+  z-index: 1700;
   max-width: 280px;
   padding: 8px 10px;
   background: #1c1c24;

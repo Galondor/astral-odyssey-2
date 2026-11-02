@@ -160,7 +160,7 @@ export const STATUSES = {
     maxStacks: 5,
     healPenalty: 0.3,
     debuff: true,
-    description: "Takes damage each round and receives 30% less healing. Stacks up to 5 times; only Purify removes it.",
+    description: "Takes damage each round and receives 30% less healing. Stacks up to 5 times; Purify or a Cleansing Potion removes it.",
   },
   doom: {
     name: "Doom",
@@ -169,7 +169,7 @@ export const STATUSES = {
     defaultPower: 0.6,
     defaultTurns: 3,
     debuff: true,
-    description: "When this expires, it detonates for heavy damage. An ally can Guard you or Purify it.",
+    description: "When this expires, it detonates for heavy damage. An ally can Guard you, or Purify or a Cleansing Potion can remove it.",
   },
   soulLink: {
     name: "Soul Link",
@@ -212,9 +212,11 @@ export function absorbDamage(list, amount) {
 export const hasStatus = (list, id) => list.some((s) => s.id === id);
 
 // Adds or refreshes a status in `list` (mutated). Returns the status entry.
-export function addStatus(list, id, { turns, power, stacks = 1 } = {}) {
+export function addStatus(list, id, { turns, power, stacks = 1, resistance = 0 } = {}) {
   const def = STATUSES[id];
   if (def.debuff && list.some((s) => STATUSES[s.id]?.kind === "immune")) return null;
+  if ((def.debuff || id === "temporalRot" || id === "soulLink") &&
+      resistance > 0 && Math.random() < Math.min(0.7, Math.max(0, resistance))) return null;
   const t = turns ?? def.defaultTurns;
   const p = power ?? def.defaultPower;
   const existing = list.find((s) => s.id === id);

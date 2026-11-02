@@ -45,6 +45,15 @@ test("waves repeat basic, elite, basic, elite, boss", () => {
   ]);
 });
 
+test("Colosseum status resistance increases with wave difficulty within tier ranges", () => {
+  for (const [wave, min, max] of [[1, 0.05, 0.1], [2, 0.15, 0.3], [5, 0.35, 0.65]]) {
+    const first = createColosseumEnemy(wave, player).statusResistance;
+    const later = createColosseumEnemy(wave + 100, player).statusResistance;
+    expect(first).toBeGreaterThanOrEqual(min);
+    expect(first).toBeLessThan(max);
+    expect(later).toBe(max);
+  }
+});
 test("each successive wave has greater health", () => {
   const health = Array.from({ length: 10 }, (_, index) =>
     createColosseumEnemy(index + 1, player).maxHp,
@@ -54,25 +63,25 @@ test("each successive wave has greater health", () => {
 });
 
 test.each([
-  [1, { maxHp: 25, attack: [1, 2], defense: 1, speed: 2, astra: 20, exp: 24 }],
-  [2, { maxHp: 31, attack: [1, 2], defense: 1, speed: 2, astra: 38, exp: 45 }],
-  [5, { maxHp: 46, attack: [1, 3], defense: 2, speed: 2, astra: 83, exp: 99 }],
+  [1, { level: 1, maxHp: 25, attack: [1, 2], defense: 1, speed: 2, astra: 20, exp: 24 }],
+  [2, { level: 2, maxHp: 34, attack: [1, 3], defense: 1, speed: 2, astra: 38, exp: 45 }],
+  [5, { level: 5, maxHp: 69, attack: [2, 5], defense: 2, speed: 3, astra: 83, exp: 99 }],
 ])("wave %s has quarter-strength core stats without reduced rewards", (wave, expected) => {
-  expect(createColosseumEnemy(wave, player)).toMatchObject(expected);
+  expect(createColosseumEnemy(wave)).toMatchObject(expected);
 });
 
-test("reduced stats retain level scaling and valid attack ranges far into a run", () => {
+test("enemy level equals the wave and ignores the player's level and stats", () => {
   const veteran = {
     ...player,
     level: 50,
     stats: { maxHealth: 1000, attackMax: 100, defense: 100, speed: 100 },
   };
-  const early = createColosseumEnemy(1, veteran);
-  const late = createColosseumEnemy(100, veteran);
-  expect(early.maxHp).toBe(1600);
-  expect(early.attack).toEqual([61, 96]);
-  expect(early.defense).toBe(5);
-  expect(early.speed).toBe(17);
+  getPlayer.mockImplementation(() => veteran);
+  expect(createColosseumEnemy(1).level).toBe(1);
+  expect(createColosseumEnemy(150).level).toBe(150);
+  expect(createColosseumEnemy(1)).toEqual(createColosseumEnemy(1, player));
+  const early = createColosseumEnemy(1);
+  const late = createColosseumEnemy(100);
   expect(late.maxHp).toBeGreaterThan(early.maxHp);
   expect(late.attack[0]).toBeGreaterThan(early.attack[0]);
   expect(late.attack[1]).toBeGreaterThanOrEqual(late.attack[0]);
@@ -99,6 +108,12 @@ test("entry is level-gated, starts a cooldown, and does not count an uncleared w
   endColosseumRun();
   expect(getColosseumStatus(player, 1_000 + COLOSSEUM_COOLDOWN_MS - 1).canEnter).toBe(false);
   expect(getColosseumStatus(player, 1_000 + COLOSSEUM_COOLDOWN_MS).canEnter).toBe(true);
+});
+
+test.each([1, 2, 5, 40, 100])("wave %s only reduces critical chance for bosses", (wave) => {
+  const enemy = createColosseumEnemy(wave);
+  const chance = 0.05 + Math.min(0.2, wave * 0.005);
+  expect(enemy.critical).toBe(enemy.tier === "boss" ? Math.round(chance * 800) / 1000 : chance);
 });
 
 test("advancing alone does not count clears and boss drops are singular", () => {

@@ -1,6 +1,6 @@
 import { commitPlayerChange, getPlayer, setPlayer } from "../../character/player";
 import { get, onValue, update } from "firebase/database";
-import { applyConsumable, consumableTooltip, drinkConsumable, getKeyItemEffect, keyItemTooltip, toggleKeyItem } from "../../items/consumables";
+import { applyConsumable, buyConsumable, consumableTooltip, drinkConsumable, getKeyItemEffect, keyItemTooltip, toggleKeyItem } from "../../items/consumables";
 import { claimMessage, describeAttachments, normalizeAttachments, startInbox } from "../../world/inbox";
 
 jest.mock("../../firebase", () => ({ db: {} }));
@@ -29,6 +29,38 @@ test("normal healing potions still work", () => {
   getPlayer.mockReturnValue(player);
   expect(drinkConsumable("healthPotion")).toMatchObject({ ok: true, consumables: { healthPotion: 1 } });
   expect(setPlayer).toHaveBeenCalledWith(expect.objectContaining({ stats: { ...player.stats, health: 61 } }));
+});
+
+test("stamina potions restore all stamina and cannot be wasted at full stamina", () => {
+  const player = { consumables: { staminaPotion: 2 }, stats: { health: 100, maxHealth: 100, power: 10, maxPower: 10, stamina: 2, maxStamina: 37 } };
+  getPlayer.mockReturnValue(player);
+  expect(drinkConsumable("staminaPotion")).toMatchObject({ ok: true, message: expect.stringContaining("35 stamina") });
+  expect(setPlayer).toHaveBeenCalledWith({ stats: { ...player.stats, stamina: 37 }, consumables: { staminaPotion: 1 } });
+  expect(applyConsumable(player, "staminaPotion", { ...player.stats, stamina: 37 })).toMatchObject({ ok: false });
+});
+
+test("cleansing removes all removable debuffs, preserving buffs and uncleanseable effects", () => {
+  const player = { consumables: { cleansingPotion: 2 }, stats: { health: 100, maxHealth: 100, power: 10, maxPower: 10 } };
+  const statuses = ["poison", "burn", "doom", "corruption", "fortify", "temporalRot", "soulLink"].map((id) => ({ id, turns: 3 }));
+  expect(applyConsumable(player, "cleansingPotion", { ...player.stats }, { statuses })).toMatchObject({ ok: true, consumables: { cleansingPotion: 1 } });
+  expect(statuses.map((st) => st.id)).toEqual(["fortify", "temporalRot", "soulLink"]);
+  expect(applyConsumable(player, "cleansingPotion", { ...player.stats }, { statuses })).toMatchObject({ ok: false });
+  getPlayer.mockReturnValue(player);
+  expect(drinkConsumable("cleansingPotion")).toMatchObject({ ok: false });
+  expect(setPlayer).not.toHaveBeenCalled();
+});
+
+test("bulk purchases spend exact astra and add to existing inventory in one update", () => {
+  getPlayer.mockReturnValue({ astra: 7000, consumables: { healthPotion: 2 } });
+  expect(buyConsumable("healthPotion", 100)).toMatchObject({ ok: true });
+  expect(setPlayer).toHaveBeenCalledWith({ astra: 0, consumables: { healthPotion: 102 } });
+  expect(setPlayer).toHaveBeenCalledTimes(1);
+});
+
+test.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER, "2"])("invalid or unaffordable purchase %s changes nothing", (quantity) => {
+  getPlayer.mockReturnValue({ astra: 100, consumables: {} });
+  expect(buyConsumable("healthPotion", quantity).ok).toBe(false);
+  expect(setPlayer).not.toHaveBeenCalled();
 });
 
 test("the Hunter's Horn can be toggled off and on, suspending its effect", () => {

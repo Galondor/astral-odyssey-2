@@ -1,9 +1,13 @@
 import { MATERIALS } from "../items/materials";
+import { REGIONS, clampToRegion } from "../world/regions";
 import { STATUSES } from "./statuses";
 
 /*
- Enemies. Each template is { id, name, tier, regions, level, maxHp, attack, defense, speed, critical,
- astra, exp, abilities, drops, phases? }. Stats are for the template's own level and scale up with the level it spawns at.
+ Enemies. Each template is { id, name, tier, regions, level, statLevel, maxHp, attack, defense, speed, critical,
+ astra, exp, abilities, drops, phases? }. `level` is the lowest level the template spawns at inside its region
+ (see world/regions.js for each region's level range). Stats are written for `statLevel` and scale up with the
+ level it spawns at, then the region's danger multiplies health, attack, and defense and its reward multiplier
+ raises astra and exp.
  An enemy can spawn in every region listed in `regions`.
 
  Tiers: basic -> elite -> boss. Higher tiers have more health, damage and abilities, resist
@@ -65,6 +69,17 @@ export const TIERS = {
     stunResist: 1,
   },
 };
+
+// Content difficulty interpolates within each tier's resistance range.
+export const getEnemyStatusResistance = (tier = "basic", content = "travel", difficulty = 0) => {
+  const [min, max] = { basic: [0.05, 0.1], elite: [0.15, 0.3], boss: [0.35, 0.65] }[tier] || [0.05, 0.1];
+  const base = { travel: 0, dungeon: 0.6, group: 0.8, labyrinth: 0.8, colosseum: 0.2, worldBoss: 1 }[content] ?? 0;
+  const scale = base + (1 - base) * Math.min(1, Math.max(0, difficulty));
+  return Math.round((min + (max - min) * scale) * 1000) / 1000;
+};
+
+export const getEnemyCriticalChance = (tier, chance) =>
+  tier === "boss" ? Math.round(chance * 0.8 * 1000) / 1000 : chance;
 
 export const enemyAbilityTooltip = (ability) => {
   if (!ability) return null;
@@ -140,8 +155,9 @@ export const ENEMIES = [
     id: "greenSlime",
     name: "Green Slime",
     tier: "basic",
-    regions: ["Meadowlands", "Darkwood"],
+    regions: ["Meadowlands"],
     level: 1,
+    statLevel: 1,
     maxHp: 30,
     attack: [1, 6],
     defense: 2,
@@ -171,8 +187,9 @@ export const ENEMIES = [
     id: "direWolf",
     name: "Dire Wolf",
     tier: "basic",
-    regions: ["Meadowlands", "Darkwood"],
+    regions: ["Meadowlands"],
     level: 2,
+    statLevel: 2,
     maxHp: 50,
     attack: [3, 9],
     defense: 3,
@@ -199,6 +216,7 @@ export const ENEMIES = [
     tier: "basic",
     regions: ["Meadowlands"],
     level: 2,
+    statLevel: 2,
     maxHp: 60,
     attack: [2, 8],
     defense: 4,
@@ -230,8 +248,9 @@ export const ENEMIES = [
     id: "goblinScavenger",
     name: "Goblin Scavenger",
     tier: "basic",
-    regions: ["Meadowlands", "Darkwood", "AshenPeaks"],
+    regions: ["Meadowlands"],
     level: 3,
+    statLevel: 3,
     maxHp: 45,
     attack: [3, 8],
     defense: 3,
@@ -259,7 +278,8 @@ export const ENEMIES = [
     tier: "basic",
     eventOnly: true,
     regions: ["Darkwood"],
-    level: 3,
+    level: 10,
+    statLevel: 3,
     maxHp: 50,
     attack: [3, 9],
     defense: 3,
@@ -288,7 +308,8 @@ export const ENEMIES = [
     name: "Giant Spider",
     tier: "basic",
     regions: ["Darkwood"],
-    level: 4,
+    level: 10,
+    statLevel: 4,
     maxHp: 55,
     attack: [4, 10],
     defense: 3,
@@ -320,7 +341,8 @@ export const ENEMIES = [
     name: "Rotwood Treant",
     tier: "basic",
     regions: ["Darkwood"],
-    level: 4,
+    level: 10,
+    statLevel: 4,
     maxHp: 90,
     attack: [4, 10],
     defense: 6,
@@ -352,8 +374,9 @@ export const ENEMIES = [
     id: "wraith",
     name: "Restless Wraith",
     tier: "basic",
-    regions: ["Darkwood", "AshenPeaks"],
-    level: 6,
+    regions: ["Darkwood"],
+    level: 13,
+    statLevel: 6,
     maxHp: 60,
     attack: [5, 12],
     defense: 2,
@@ -376,7 +399,8 @@ export const ENEMIES = [
     name: "Ember Imp",
     tier: "basic",
     regions: ["AshenPeaks"],
-    level: 7,
+    level: 20,
+    statLevel: 7,
     maxHp: 55,
     attack: [6, 13],
     defense: 3,
@@ -405,7 +429,8 @@ export const ENEMIES = [
     name: "Obsidian Golem",
     tier: "basic",
     regions: ["AshenPeaks"],
-    level: 8,
+    level: 22,
+    statLevel: 8,
     maxHp: 120,
     attack: [7, 15],
     defense: 9,
@@ -435,7 +460,8 @@ export const ENEMIES = [
     name: "Dune Jackal",
     tier: "basic",
     regions: ["SuncleftExpanse"],
-    level: 4,
+    level: 70,
+    statLevel: 4,
     maxHp: 58,
     attack: [4, 10],
     defense: 3,
@@ -454,7 +480,8 @@ export const ENEMIES = [
     name: "Bilge Raider",
     tier: "basic",
     regions: ["TempestReach"],
-    level: 4,
+    level: 40,
+    statLevel: 4,
     maxHp: 62,
     attack: [4, 10],
     defense: 4,
@@ -473,7 +500,8 @@ export const ENEMIES = [
     name: "Frostfang",
     tier: "basic",
     regions: ["FrostfallRange"],
-    level: 5,
+    level: 55,
+    statLevel: 5,
     maxHp: 64,
     attack: [5, 11],
     defense: 4,
@@ -492,7 +520,8 @@ export const ENEMIES = [
     name: "Trench Scavenger",
     tier: "basic",
     regions: ["ShatteredFront"],
-    level: 5,
+    level: 85,
+    statLevel: 5,
     maxHp: 68,
     attack: [5, 11],
     defense: 5,
@@ -512,8 +541,9 @@ export const ENEMIES = [
     id: "alphaWolf",
     name: "Alpha Wolf",
     tier: "elite",
-    regions: ["Meadowlands", "Darkwood"],
-    level: 5,
+    regions: ["Meadowlands"],
+    level: 4,
+    statLevel: 5,
     maxHp: 70,
     attack: [5, 12],
     defense: 4,
@@ -547,8 +577,9 @@ export const ENEMIES = [
     id: "goblinWarchief",
     name: "Goblin Warchief",
     tier: "elite",
-    regions: ["Meadowlands", "Darkwood", "AshenPeaks"],
+    regions: ["Meadowlands"],
     level: 6,
+    statLevel: 6,
     maxHp: 80,
     attack: [6, 13],
     defense: 6,
@@ -588,7 +619,8 @@ export const ENEMIES = [
     name: "Venomweaver",
     tier: "elite",
     regions: ["Darkwood"],
-    level: 8,
+    level: 10,
+    statLevel: 8,
     maxHp: 85,
     attack: [7, 15],
     defense: 5,
@@ -622,7 +654,8 @@ export const ENEMIES = [
     name: "Flame Warden",
     tier: "elite",
     regions: ["AshenPeaks"],
-    level: 10,
+    level: 20,
+    statLevel: 10,
     maxHp: 100,
     attack: [8, 17],
     defense: 8,
@@ -661,7 +694,8 @@ export const ENEMIES = [
     name: "Living Scarecrow",
     tier: "elite",
     regions: ["Meadowlands"],
-    level: 5,
+    level: 3,
+    statLevel: 5,
     maxHp: 82,
     attack: [6, 13],
     defense: 5,
@@ -681,7 +715,8 @@ export const ENEMIES = [
     name: "Glassback Scorpion",
     tier: "elite",
     regions: ["SuncleftExpanse"],
-    level: 9,
+    level: 70,
+    statLevel: 9,
     maxHp: 100,
     attack: [7, 15],
     defense: 7,
@@ -701,7 +736,8 @@ export const ENEMIES = [
     name: "Reef Stalker",
     tier: "elite",
     regions: ["TempestReach"],
-    level: 9,
+    level: 40,
+    statLevel: 9,
     maxHp: 98,
     attack: [7, 15],
     defense: 6,
@@ -721,7 +757,8 @@ export const ENEMIES = [
     name: "Rime Sentinel",
     tier: "elite",
     regions: ["FrostfallRange"],
-    level: 10,
+    level: 55,
+    statLevel: 10,
     maxHp: 110,
     attack: [8, 16],
     defense: 9,
@@ -741,7 +778,8 @@ export const ENEMIES = [
     name: "Frontline Veteran",
     tier: "elite",
     regions: ["ShatteredFront"],
-    level: 10,
+    level: 85,
+    statLevel: 10,
     maxHp: 105,
     attack: [8, 16],
     defense: 8,
@@ -763,10 +801,11 @@ export const ENEMIES = [
     name: "Gelatinous King",
     tier: "boss",
     regions: ["Meadowlands"],
-    level: 6,
-    maxHp: 220,
-    attack: [9, 20],
-    defense: 8,
+    level: 5,
+    statLevel: 6,
+    maxHp: 165,
+    attack: [7, 15],
+    defense: 6,
     speed: 6,
     critical: 0.08,
     astra: 40,
@@ -774,16 +813,16 @@ export const ENEMIES = [
     abilities: [
       {
         name: "Engulf",
-        power: 1.6,
-        status: { id: "poison", turns: 4, power: 0.04, chance: 1 },
+        power: 1.3,
+        status: { id: "poison", turns: 3, power: 0.03, chance: 0.8 },
       },
-      { name: "Acid Rain", power: 1, hits: 2 },
+      { name: "Acid Rain", power: 0.8, hits: 2 },
       {
         name: "Absorb",
         power: 0,
-        heal: 0.15,
-        below: 0.8,
-        cooldown: 3,
+        heal: 0.1,
+        below: 0.6,
+        cooldown: 4,
         weight: 3,
         text: "The king swallows its own slime to mend itself.",
       },
@@ -792,8 +831,8 @@ export const ENEMIES = [
       {
         below: 0.5,
         text: "The Gelatinous King quivers and swells in fury!",
-        self: { id: "enrage", turns: 99, power: 0.45 },
-        heal: 0.12,
+        self: { id: "enrage", turns: 99, power: 0.3 },
+        heal: 0.08,
       },
     ],
     drops: [
@@ -807,7 +846,8 @@ export const ENEMIES = [
     name: "Widow Queen",
     tier: "boss",
     regions: ["Darkwood"],
-    level: 9,
+    level: 10,
+    statLevel: 9,
     maxHp: 150,
     attack: [7, 15],
     defense: 6,
@@ -849,8 +889,9 @@ export const ENEMIES = [
     id: "wraithKing",
     name: "Wraith King",
     tier: "boss",
-    regions: ["Darkwood", "AshenPeaks"],
-    level: 12,
+    regions: ["Darkwood"],
+    level: 15,
+    statLevel: 12,
     maxHp: 240,
     attack: [12, 24],
     defense: 10,
@@ -897,7 +938,8 @@ export const ENEMIES = [
     name: "Infernal Drake",
     tier: "boss",
     regions: ["AshenPeaks"],
-    level: 14,
+    level: 20,
+    statLevel: 14,
     maxHp: 200,
     attack: [10, 21],
     defense: 10,
@@ -951,7 +993,8 @@ export const ENEMIES = [
     name: "Buried Wyrm",
     tier: "boss",
     regions: ["SuncleftExpanse"],
-    level: 14,
+    level: 70,
+    statLevel: 14,
     maxHp: 235,
     attack: [11, 23],
     defense: 10,
@@ -972,7 +1015,8 @@ export const ENEMIES = [
     name: "Leviathan",
     tier: "boss",
     regions: ["TempestReach"],
-    level: 15,
+    level: 40,
+    statLevel: 15,
     maxHp: 260,
     attack: [12, 26],
     defense: 10,
@@ -993,7 +1037,8 @@ export const ENEMIES = [
     name: "Avalanche Colossus",
     tier: "boss",
     regions: ["FrostfallRange"],
-    level: 16,
+    level: 55,
+    statLevel: 16,
     maxHp: 280,
     attack: [12, 25],
     defense: 12,
@@ -1014,7 +1059,8 @@ export const ENEMIES = [
     name: "Siege Captain",
     tier: "boss",
     regions: ["ShatteredFront"],
-    level: 16,
+    level: 85,
+    statLevel: 16,
     maxHp: 245,
     attack: [13, 25],
     defense: 11,
@@ -1030,9 +1076,249 @@ export const ENEMIES = [
     phases: [{ below: 0.5, text: "The Siege Captain rallies the remaining forces and presses the attack!", self: { id: "enrage", turns: 99, power: 0.35 } }],
     drops: [{ key: "commanders_crest", chance: 0.55, min: 1, max: 1 }],
   },
+
+  // ---- Upper-range threats that appear deeper into each region ----
+  {
+    id: "rotwoodElder",
+    name: "Rotwood Elder",
+    tier: "elite",
+    regions: ["Darkwood"],
+    level: 15,
+    statLevel: 8,
+    maxHp: 110,
+    attack: [7, 15],
+    defense: 8,
+    speed: 4,
+    critical: 0.06,
+    astra: 30,
+    exp: 48,
+    abilities: [
+      { name: "Crushing Bough", power: 1.6, cooldown: 2 },
+      { name: "Strangling Roots", power: 0.8, status: { id: "stun", chance: 0.4 }, cooldown: 4 },
+      { name: "Sap Bloom", power: 0, heal: 0.12, below: 0.5, cooldown: 5, weight: 3, text: "Dark sap seals the Elder's wounds." },
+    ],
+    drops: [
+      { key: "rotwood_bark", chance: 0.8, min: 2, max: 3 },
+      { key: "primal_essence", chance: 0.3, min: 1, max: 1 },
+    ],
+  },
+  {
+    id: "cinderHound",
+    name: "Cinder Hound",
+    tier: "basic",
+    regions: ["AshenPeaks"],
+    level: 28,
+    statLevel: 8,
+    maxHp: 70,
+    attack: [7, 14],
+    defense: 4,
+    speed: 11,
+    critical: 0.12,
+    astra: 32,
+    exp: 50,
+    abilities: [
+      { name: "Searing Bite", power: 1.2, status: { id: "burn", turns: 3, power: 0.04, chance: 0.6 } },
+      { name: "Pack Lunge", power: 1.7, cooldown: 2 },
+    ],
+    drops: [
+      { key: "obsidian_shard", chance: 0.5, min: 1, max: 2 },
+      { key: "beast_fang", chance: 0.35, min: 1, max: 2 },
+    ],
+  },
+  {
+    id: "ashenWarlord",
+    name: "Ashen Warlord",
+    tier: "elite",
+    regions: ["AshenPeaks"],
+    level: 30,
+    statLevel: 11,
+    maxHp: 115,
+    attack: [9, 18],
+    defense: 9,
+    speed: 7,
+    critical: 0.1,
+    astra: 40,
+    exp: 64,
+    abilities: [
+      { name: "Molten Cleave", power: 1.7, status: { id: "burn", turns: 3, power: 0.05, chance: 0.5 }, cooldown: 2 },
+      { name: "War Cry", power: 0, self: { id: "enrage", turns: 3, power: 0.3 }, cooldown: 5 },
+      { name: "Obsidian Guard", power: 0, self: { id: "fortify", turns: 3, power: 0.35 }, below: 0.5, cooldown: 6 },
+    ],
+    drops: [
+      { key: "ember_core", chance: 0.6, min: 1, max: 2 },
+      { key: "obsidian_shard", chance: 0.6, min: 1, max: 3 },
+      { key: "primal_essence", chance: 0.35, min: 1, max: 1 },
+    ],
+  },
+  {
+    id: "drownedDeckhand",
+    name: "Drowned Deckhand",
+    tier: "basic",
+    regions: ["TempestReach"],
+    level: 46,
+    statLevel: 5,
+    maxHp: 70,
+    attack: [5, 11],
+    defense: 4,
+    speed: 5,
+    critical: 0.08,
+    astra: 21,
+    exp: 32,
+    abilities: [
+      { name: "Waterlogged Grip", power: 1.1, status: { id: "weaken", turns: 2, power: 0.2, chance: 0.6 } },
+      { name: "Anchor Swing", power: 1.8, cooldown: 3 },
+    ],
+    drops: [{ key: "bilge_raider_insignia", chance: 0.6, min: 1, max: 2 }],
+  },
+  {
+    id: "stormHarpy",
+    name: "Storm Harpy",
+    tier: "elite",
+    regions: ["TempestReach"],
+    level: 48,
+    statLevel: 10,
+    maxHp: 95,
+    attack: [8, 16],
+    defense: 5,
+    speed: 14,
+    critical: 0.14,
+    astra: 37,
+    exp: 60,
+    abilities: [
+      { name: "Gale Talons", power: 0.75, hits: 3 },
+      { name: "Thunder Shriek", power: 0.8, status: { id: "stun", chance: 0.35 }, cooldown: 4 },
+      { name: "Tailwind", power: 0, self: { id: "enrage", turns: 3, power: 0.25 }, cooldown: 5 },
+    ],
+    drops: [{ key: "abyssal_scale", chance: 0.75, min: 1, max: 2 }],
+  },
+  {
+    id: "snowdriftYeti",
+    name: "Snowdrift Yeti",
+    tier: "basic",
+    regions: ["FrostfallRange"],
+    level: 61,
+    statLevel: 6,
+    maxHp: 85,
+    attack: [6, 12],
+    defense: 6,
+    speed: 4,
+    critical: 0.06,
+    astra: 24,
+    exp: 36,
+    abilities: [
+      { name: "Avalanche Slam", power: 1.7, status: { id: "stun", chance: 0.3 }, cooldown: 3 },
+      { name: "Frozen Hide", power: 0, self: { id: "fortify", turns: 3, power: 0.35 }, cooldown: 5 },
+    ],
+    drops: [{ key: "frostfang_pelt", chance: 0.6, min: 1, max: 2 }],
+  },
+  {
+    id: "frostWyvern",
+    name: "Frost Wyvern",
+    tier: "elite",
+    regions: ["FrostfallRange"],
+    level: 63,
+    statLevel: 11,
+    maxHp: 115,
+    attack: [9, 17],
+    defense: 8,
+    speed: 10,
+    critical: 0.1,
+    astra: 40,
+    exp: 64,
+    abilities: [
+      { name: "Glacial Breath", power: 1.4, status: { id: "weaken", turns: 2, power: 0.25, chance: 0.6 }, cooldown: 3 },
+      { name: "Icicle Barrage", power: 0.6, hits: 3 },
+      { name: "Wing Buffet", power: 1.2, status: { id: "vulnerable", turns: 2, power: 0.2, chance: 0.5 } },
+    ],
+    drops: [{ key: "rimebound_plate", chance: 0.75, min: 1, max: 2 }],
+  },
+  {
+    id: "sandscourNomad",
+    name: "Sandscour Nomad",
+    tier: "basic",
+    regions: ["SuncleftExpanse"],
+    level: 76,
+    statLevel: 6,
+    maxHp: 66,
+    attack: [6, 12],
+    defense: 4,
+    speed: 9,
+    critical: 0.12,
+    astra: 24,
+    exp: 36,
+    abilities: [
+      { name: "Sand in the Eyes", power: 0.7, status: { id: "weaken", turns: 2, power: 0.25, chance: 0.7 } },
+      { name: "Curved Blade", power: 1.2, status: { id: "bleed", turns: 3, power: 0.04, chance: 0.6 } },
+    ],
+    drops: [{ key: "suncleft_scourge_fang", chance: 0.6, min: 1, max: 2 }],
+  },
+  {
+    id: "sunCursedSentinel",
+    name: "Sun-Cursed Sentinel",
+    tier: "elite",
+    regions: ["SuncleftExpanse"],
+    level: 78,
+    statLevel: 11,
+    maxHp: 120,
+    attack: [8, 17],
+    defense: 10,
+    speed: 6,
+    critical: 0.08,
+    astra: 40,
+    exp: 64,
+    abilities: [
+      { name: "Solar Lance", power: 1.6, status: { id: "burn", turns: 3, power: 0.05, chance: 0.6 }, cooldown: 2 },
+      { name: "Gilded Ward", power: 0, self: { id: "fortify", turns: 3, power: 0.35 }, cooldown: 6 },
+      { name: "Judgement", power: 1.3, ignoreDefense: 0.3 },
+    ],
+    drops: [{ key: "glassback_chitin", chance: 0.75, min: 1, max: 2 }],
+  },
+  {
+    id: "shellshockGunner",
+    name: "Shellshock Gunner",
+    tier: "basic",
+    regions: ["ShatteredFront"],
+    level: 91,
+    statLevel: 6,
+    maxHp: 70,
+    attack: [6, 13],
+    defense: 5,
+    speed: 6,
+    critical: 0.12,
+    astra: 25,
+    exp: 38,
+    abilities: [
+      { name: "Suppressing Fire", power: 0.5, hits: 3 },
+      { name: "Shrapnel Round", power: 1.3, status: { id: "bleed", turns: 3, power: 0.05, chance: 0.6 }, cooldown: 2 },
+    ],
+    drops: [{ key: "salvaged_dog_tag", chance: 0.6, min: 1, max: 2 }],
+  },
+  {
+    id: "ironcladJuggernaut",
+    name: "Ironclad Juggernaut",
+    tier: "elite",
+    regions: ["ShatteredFront"],
+    level: 93,
+    statLevel: 12,
+    maxHp: 135,
+    attack: [9, 18],
+    defense: 11,
+    speed: 4,
+    critical: 0.08,
+    astra: 42,
+    exp: 68,
+    abilities: [
+      { name: "Battering Ram", power: 1.8, status: { id: "stun", chance: 0.35 }, cooldown: 3 },
+      { name: "Plated Advance", power: 0, self: { id: "fortify", turns: 3, power: 0.4 }, cooldown: 5 },
+      { name: "Rivet Spray", power: 0.6, hits: 3, ignoreDefense: 0.2 },
+    ],
+    drops: [{ key: "war_hardened_insignia", chance: 0.75, min: 1, max: 2 }],
+  },
 ];
 
 const GEAR_SCORE_PER_LEVEL = 150;
+// Region rarity bonuses never push guaranteed gear rarity past Legendary.
+const MAX_REGION_RARITY = 4;
 // Enemies never get weaker than this fraction of their normal stats.
 const MIN_UNDERGEAR_FACTOR = 0.4;
 
@@ -1046,20 +1332,24 @@ export const getUndergearFactor = (playerLevel = 1, gearScore = 0) => {
 const randBetween = (min, max) =>
   min + Math.floor(Math.random() * (max - min + 1));
 
-// Templates of `tier` found in `region` that suit a player of `playerLevel` (nothing far above their level).
+// Highest level an enemy can spawn at for a player in `region`: two above their effective level, within the region's range.
+const getSpawnCeiling = (region, playerLevel) =>
+  clampToRegion(Math.max(1, Number(playerLevel) || 1) + 2, region);
+
+// Templates of `tier` found in `region` that can spawn for a player of `playerLevel`.
 export const getEnemyCandidates = (tier, region, playerLevel) =>
   ENEMIES.filter(
     (e) =>
       !e.eventOnly &&
       e.tier === tier &&
       e.regions.includes(region) &&
-      e.level <= playerLevel + 4,
+      e.level <= getSpawnCeiling(region, playerLevel),
   );
 
 export const hasEnemy = (tier, region, playerLevel) =>
   getEnemyCandidates(tier, region, playerLevel).length > 0;
 
-// The level enemies scale to: the player's level or gear score / 100, whichever is higher.
+// The level enemies scale to: the player's level or gear score / 150, whichever is higher.
 export const getEffectiveLevel = (playerLevel = 1, gearScore = 0) =>
   Math.max(
     1,
@@ -1067,17 +1357,15 @@ export const getEffectiveLevel = (playerLevel = 1, gearScore = 0) =>
     Math.floor((Number(gearScore) || 0) / GEAR_SCORE_PER_LEVEL),
   );
 
-// Level the enemy spawns at: 1 below to 5 above the effective level, never below the template's own level.
-const rollLevel = (template, effectiveLevel) =>
-  Math.min(
-    150,
-    Math.max(
-      template.level,
-      randBetween(Math.max(1, effectiveLevel - 1), effectiveLevel + 5),
-    ),
+// Spawn level: 1 below to 2 above the effective level, kept inside the region's level range.
+const rollSpawnLevel = (region, effectiveLevel) =>
+  clampToRegion(
+    randBetween(Math.max(1, effectiveLevel - 1), effectiveLevel + 2),
+    region,
   );
 
 // Picks and scales a random enemy of the tier for the region. Returns null if none are available.
+// Stats are written for the template's `statLevel` and grow with the spawn level, then the region's danger applies.
 export const getRandomEnemy = (
   tier = "basic",
   region,
@@ -1086,23 +1374,37 @@ export const getRandomEnemy = (
   templateId = null,
 ) => {
   const level0 = getEffectiveLevel(playerLevel, gearScore);
-  // A specific template (including event-only enemies) can be requested by id.
-  const candidates = templateId
-    ? ENEMIES.filter((e) => e.id === templateId)
-    : getEnemyCandidates(tier, region, level0);
+  const rolled = rollSpawnLevel(region, level0);
+  let candidates;
+  if (templateId) {
+    // A specific template (including event-only enemies) can be requested by id.
+    candidates = ENEMIES.filter((e) => e.id === templateId);
+  } else {
+    const pool = ENEMIES.filter(
+      (e) => !e.eventOnly && e.tier === tier && e.regions.includes(region),
+    );
+    candidates = pool.filter((e) => e.level <= rolled);
+    if (!candidates.length) candidates = getEnemyCandidates(tier, region, level0);
+  }
   if (!candidates.length) return null;
   const template = candidates[Math.floor(Math.random() * candidates.length)];
   const t = TIERS[template.tier];
-  const level = rollLevel(template, level0);
-  const d = level - template.level;
+  const zone = REGIONS[region] || REGIONS[template.regions[0]] || {};
+  const danger = zone.danger || 1;
+  const rewardMult = zone.reward || 1;
+  const level = clampToRegion(Math.max(rolled, template.level), region);
+  const statLevel = template.statLevel ?? template.level;
+  const d = level - statLevel;
+  // Above the stat level each level adds `k` of the base; below it, stats shrink in proportion to the level.
+  const grow = (k) => (d >= 0 ? 1 + d * k : level / statLevel);
   const weak = getUndergearFactor(playerLevel, gearScore);
 
   const round = Math.round;
   const levelScaled = {
-    maxHp: template.maxHp * (1 + d * 0.5) * t.hp * weak,
-    attack: template.attack.map((v) => v * (1 + d * 0.4) * t.attack * weak),
-    defense: template.defense * (1 + d * 0.3) * t.defense * weak,
-    speed: template.speed * (1 + d * 0.3) * (0.5 + 0.5 * weak),
+    maxHp: template.maxHp * grow(0.5) * t.hp * danger * weak,
+    attack: template.attack.map((v) => v * grow(0.4) * t.attack * danger * weak),
+    defense: template.defense * grow(0.3) * t.defense * danger * weak,
+    speed: template.speed * grow(0.3) * (0.5 + 0.5 * weak),
   };
   return {
     ...template,
@@ -1114,12 +1416,14 @@ export const getRandomEnemy = (
     attack: levelScaled.attack.map((v) => round(v)),
     defense: round(levelScaled.defense),
     speed: round(levelScaled.speed),
-    astra: round(template.astra * (1 + d * 0.25) * t.reward),
-    exp: round(template.exp * (1 + d * 0.25) * t.reward),
-    dropChance: t.dropChance,
-    minRarity: t.minRarity,
+    critical: getEnemyCriticalChance(template.tier, template.critical),
+    astra: round(template.astra * grow(0.25) * t.reward * rewardMult),
+    exp: round(template.exp * grow(0.25) * t.reward * rewardMult),
+    dropChance: Math.min(1, t.dropChance + (zone.dropBonus || 0)),
+    minRarity: Math.min(MAX_REGION_RARITY, t.minRarity + (zone.rarityBonus || 0)),
     dotResist: t.dotResist,
     stunResist: t.stunResist,
+    statusResistance: getEnemyStatusResistance(template.tier, "travel", (level - 1) / 100),
     materialAmount: t.materialAmount,
   };
 };

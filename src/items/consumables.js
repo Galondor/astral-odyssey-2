@@ -1,11 +1,12 @@
 import { getPlayer, setPlayer } from "../character/player";
+import { cleanseDebuffs, isDebuff } from "../combat/statuses";
 
 /*
  Consumables and key items.
  The player saves `consumables` ({ key: count }), `keyItems` (array of KEY_ITEMS keys),
  and `disabledKeyItems` (array of toggleable key items switched off by the player).
  Add an entry to CONSUMABLES (heal: health restored) or KEY_ITEMS to create a new item;
- consumables with a `price` are sold in the general store. Key items marked
+ consumables with a `price` are sold in the Apothecary. Key items marked
  `toggleable: true` can be switched on and off from the inventory.
 */
 export const CONSUMABLES = {
@@ -35,9 +36,21 @@ export const CONSUMABLES = {
   },
   greaterPowerPotion: {
     name: "Greater Power Potion",
-    description: "Restores 100% power.",
+    description: "Restores all power.",
     power: 1,
     price: 260,
+  },
+  staminaPotion: {
+    name: "Stamina Potion",
+    description: "Restores all stamina.",
+    stamina: 1,
+    price: 1000,
+  },
+  cleansingPotion: {
+    name: "Cleansing Potion",
+    description: "Removes all cleansable negative status effects. Preserves buffs and effects that only dungeon mechanics can remove.",
+    price: 2000,
+    cleanse: true,
   },
   elixirOfNameChanging: {
     name: "Elixir of Name Changing",
@@ -45,7 +58,7 @@ export const CONSUMABLES = {
   },
   architectsRune: {
     name: "Architect's Rune",
-    description: "Change an owned item's main stat to Strength, Dexterity, or Intelligence, keeping its value and tier. Crafted items cannot receive runes.",
+    description: "Change an owned item's main stat to Strength, Dexterity, or Intelligence, keeping its value and tier. Usable once per item.",
     rune: true,
   },
   itemCertificate: {
@@ -58,13 +71,25 @@ export const CONSUMABLES = {
   },
   runeOfUnpredictability: {
     name: "Rune of Unpredictability",
-    description: "Randomly does nothing, changes a substat tier or type, or adds a substat to an owned item. Crafted items cannot receive runes.",
+    description: "Randomly does nothing, changes a substat tier or type, or adds a substat to an owned item. Usable once per item.",
+    rune: true,
+  },
+  runeOfAscension: {
+    name: "Rune of Ascension",
+    description: "Increases an owned item's rarity by one step, improving stats and value. Cannot be used on Legendary, Unique, or Mythic items. Usable once per item.",
+    rune: true,
+  },
+  polishingRune: {
+    name: "Polishing Rune",
+    description: "Increases an owned item's condition by one step, improving its main stat and value. Cannot be used on Perfect items. Usable once per item.",
     rune: true,
   }
 };
 
 export const PRISMATIC_ALLOY_DROP_CHANCE = 0.005;
 export const RUNE_OF_UNPREDICTABILITY_DROP_CHANCE = 0.05;
+export const POLISHING_RUNE_DROP_CHANCE = RUNE_OF_UNPREDICTABILITY_DROP_CHANCE;
+export const RUNE_OF_ASCENSION_DROP_CHANCE = { elite: 0.05, boss: 0.1 };
 
 export const ITEM_CERTIFICATE_DROP_CHANCE = {
   overworld: { elite: 0.1, boss: 0.25 },
@@ -96,8 +121,8 @@ export const KEY_ITEMS = {
   },
   wayfindersCompass: {
     name: "Wayfinder's Compass",
-    description: "Shows how many trips remain before the region changes.",
-    effects: { compass: 1 },
+    description: "Charts shorter portal routes, reducing every portal fare by 25%.",
+    effects: { portalDiscount: 0.25 },
   },
   medicKit: {
     name: "Field Medic's Kit",
@@ -144,6 +169,29 @@ export const getConsumables = (player = getPlayer()) =>
     .filter(([key, count]) => CONSUMABLES[key] && count > 0)
     .map(([key, count]) => ({ key, count, ...CONSUMABLES[key] }));
 
+export const isCombatConsumable = (item) =>
+  !!(item?.heal || item?.power || item?.stamina || item?.cleanse);
+
+export function buyConsumable(key, quantity = 1) {
+  const item = CONSUMABLES[key];
+  if (!item?.price)
+    return { ok: false, message: "That item isn't sold here." };
+  if (!Number.isSafeInteger(quantity) || quantity < 1)
+    return { ok: false, message: "Enter a positive whole number of potions." };
+  const player = getPlayer();
+  const cost = item.price * quantity;
+  if (!Number.isSafeInteger(cost) || cost > (player.astra || 0))
+    return { ok: false, message: "You don't have enough astra for that quantity." };
+  const count = (player.consumables?.[key] || 0) + quantity;
+  if (!Number.isSafeInteger(count))
+    return { ok: false, message: "That quantity exceeds the inventory limit." };
+  setPlayer({
+    astra: player.astra - cost,
+    consumables: { ...player.consumables, [key]: count },
+  });
+  return { ok: true, message: `You buy ${quantity} x ${item.name} for ${cost} astra.` };
+}
+
 export const getKeyItems = (player = getPlayer()) =>
   (player?.keyItems || [])
     .filter((key) => KEY_ITEMS[key])
@@ -184,7 +232,7 @@ export const toggleKeyItem = (key) => {
 };
 
 // Applies one consumable to the stats copy `s` (mutated). Returns { ok, message, consumables }; nothing is used when ok is false.
-export function applyConsumable(player, key, s, { healScale = 1 } = {}) {
+export function applyConsumable(player, key, s, { healScale = 1, statuses = [] } = {}) {
   const c = CONSUMABLES[key];
   const count = player.consumables?.[key] || 0;
   if (!c || count < 1)
@@ -203,6 +251,10 @@ export function applyConsumable(player, key, s, { healScale = 1 } = {}) {
     return { ok: false, message: "You're already at full health." };
   if (c.power && !canRestorePower)
     return { ok: false, message: "You're already at full power." };
+  if (c.stamina && !(s.stamina < s.maxStamina))
+    return { ok: false, message: "You're already at full stamina." };
+  if (c.cleanse && !statuses.some(isDebuff))
+    return { ok: false, message: "You have no negative status effects that can be cleansed." };
   const heal =
     (c.heal || 0) * (1 + getKeyItemEffect(player, "potionBonus")) * healScale;
   const healed = Math.min(
@@ -215,17 +267,25 @@ export function applyConsumable(player, key, s, { healScale = 1 } = {}) {
   );
   s.health += healed;
   s.power += powerRestored;
+  const staminaRestored = c.stamina
+    ? Math.min(Math.floor(c.stamina * s.maxStamina), s.maxStamina - s.stamina)
+    : 0;
+  if (staminaRestored) s.stamina += staminaRestored;
+  const removed = c.cleanse ? cleanseDebuffs(statuses) : [];
   const consumables = { ...player.consumables, [key]: count - 1 };
   if (count - 1 <= 0) delete consumables[key];
   const recovery = [
-    healed > 0 && `[green]${healed}[/green] health`,
-    powerRestored > 0 && `[blue]${powerRestored}[/blue] power`,
+    healed > 0 && `${healed} health`,
+    powerRestored > 0 && `${powerRestored} power`,
+    staminaRestored > 0 && `${staminaRestored} stamina`,
   ]
     .filter(Boolean)
     .join(" and ");
   return {
     ok: true,
-    message: `You use a ${c.name} and recover ${recovery}.`,
+    message: removed.length
+      ? `You use a ${c.name} and remove all cleansable negative status effects.`
+      : `You use a ${c.name} and recover ${recovery}.`,
     consumables,
   };
 }
@@ -247,7 +307,7 @@ export function drinkConsumable(key) {
     return p?.consumables?.[key] > 0
       ? { ok: true, requiresRune: true, message: key === "architectsRune"
         ? "Choose an item and a different main stat. The rune is used only when applied."
-        : "Choose an item for a random substat effect. The rune is used only when applied." }
+        : `Choose an eligible item. ${CONSUMABLES[key].description} The rune is used only when applied.` }
       : { ok: false, message: "You don't have that item." };
   }
   if (key === "elixirOfNameChanging") {

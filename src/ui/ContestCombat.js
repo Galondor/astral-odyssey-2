@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getContestStatus, sendContestCommand, subscribeContest } from "../world/contest";
-import { getConsumables, consumableTooltip } from "../items/consumables";
+import { getConsumables, consumableTooltip, isCombatConsumable } from "../items/consumables";
 import { getEquippedSkills, getSkillLevel, SKILLS, skillCost, skillTooltip } from "../character/skills";
 import { STATUSES } from "../combat/statuses";
 import Tooltip from "./Tooltip";
@@ -37,6 +37,7 @@ export const getContestCombatView = ({ match, uid }) => {
         defense: stats.defense,
         speed: stats.speed,
         critical: stats.criticalHitChance || 0,
+        statusResistance: stats.statusResistance || 0,
         defending: opponent.defending,
         statuses: opponent.statuses || [],
         marrowWard: opponent.combat?.wardMax > 0
@@ -99,7 +100,7 @@ export default function ContestCombat({ onLeave, navigationModal }) {
         select: () => action("skill", key),
       }))];
     } else if (menu === "items") {
-      options = [back, ...getConsumables(fighter.player).filter((item) => item.heal || item.power).map((item) => ({
+      options = [back, ...getConsumables(fighter.player).filter(isCombatConsumable).map((item) => ({
         label: `${item.name} x${item.count}`,
         tooltip: consumableTooltip(item.key, "Takes your turn"),
         disabled: disabled || stunned,

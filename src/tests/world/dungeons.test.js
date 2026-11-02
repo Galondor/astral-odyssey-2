@@ -44,6 +44,24 @@ function enemy(tier = "boss", dungeon = type, templateIndex = 0) {
 
 afterEach(() => jest.restoreAllMocks());
 
+test.each(DUNGEON_TYPE_IDS)("all %s solo bosses receive lower stats without lower rewards", (typeId) => {
+  const dungeon = DUNGEON_TYPES[typeId];
+  dungeon.bosses.forEach((template, index) => {
+    const boss = enemy("boss", dungeon, index);
+    const mod = { hp: 1, atk: 1, def: 1, ...template.mod };
+    const attack = 1.1 * 20 * 6.1 * mod.atk + 3;
+    expect(boss).toMatchObject({
+      maxHp: Math.round(14 * 20 * 8.5 * mod.hp),
+      attack: [Math.round(attack * 0.75), Math.round(attack * 1.25)],
+      defense: Math.round(0.55 * 20 * 9.5 * mod.def),
+      critical: 0.28,
+      astra: 700,
+      dropChance: 1,
+      minRarity: 4,
+    });
+  });
+});
+
 test("a lethal opening dungeon attack returns to the dungeon instead of combat", () => {
   enemy("basic");
   const replies = ["The enemy attacks first.", "You collapse inside the dungeon."];
@@ -78,7 +96,7 @@ test.each(["basic", "elite"])("%s enemies never drop the name elixir", (tier) =>
 });
 
 test.each([
-  ["elite", 0, true], ["elite", 0.049999, true], ["elite", 0.05, false],
+  ["elite", 0, true], ["elite", 0.099999, true], ["elite", 0.1, false],
   ["boss", 0, true], ["boss", 0.099999, true], ["boss", 0.1, false],
   ["basic", 0, false],
 ])("%s rune drop at random=%s is %s", (tier, roll, drops) => {
@@ -88,10 +106,25 @@ test.each([
   const patch = { consumables: { ...player.consumables, healthPotion: 4 } };
   const replies = [];
   foe.onDefeat(player, {}, patch, replies);
-  expect(ARCHITECTS_RUNE_DROP_CHANCE).toEqual({ elite: 0.05, boss: 0.1 });
+  expect(ARCHITECTS_RUNE_DROP_CHANCE).toEqual({ elite: 0.1, boss: 0.1 });
   expect(patch.consumables.architectsRune).toBe(drops ? 3 : 2);
   expect(patch.consumables.healthPotion).toBe(4);
   expect(replies.some((line) => line.includes("Architect's Rune"))).toBe(drops);
+});
+
+test.each([
+  ["elite", 0.049999, true], ["elite", 0.05, false],
+  ["boss", 0.099999, true], ["boss", 0.1, false], ["basic", 0, false],
+])("%s Ascension drop at random=%s is %s", (tier, roll, drops) => {
+  const foe = enemy(tier);
+  player.consumables.runeOfAscension = 2;
+  jest.spyOn(Math, "random").mockReturnValue(roll);
+  const patch = { consumables: { ...player.consumables, itemCertificate: 3 } };
+  const replies = [];
+  foe.onDefeat(player, {}, patch, replies);
+  expect(patch.consumables.runeOfAscension).toBe(drops ? 3 : 2);
+  expect(patch.consumables.itemCertificate).toBe(3);
+  expect(replies.some((line) => line.includes("Rune of Ascension"))).toBe(drops);
 });
 
 test("losing to a dungeon boss never grants the elixir", () => {

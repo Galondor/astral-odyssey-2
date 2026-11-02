@@ -1,5 +1,5 @@
 import { getPlayer, setPlayer } from "../../character/player";
-import { attackRound, getCombatRound, getEnemy, getMarrowWard, startCombat } from "../../combat/combat";
+import { attackRound, consumeItemRound, getCombatRound, getEnemy, getMarrowWard, getPlayerStatuses, startCombat } from "../../combat/combat";
 
 jest.mock("../../character/player", () => ({
   getPlayer: jest.fn(),
@@ -39,6 +39,105 @@ beforeEach(() => {
 });
 
 afterEach(() => jest.restoreAllMocks());
+
+test("cleansing removes combat debuffs and spends one item and one turn", () => {
+  getPlayer.mockReturnValue({ ...player, consumables: { cleansingPotion: 2 } });
+  getPlayerStatuses().push({ id: "poison", turns: 5, power: 0.03, stacks: 3 }, { id: "fortify", turns: 5, power: 0.4 });
+  const round = getCombatRound();
+  expect(consumeItemRound("cleansingPotion").used).toBe(true);
+  expect(getPlayerStatuses().map((st) => st.id)).toEqual(["fortify"]);
+  expect(getCombatRound()).toBe(round + 1);
+  expect(setPlayer.mock.calls.at(-1)[0].consumables).toEqual({ cleansingPotion: 1 });
+});
+
+test("stun prevents cleansing without spending the potion or removing other debuffs", () => {
+  getPlayer.mockReturnValue({ ...player, consumables: { cleansingPotion: 1 } });
+  getPlayerStatuses().push({ id: "stun", turns: 1 }, { id: "poison", turns: 5, power: 0.03, stacks: 1 });
+  consumeItemRound("cleansingPotion");
+  expect(getPlayerStatuses().some((st) => st.id === "poison")).toBe(true);
+  expect(setPlayer.mock.calls.at(-1)[0].consumables).toBeUndefined();
+});
+
+test("cleansing with no removable statuses does not pass a turn or spend an item", () => {
+  getPlayer.mockReturnValue({ ...player, consumables: { cleansingPotion: 1 } });
+  const round = getCombatRound();
+  expect(consumeItemRound("cleansingPotion").used).toBe(false);
+  expect(getCombatRound()).toBe(round);
+  expect(setPlayer).not.toHaveBeenCalled();
+});
+
+test("stamina potions restore stamina during combat and do not waste items at full stamina", () => {
+  const hero = { ...player, consumables: { staminaPotion: 2 }, stats: { ...player.stats, stamina: 1, maxStamina: 37 } };
+  getPlayer.mockReturnValue(hero);
+  expect(consumeItemRound("staminaPotion").used).toBe(true);
+  const patch = setPlayer.mock.calls.at(-1)[0];
+  expect(patch.stats.stamina).toBe(37);
+  expect(patch.consumables.staminaPotion).toBe(1);
+  getPlayer.mockReturnValue({ ...hero, ...patch });
+  const round = getCombatRound();
+  expect(consumeItemRound("staminaPotion").used).toBe(false);
+  expect(getCombatRound()).toBe(round);
+  expect(setPlayer).toHaveBeenCalledTimes(1);
+});
+
+test.each([[0, 80], [0.25, 85], [0.5, 90], [1, 90]])(
+  "critical resistance %s mitigates critical hits up to the 50%% cap",
+  (criticalResistance, health) => {
+    getPlayer.mockReturnValue({ ...player, equipment: {}, stats: { ...player.stats, criticalResistance } });
+    startCombat({ name: "Critter", maxHp: 1000, attack: [10, 10], defense: 0, speed: 1, critical: 1 });
+    jest.spyOn(Math, "random").mockReturnValue(0.5);
+    attackRound("melee");
+    expect(setPlayer.mock.calls.at(-1)[0].stats.health).toBe(health);
+  },
+);
+
+test("critical resistance does not reduce noncritical damage", () => {
+  getPlayer.mockReturnValue({ ...player, equipment: {}, stats: { ...player.stats, criticalResistance: 0.5 } });
+  startCombat({ name: "Target", maxHp: 1000, attack: [10, 10], defense: 0, speed: 1, critical: 0 });
+  jest.spyOn(Math, "random").mockReturnValue(0.5);
+  attackRound("melee");
+  expect(setPlayer.mock.calls.at(-1)[0].stats.health).toBe(90);
+});
+
+test.each([[0.69, false], [0.7, true]])("player status resistance checks the exact 70%% boundary %s", (roll, applies) => {
+  getPlayer.mockReturnValue({ ...player, equipment: {}, stats: { ...player.stats, statusResistance: 1 } });
+  startCombat({
+    name: "Caster", maxHp: 1000, attack: [1, 1], defense: 0, speed: 1, critical: 0,
+    abilities: [{ name: "Curse", power: 0, weight: 100, status: { id: "poison" } }],
+  });
+  jest.spyOn(Math, "random").mockReturnValue(roll);
+  const { replies } = attackRound("melee");
+  expect(getPlayerStatuses().some((st) => st.id === "poison")).toBe(applies);
+  if (!applies) expect(replies.join(" ")).toContain("You resist being poisoned");
+});
+
+test("enemy resistance blocks a Bloom of Decay refresh and stack increase", () => {
+  startCombat({ name: "Resistant", maxHp: 1000, defense: 0, speed: 1, critical: 0, statusResistance: 0.5 });
+  getEnemy().statuses.push({ id: "poison", turns: 4, power: 0.03, stacks: 1 });
+  jest.spyOn(Math, "random").mockReturnValue(0.1);
+  const { replies } = attackRound("melee");
+  expect(getEnemy().statuses[0].stacks).toBe(1);
+  expect(getEnemy().statuses[0].turns).toBe(3);
+  expect(replies.join(" ")).toContain("resists being poisoned");
+});
+
+test.each(["Bloom of Decay", "Molten Grip", "Saltblood Tide"])(
+  "world boss takes only direct hit damage with %s, never health-based damage",
+  (name) => {
+    getPlayer.mockReturnValue({ ...player, equipment: { weapon: { ability: { name } } } });
+    startCombat({
+      name: "World Boss", tier: "boss", maxHp: 1000000, attack: [1, 1],
+      defense: 0, speed: 1, critical: 0, worldBossCycle: "cycle", statusResistance: 0,
+    });
+    getEnemy().statuses.push(
+      ...["burn", "poison", "bleed"].map((id) => ({ id, turns: 99, power: 0.04, stacks: 1 })),
+    );
+    jest.spyOn(Math, "random").mockReturnValue(0.5);
+    for (let i = 0; i < 4; i += 1) attackRound("melee");
+    expect(getEnemy().hp).toBe(999996);
+    expect(getEnemy().worldBossDamageDealt).toBe(4);
+  },
+);
 
 test("combat rounds start at one and advance after each completed player turn", () => {
   expect(getCombatRound()).toBe(1);
@@ -151,6 +250,7 @@ test("World Boss combat ends after ten completed rounds", () => {
 });
 
 test("Bloom of Decay adds a poison stack on every hit", () => {
+  getEnemy().statusResistance = 0;
   jest.spyOn(Math, "random").mockReturnValue(0);
 
   attackRound("melee");
@@ -197,6 +297,7 @@ test("Frozen Resolve has a chance to stun an enemy that hits the player", () => 
     defense: 0,
     speed: 1,
     critical: 0,
+    statusResistance: 0,
     abilities: [],
   });
   jest.spyOn(Math, "random").mockReturnValue(0);
@@ -517,7 +618,7 @@ test.each([false, true])("basic enemies never drop certificates (dungeon=%s)", (
   const { replies } = attackRound("melee");
   expect(setPlayer.mock.calls.at(-1)[0].consumables).toEqual({
     prismaticAlloy: 1,
-    ...(!dungeon && { runeOfUnpredictability: 1 }),
+    ...(!dungeon && { runeOfUnpredictability: 1, polishingRune: 1 }),
   });
   expect(replies.some((line) => line.includes("Item Certificate"))).toBe(false);
 });
@@ -550,12 +651,12 @@ test("Prismatic Alloy drop chance excludes the exact 0.5% threshold", () => {
   jest.spyOn(Math, "random").mockReturnValue(0.005);
   const { replies, over } = attackRound("melee");
   expect(over).toBe(true);
-  expect(setPlayer.mock.calls.at(-1)[0].consumables).toEqual({ runeOfUnpredictability: 1 });
+  expect(setPlayer.mock.calls.at(-1)[0].consumables).toEqual({ runeOfUnpredictability: 1, polishingRune: 1 });
   expect(replies.some((line) => line.includes("Prismatic Alloy"))).toBe(false);
 });
 
-test.each([[0, true], [0.009999, true], [0.01, false]])(
-  "adventures drop the Rune of Unpredictability at 1%% (roll=%s)",
+test.each([[0, true], [0.049999, true], [0.05, false]])(
+  "adventures drop Unpredictability and Polishing at 5%% (roll=%s)",
   (roll, drops) => {
     getPlayer.mockReturnValue({ ...player, level: 1, inventory: [], equipment: {} });
     startCombat({ name: "Target", maxHp: 1, defense: 0, speed: 1, tier: "basic", dropChance: 0 });
@@ -566,6 +667,8 @@ test.each([[0, true], [0.009999, true], [0.01, false]])(
     expect(over).toBe(true);
     expect(setPlayer.mock.calls.at(-1)[0].consumables?.runeOfUnpredictability).toBe(drops ? 1 : undefined);
     expect(replies.some((line) => line.includes("Rune of Unpredictability"))).toBe(drops);
+    expect(setPlayer.mock.calls.at(-1)[0].consumables?.polishingRune).toBe(drops ? 1 : undefined);
+    expect(replies.some((line) => line.includes("Polishing Rune"))).toBe(drops);
   },
 );
 
@@ -573,6 +676,18 @@ const uniquePlayer = (slot, name, stats = {}) => ({
   ...player,
   equipment: { [slot]: { ability: { name } } },
   stats: { ...player.stats, attackMin: 10, attackMax: 10, health: 50, ...stats },
+});
+
+test("Luck does not raise adventure rune chances", () => {
+  getPlayer.mockReturnValue({
+    ...player, level: 1, inventory: [], equipment: {}, stats: { ...player.stats, luck: 300 },
+  });
+  startCombat({ name: "Target", maxHp: 1, defense: 0, speed: 1, tier: "basic", dropChance: 0 });
+  jest.spyOn(Math, "random").mockReturnValue(0.05);
+  expect(attackRound("melee").over).toBe(true);
+  const consumables = setPlayer.mock.calls.at(-1)[0].consumables;
+  expect(consumables?.runeOfUnpredictability).toBeUndefined();
+  expect(consumables?.polishingRune).toBeUndefined();
 });
 
 test("Saltblood Tide bleeds the enemy and every 4th hit draws out the bleed to heal", () => {

@@ -15,6 +15,7 @@ import {
   buyGearTraderItem,
   canEquip,
   CONDITION_NAMES,
+  deleteOwnedItem,
   equipItem,
   GEAR_SLOT_TYPES,
   GEAR_TRADER_REFRESH_MS,
@@ -53,6 +54,7 @@ import {
   keyItemTooltip,
   toggleKeyItem,
   drinkConsumable,
+  buyConsumable,
 } from "../items/consumables";
 import {
   MATERIAL_TIERS,
@@ -91,6 +93,7 @@ import ItemPopup from "./ItemPopup";
 import { ItemSockets } from "./SocketIcon";
 import { getItemGemstones, getItemSocketCount } from "../items/sockets";
 import ChangelogScreen from "./ChangelogScreen";
+import RoadmapScreen from "./RoadmapScreen";
 import LeaderboardScreen from "./LeaderboardScreen";
 import ArenaScreen from "./ArenaScreen";
 import WorldBossScreen from "./WorldBossScreen";
@@ -112,6 +115,7 @@ import {
   rewardText,
   turnInQuest,
 } from "../world/quests";
+import { getRegion } from "../world/regions";
 import Tooltip from "./Tooltip";
 import InboxScreen from "./InboxScreen";
 import SocialScreen from "./SocialScreen";
@@ -428,6 +432,11 @@ const CombatScreen = ({ messages, data, player }) => {
                 Critical
                 <br />
                 {enemy ? `${enemy.critical * 100}%` : "-"}
+              </h4>
+              <h4>
+                Status Resistance
+                <br />
+                {enemy ? `${Math.round((enemy.statusResistance || 0) * 100)}%` : "-"}
               </h4>
             </div>
           )}
@@ -1275,6 +1284,13 @@ const Equipment = ({ player, onChange, locked }) => {
         <ItemPopup
           item={selectedGear.item}
           message={gemMessage}
+          deleteDisabled={locked || isFavorite(player, "gear", selectedGear.item)}
+          onDelete={() => {
+            const result = deleteOwnedItem(selectedGear.item, { kind: "equipment", slotKey: gemSlotKey });
+            setGemMessage(result.message);
+            if (result.ok) setSelectedGear(null);
+            onChange();
+          }}
           onClose={() => {
             setSelectedGear(null);
             setSocketPicker(false);
@@ -1402,19 +1418,20 @@ const ItemTargetPopup = ({
         {targets.length ? (
           <div className='gemstone-popup-targets'>
             {targets.map(({ item, label }) => (
-              <button
-                key={`${label}-${item.id}`}
-                type='button'
-                className={`gemstone-popup-target ${selectedId === item.id ? "selected" : ""}`}
-                aria-pressed={selectedId === item.id}
-                style={getHolofoilStyle(item)}
-                disabled={locked}
-                onClick={() => onSelect(item.id)}
-              >
-                <span>{label}</span>
-                <strong style={{ color: RARITY_COLORS[item.rarity] }}>{item.name}</strong>
-                <span>{item.rarity || "Equipment"}</span>
-              </button>
+              <Tooltip key={`${label}-${item.id}`} content={itemTooltip(item)}>
+                <button
+                  type='button'
+                  className={`gemstone-popup-target ${selectedId === item.id ? "selected" : ""}`}
+                  aria-pressed={selectedId === item.id}
+                  style={getHolofoilStyle(item)}
+                  disabled={locked}
+                  onClick={() => onSelect(item.id)}
+                >
+                  <span>{label}</span>
+                  <strong style={{ color: RARITY_COLORS[item.rarity] }}>{item.name}</strong>
+                  <span>{item.rarity || "Equipment"}</span>
+                </button>
+              </Tooltip>
             ))}
           </div>
         ) : (
@@ -1580,6 +1597,7 @@ const Inventory = ({ player, onChange, locked }) => {
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState("");
   const [consumableMessage, setConsumableMessage] = useState("");
+  const [selectedConsumableKey, setSelectedConsumableKey] = useState(null);
   const [savingName, setSavingName] = useState(false);
   const [selectedRune, setSelectedRune] = useState(null);
   const [runeItemId, setRuneItemId] = useState("");
@@ -1621,6 +1639,7 @@ const Inventory = ({ player, onChange, locked }) => {
     });
   const gemstoneFilterActive = gemstoneFilters.query || gemstoneFilters.stat || gemstoneFilters.rarity;
   const consumables = getConsumables(player);
+  const selectedConsumable = consumables.find((c) => c.key === selectedConsumableKey);
   const keyItems = getKeyItems(player);
   const materials = getMaterials(player);
   const gearAbilities = [...new Set(gear.map((item) => item.ability?.name).filter(Boolean))]
@@ -1642,7 +1661,7 @@ const Inventory = ({ player, onChange, locked }) => {
       if (gearFilters.stat) {
         const stats = getItemStats(item);
         if (!(gearFilters.stat in stats)) return false;
-        const value = ["criticalDamage", "criticalHitChance", "evasion"].includes(gearFilters.stat)
+        const value = ["criticalDamage", "criticalHitChance", "evasion", "criticalResistance", "statusResistance"].includes(gearFilters.stat)
           ? stats[gearFilters.stat] * 100
           : stats[gearFilters.stat];
         if (minGearStat !== null && value < minGearStat) return false;
@@ -1704,6 +1723,7 @@ const Inventory = ({ player, onChange, locked }) => {
     const result = drinkConsumable(key);
     setConsumableMessage(result.message);
     if (result.requiresNameChange || result.requiresItemRename || result.requiresRune || result.requiresHolofoilReroll) {
+      setSelectedConsumableKey(null);
       setRenaming(false);
       setRenamingItem(false);
       setSelectedRune(null);
@@ -1727,12 +1747,13 @@ const Inventory = ({ player, onChange, locked }) => {
       setSelectedAlloy(true);
       setAlloyItemId("");
     }
+    if (result.ok && !getPlayer()?.consumables?.[key]) setSelectedConsumableKey(null);
     onChange();
   };
   const runeTargets = [
     ...gear,
     ...Object.values(player.equipment || {}),
-  ].filter(canApplyRune);
+  ].filter((item) => canApplyRune(item, selectedRune));
   const alloyTargets = [
     ...gear,
     ...Object.values(player.equipment || {}),
@@ -1837,6 +1858,7 @@ const Inventory = ({ player, onChange, locked }) => {
               className={`inventory-tab ${tab === t.key ? "active" : ""}`}
               onClick={() => {
                 setSelectedGear(null);
+                setSelectedConsumableKey(null);
                 setTab(t.key);
               }}
             >
@@ -1983,7 +2005,8 @@ const Inventory = ({ player, onChange, locked }) => {
         )}
         {tab === "consumables" && (
           <>
-            {consumableMessage && <div role='status'>{consumableMessage}</div>}
+            <p className='recipe-kind'>Select a consumable to inspect its details and choose an action.</p>
+            {consumableMessage && !selectedConsumable && <div role='status'>{consumableMessage}</div>}
             {selectedRune && (
               <ItemTargetPopup
                 title={`Use ${CONSUMABLES[selectedRune].name}`}
@@ -1992,7 +2015,7 @@ const Inventory = ({ player, onChange, locked }) => {
                 selectedId={runeItemId}
                 onSelect={(id) => { setRuneItemId(id); setRuneStat(""); }}
                 onClose={() => closeItemTargetPopup(() => setSelectedRune(null))}
-                emptyMessage='You have no eligible items. Crafted items cannot receive runes.'
+                emptyMessage='You have no eligible items. Each rune can be used once per item, within its quality limits.'
                 locked={locked}
               >
                 <form className='input-form item-input-form' onSubmit={craftWithRune}>
@@ -2005,13 +2028,17 @@ const Inventory = ({ player, onChange, locked }) => {
                           {RUNE_MAIN_STATS.filter((stat) => stat !== runeTarget.mainStat.stat).map((stat) => <option key={stat} value={stat}>{STAT_LABELS[stat]}</option>)}
                         </select>
                       </label>
-                      <p>Keeps the main stat's value and tier. Adds Crafted, preventing any further rune use.</p>
+                      <p>Keeps the main stat's value and tier. Adds the Architect's Rune tag.</p>
                     </>
                   )}
                   {selectedRune === "runeOfUnpredictability" && (
-                    <p>Randomly does nothing, changes a substat tier or type, or adds a substat line. Adds Crafted, preventing any further rune use.</p>
+                    <p>Randomly does nothing, changes a substat tier or type, or adds a substat line. Adds the Rune of Unpredictability tag, even if nothing happens.</p>
                   )}
-                  <button type='submit' className='buttons' disabled={locked || !runeTarget || (selectedRune === "architectsRune" && !runeStat)}>Apply rune</button>
+                  {["runeOfAscension", "polishingRune"].includes(selectedRune) && (
+                    <p>{CONSUMABLES[selectedRune].description}</p>
+                  )}
+                  <p>Each rune can be used once per item. Other runes remain usable, including on crafted gear.</p>
+                  <button type='submit' className='buttons' disabled={locked || !runeTarget || (selectedRune === "architectsRune" && !runeStat)}>Apply</button>
                 </form>
               </ItemTargetPopup>
             )}
@@ -2074,16 +2101,17 @@ const Inventory = ({ player, onChange, locked }) => {
                   onView={() => viewItem("consumables", c.key)}
                   content={consumableTooltip(
                     c.key,
-                    locked ? "Use items from the combat menu" : "Click to use ",
+                    locked ? "Use items from the combat menu" : "Click to inspect",
                   )}
                 >
                   <button
                     type='button'
-                    disabled={locked || savingName}
                     className={`inventory-item ${favoriteClass("consumables", c)}`}
                     onClick={(event) => {
                       itemTargetTrigger.current = event.currentTarget;
-                      use(c.key);
+                      viewItem("consumables", c.key);
+                      setConsumableMessage(locked ? "Use items from the combat menu." : "");
+                      setSelectedConsumableKey(c.key);
                     }}
                   >
                     {isNew("consumables", c.key) && (
@@ -2269,10 +2297,47 @@ const Inventory = ({ player, onChange, locked }) => {
           </>
         )}
       </div>
+      {selectedConsumable && tab === "consumables" && (
+        <ItemPopup
+          key={selectedConsumable.key}
+          item={{ ...selectedConsumable, kind: "consumable" }}
+          message={consumableMessage}
+          onClose={() => closeItemTargetPopup(() => setSelectedConsumableKey(null))}
+          deleteDisabled={locked || savingName || isFavorite(player, "consumables", selectedConsumable)}
+          onDelete={() => {
+            const result = deleteOwnedItem(selectedConsumable, { kind: "consumable" });
+            setConsumableMessage(result.message);
+            if (result.ok) closeItemTargetPopup(() => setSelectedConsumableKey(null));
+            onChange();
+          }}
+          actions={[
+            {
+              label: isFavorite(player, "consumables", selectedConsumable) ? "Unfavorite" : "Favorite",
+              onClick: () => {
+                const result = toggleFavorite("consumables", selectedConsumable);
+                setConsumableMessage(result.ok ? "" : result.message);
+                onChange();
+              },
+            },
+            {
+              label: "Use",
+              disabled: locked || savingName,
+              onClick: () => use(selectedConsumable.key),
+            },
+          ]}
+        />
+      )}
       {selectedGear && tab === "gear" && !socketPicker && (
         <ItemPopup
           item={selectedGear.item}
           message={gemstoneMessage}
+          deleteDisabled={locked || isFavorite(player, "gear", selectedGear.item)}
+          onDelete={() => {
+            const result = deleteOwnedItem(selectedGear.item, { kind: "inventory" });
+            setGemstoneMessage(result.message);
+            if (result.ok) setSelectedGear(null);
+            onChange();
+          }}
           onClose={() => {
             setSelectedGear(null);
             setSocketPicker(false);
@@ -2583,15 +2648,23 @@ const ProgressionScreen = ({ player: initial, inCombat, onChange }) => {
   );
 };
 
+const questRarity = (quest) => getQuestTier(quest.tier)?.key || quest.tier;
+const questColor = (quest) => getQuestTier(quest.tier)?.color;
+// "Held: X/Y" for gather quests, so the player can see how many of the requested material they carry.
+const questHeldText = (quest, player) =>
+  quest.kind === "gather" ? `Held: ${getObjective(quest, player).held ?? 0}/${quest.count}` : null;
+
 const questTooltip = (quest, player) => {
-  const tier = getQuestTier(quest.tier);
   const problem = getRequirementProblem(quest, player);
   return {
     title: quest.title,
-    titleColor: tier.color,
-    subtitle: `${quest.tier}-Rank • Level ${quest.level}`,
+    titleColor: questColor(quest),
+    subtitle: `${questRarity(quest)} Quest • Level ${quest.level}${quest.region ? ` • ${getRegion(quest.region).name}` : ""}`,
     description: quest.description,
     stats: [
+      ...(quest.kind === "gather"
+        ? [{ label: "Held", value: `${getObjective(quest, player).held ?? 0}/${quest.count}` }]
+        : []),
       { label: "Reward", value: rewardText(quest.reward), color: "#ffd479" },
       ...(problem ? [{ label: "Locked", value: problem, color: "#ff6b6b" }] : []),
     ],
@@ -2632,10 +2705,10 @@ const QuestBoardScreen = ({ onChange }) => {
               return (
                 <Tooltip key={q.id} content={questTooltip(q, player)}>
                   <button type='button' className={`recipe ${obj.done ? "" : "unaffordable"}`} disabled={!obj.done} onClick={() => turnIn(q)}>
-                    <strong style={{ color: getQuestTier(q.tier).color }}>[{q.tier}] {q.title}</strong>
+                    <strong style={{ color: questColor(q) }}>[{questRarity(q)}] {q.title}</strong>
                     <span>{q.description}</span>
                     <span className='recipe-cost'>
-                      {obj.progress}/{obj.count} • {obj.done ? "Turn in" : "In progress"}
+                      {questHeldText(q, player) || `${obj.progress}/${obj.count}`} • {obj.done ? "Turn in" : "In progress"}
                     </span>
                   </button>
                 </Tooltip>
@@ -2652,9 +2725,11 @@ const QuestBoardScreen = ({ onChange }) => {
           return (
             <Tooltip key={q.id} content={questTooltip(q, player)}>
               <button type='button' className={`recipe ${problem ? "unaffordable" : ""}`} disabled={!!problem} onClick={() => accept(q)}>
-                <strong style={{ color: getQuestTier(q.tier).color }}>[{q.tier}] {q.title}</strong>
+                <strong style={{ color: questColor(q) }}>[{questRarity(q)}] {q.title}</strong>
                 <span>{q.description}</span>
-                <span className='recipe-cost'>{problem || `Reward: ${rewardText(q.reward)}`}</span>
+                <span className='recipe-cost'>
+                  {problem || [questHeldText(q, player), `Reward: ${rewardText(q.reward)}`].filter(Boolean).join(" • ")}
+                </span>
               </button>
             </Tooltip>
           );
@@ -2722,12 +2797,12 @@ const QuestsScreen = ({ onChange }) => {
             <Tooltip key={q.id} content={questTooltip(q, player)}>
               <div className={`quest-entry ${q.status}`}>
                 <div>
-                  <strong style={{ color: getQuestTier(q.tier).color }}>[{q.tier}] {q.title}</strong>
+                  <strong style={{ color: questColor(q) }}>[{questRarity(q)}] {q.title}</strong>
                   <span className='quest-status'> • {status}</span>
                 </div>
                 <div>{q.description}</div>
                 <div className='recipe-kind'>
-                  {q.status === "active" ? `Progress ${obj.progress}/${obj.count} • ` : ""}Reward: {rewardText(q.reward)}
+                  {q.status === "active" ? `${questHeldText(q, player) || `Progress ${obj.progress}/${obj.count}`} • ` : ""}Reward: {rewardText(q.reward)}
                 </div>
                 {q.status === "active" && (
                   <button type='button' className='buttons input-button' onClick={() => abandon(q)}>
@@ -2739,6 +2814,72 @@ const QuestsScreen = ({ onChange }) => {
           );
         })}
       </div>
+    </div>
+  );
+};
+
+const ApothecaryScreen = ({ player, onChange }) => {
+  const [selectedKey, setSelectedKey] = useState(null);
+  const [quantity, setQuantity] = useState("1");
+  const [message, setMessage] = useState("");
+  const selected = CONSUMABLES[selectedKey];
+  const amount = Number(quantity);
+  const validQuantity = quantity.trim() !== "" && Number.isSafeInteger(amount) && amount > 0;
+  const cost = selected ? selected.price * amount : 0;
+  const buy = () => {
+    const result = buyConsumable(selectedKey, amount);
+    setMessage(result.message);
+    if (result.ok) onChange?.();
+  };
+  return (
+    <div className='workshop apothecary'>
+      <h2>Apothecary <span className='recipe-astra'>{player.astra || 0} astra</span></h2>
+      <p>Select a potion to see its details and buy any quantity you can afford.</p>
+      <div className='inventory-list'>
+        {Object.entries(CONSUMABLES).filter(([, item]) => item.price).map(([key, item]) => (
+          <button
+            key={key}
+            type='button'
+            className='inventory-item'
+            onClick={() => {
+              setSelectedKey(key);
+              setQuantity("1");
+              setMessage("");
+            }}
+          >
+            {item.name}
+            <div className='recipe-kind'>{item.price} astra each</div>
+            <div className='recipe-kind'>Owned: {player.consumables?.[key] || 0}</div>
+          </button>
+        ))}
+      </div>
+      {selected && (
+        <ItemPopup
+          item={{ ...selected, key: selectedKey, kind: "consumable", count: player.consumables?.[selectedKey] || 0 }}
+          onClose={() => setSelectedKey(null)}
+          message={message}
+          actions={[{ label: "Buy", onClick: buy }]}
+        >
+          <label>
+            Quantity
+            <input
+              aria-label='Quantity'
+              className='input-field'
+              type='number'
+              min='1'
+              step='1'
+              value={quantity}
+              onChange={(event) => { setQuantity(event.target.value); setMessage(""); }}
+            />
+          </label>
+          <p>
+            {validQuantity && Number.isSafeInteger(cost)
+              ? `Total: ${cost} astra`
+              : "Enter a positive whole number of potions."}
+          </p>
+          {validQuantity && cost > (player.astra || 0) && <p>You don't have enough astra for that quantity.</p>}
+        </ItemPopup>
+      )}
     </div>
   );
 };
@@ -2788,6 +2929,7 @@ export const SCREENS = {
   },
   leaderboards: { label: "Leaderboards", sidebarGroup: "community", link: true, component: LeaderboardScreen },
   changelog: { label: "Changelog", sidebarGroup: "community", link: true, component: ChangelogScreen },
+  roadmap: { label: "Roadmap", sidebarGroup: "community", link: true, component: RoadmapScreen },
   bugReport: { label: "Feedback / Issues", sidebarGroup: "community", link: true, component: BugReportScreen },
   admin: { label: "Admin", link: true, adminOnly: true, component: AdminScreen },
   combat: { label: "Combat", component: CombatScreen, hideUnlessActive: true },
@@ -2801,6 +2943,11 @@ export const SCREENS = {
   gearTrader: {
     label: "Gear Trader",
     component: GearTraderScreen,
+    hideUnlessActive: true,
+  },
+  apothecary: {
+    label: "Apothecary",
+    component: ApothecaryScreen,
     hideUnlessActive: true,
   },
   marketplace: {
