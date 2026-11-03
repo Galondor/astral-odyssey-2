@@ -2,6 +2,8 @@ import { MATERIALS } from "../items/materials";
 import { REGIONS, clampToRegion } from "../world/regions";
 import { STATUSES } from "./statuses";
 
+export const ENEMY_SPEED_MULTIPLIER = 3;
+
 /*
  Enemies. Each template is { id, name, tier, regions, level, statLevel, maxHp, attack, defense, speed, critical,
  astra, exp, abilities, drops, phases? }. `level` is the lowest level the template spawns at inside its region
@@ -1398,12 +1400,14 @@ export const getRandomEnemy = (
   // Above the stat level each level adds `k` of the base; below it, stats shrink in proportion to the level.
   const grow = (k) => (d >= 0 ? 1 + d * k : level / statLevel);
   const weak = getUndergearFactor(playerLevel, gearScore);
+  const highLevelBossAdjustment =
+    template.tier === "boss" && template.level >= 40 ? 0.9 : 1;
 
   const round = Math.round;
   const levelScaled = {
-    maxHp: template.maxHp * grow(0.5) * t.hp * danger * weak,
-    attack: template.attack.map((v) => v * grow(0.4) * t.attack * danger * weak),
-    defense: template.defense * grow(0.3) * t.defense * danger * weak,
+    maxHp: template.maxHp * grow(0.5) * t.hp * danger * weak * highLevelBossAdjustment,
+    attack: template.attack.map((v) => v * grow(0.4) * t.attack * danger * weak * highLevelBossAdjustment),
+    defense: template.defense * grow(0.3) * t.defense * danger * weak * highLevelBossAdjustment,
     speed: template.speed * grow(0.3) * (0.5 + 0.5 * weak),
   };
   return {

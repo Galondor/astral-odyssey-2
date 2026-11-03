@@ -1,7 +1,8 @@
 /*
  Group dungeon definitions. Each dungeon has four stages:
    1 Entry (waves / survival), 2 Teamwork puzzle, 3 Challenge (elite + run-wide debuff), 4 Multi-phase boss.
- Dungeon fields: { id, name, level, scale: { hp, atk } (per-dungeon tuning on top of GROUP_TIER), color, description,
+ Dungeon fields: { id, name, level, scale: { hp, atk } (per-dungeon tuning on top of GROUP_TIER),
+   soloScale: { hp, atk } (additional scaling when one member is active), color, description,
    materials, unique, stages, enemies }.
  Stage fields:
    kind     "fight" | "puzzle"
@@ -27,6 +28,7 @@ export const GROUP_DUNGEONS = {
     name: "Tidewrack Hold",
     level: 40,
     scale: { hp: 0.92, atk: 0.92 },
+    soloScale: { hp: 1.3, atk: 1.2 },
     color: "#3fa7d6",
     description: "A drowned pirate fortress where Captain Vareth Saltblood still commands a crew that refuses to die.",
     materials: { basic: "tidewrack_brine_pearl", elite: "tidewrack_kraken_ink", boss: "tidewrack_doubloon" },
@@ -125,6 +127,7 @@ export const GROUP_DUNGEONS = {
     name: "The Chronoforge Spire",
     level: 60,
     scale: { hp: 1.6, atk: 1.5 },
+    soloScale: { hp: 1.3, atk: 1.2 },
     color: "#d6a33f",
     description: "A clockwork tower that forges seconds into weapons. The Chronarch keeps time here and lets no one leave on schedule.",
     materials: { basic: "chrono_mainspring", elite: "chrono_paradox_gear", boss: "chrono_heartwatch" },
@@ -209,7 +212,8 @@ export const GROUP_DUNGEONS = {
     id: "starless",
     name: "The Starless Throne",
     level: 80,
-    scale: { hp: 1.7, atk: 1.6 },
+    scale: { hp: 1.5, atk: 1.4 },
+    soloScale: { hp: 3.05, atk: 1.25 },
     color: "#9b5cff",
     description: "Beyond the last star sits a throne of nothing. Nyx'thara, the Star-Eater, waits there, hungry for the light you carry.",
     materials: { basic: "starless_void_shard", elite: "starless_eclipse_ichor", boss: "starless_eater_fang" },

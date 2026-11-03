@@ -44,7 +44,7 @@ const BASE_SPEED = 4;
 const TIER = {
   basic: { label: "Basic", color: "#0070dd", hp: 4, atk: 3.6, def: 5.5, spd: 1, crit: 0.15, exp: 0.02, astra: 10, dropChance: 0.3, minRarity: 1, stunResist: 0.25, dotResist: 0.8 },
   elite: { label: "Elite", color: "#a335ee", hp: 6, atk: 5, def: 8.5, spd: 1.1, crit: 0.25, exp: 0.06, astra: 30, dropChance: 0.75, minRarity: 2, stunResist: 0.6, dotResist: 0.6 },
-  boss: { label: "Boss", color: "#ff2a2a", hp: 8.5, atk: 6.1, def: 9.5, spd: 1.15, crit: 0.35, exp: 0.14, astra: 70, dropChance: 1, minRarity: 4, stunResist: 1, dotResist: 0.5 },
+  boss: { label: "Boss", color: "#ff2a2a", hp: 9.2, atk: 6.4, def: 9.5, spd: 1.15, crit: 0.35, exp: 0.14, astra: 70, dropChance: 1, minRarity: 4, stunResist: 1, dotResist: 0.5 },
 };
 const PUZZLE_ASTRA = 15;
 const MISTAKE_DAMAGE = [0.3, 0.4, 0.55, 0.7];

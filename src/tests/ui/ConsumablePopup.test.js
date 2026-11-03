@@ -209,3 +209,41 @@ test("gear favorites and stale equipped targets cannot be deleted", () => {
   expect(deleteOwnedItem({ key: "unknown" }, { kind: "consumable" }).ok).toBe(false);
   expect(setPlayer).not.toHaveBeenCalled();
 });
+
+test("mobile Character opens Inventory and keeps Equipment and Stats separately accessible", () => {
+  window.matchMedia.mockReturnValue({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() });
+  renderCharacter();
+  const sections = screen.getByRole("group", { name: "Character sections" });
+  expect(within(sections).getByRole("button", { name: "Inventory" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", { name: "Iron Sword" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Nova" })).toBeNull();
+  fireEvent.click(within(sections).getByRole("button", { name: "Stats" }));
+  expect(screen.getByRole("heading", { name: "Nova" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Iron Sword" })).toBeNull();
+  fireEvent.click(within(sections).getByRole("button", { name: "Equipment" }));
+  expect(screen.queryByRole("heading", { name: "Nova" })).toBeNull();
+  expect(screen.getByRole("button", { name: /Main Hand/ })).toBeTruthy();
+  fireEvent.click(within(sections).getByRole("button", { name: "Inventory" }));
+  const popup = openPotion();
+  expect(within(popup).getByRole("button", { name: "Use" })).toBeTruthy();
+  expect(player.consumables.healthPotion).toBe(2);
+});
+
+test("item details trap keyboard focus and restore the selected card on dismissal", () => {
+  renderCharacter();
+  fireEvent.click(screen.getByRole("tab", { name: /Consumables/ }));
+  const card = screen.getByRole("button", { name: /Health Potion x/ });
+  card.focus();
+  fireEvent.click(card);
+  const popup = screen.getByRole("dialog", { name: "Health Potion details" });
+  const first = within(popup).getByRole("button", { name: "Close item details" });
+  const last = within(popup).getByRole("button", { name: "Close" });
+  expect(document.activeElement).toBe(first);
+  fireEvent.keyDown(first, { key: "Tab", shiftKey: true });
+  expect(document.activeElement).toBe(last);
+  fireEvent.keyDown(last, { key: "Tab" });
+  expect(document.activeElement).toBe(first);
+  fireEvent.keyDown(first, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(card);
+});

@@ -132,7 +132,7 @@ beforeEach(() => {
 const enterGame = async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Play as Nova" }));
   await waitFor(() => {
-    if (!screen.queryByRole("navigation") && !screen.queryByRole("alert")) throw new Error("Gameplay has not loaded");
+    if (!screen.queryAllByRole("navigation").length && !screen.queryByRole("alert")) throw new Error("Gameplay has not loaded");
   });
   const guide = screen.queryByRole("dialog", { name: "Welcome, adventurer!" });
   if (guide) fireEvent.click(within(guide).getByRole("button", { name: "Start exploring" }));
@@ -472,6 +472,11 @@ test("level-locked scene option shows the requirement and then its name", async 
 });
 
 test("Character navigation displays a notification dot for unread inventory", async () => {
+  window.matchMedia.mockReturnValue({
+    matches: true,
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+  });
   getPlayer.mockReturnValue({
     ...getPlayer(),
     unseenInventoryItems: { gemstones: ["ruby"] },
@@ -479,10 +484,89 @@ test("Character navigation displays a notification dot for unread inventory", as
   render(<App />);
   await enterGame();
 
+  const toggle = await screen.findByRole("button", { name: "Menu: Game" });
+  expect(toggle.querySelector(".sidebar-toggle-notification-dot")).toBeTruthy();
+  expect(document.getElementById(toggle.getAttribute("aria-describedby")).textContent).toBe("Some tabs have notifications");
+
   const navigation = await screen.findByRole("navigation", { name: "Game navigation" });
   const character = within(navigation).getByRole("button", { name: /Character/ });
   expect(character.querySelector(".sidebar-notification-dot")).toBeTruthy();
   expect(character.querySelector(".sidebar-badge").textContent).toBe("2");
+});
+
+test("mobile menu does not display a notification dot when no tabs have notifications", async () => {
+  window.matchMedia.mockReturnValue({
+    matches: true,
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+  });
+  render(<App />);
+  await enterGame();
+
+  const toggle = await screen.findByRole("button", { name: "Menu: Game" });
+  expect(toggle.querySelector(".sidebar-toggle-notification-dot")).toBeNull();
+  expect(toggle.hasAttribute("aria-describedby")).toBe(false);
+});
+
+test("mobile bottom navigation opens Character without executing a scene action", async () => {
+  window.matchMedia.mockReturnValue({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() });
+  getInputMode.mockReturnValue("buttons");
+  getVisibleOptions.mockReturnValue([{ label: "Travel" }, { label: "Town", next: "town" }]);
+  render(<App />);
+  await enterGame();
+  const navigation = screen.getByRole("navigation", { name: "Mobile navigation" });
+  const content = document.querySelector(".game-content");
+  content.scrollTop = 200;
+  fireEvent.click(within(navigation).getByRole("button", { name: /Character/ }));
+  expect(content.scrollTop).toBe(0);
+  expect(screen.getByRole("heading", { name: "Character screen" })).toBeTruthy();
+  expect(processButton).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Travel" })).toBeNull();
+  fireEvent.keyDown(window, { key: "1" });
+  expect(processButton).not.toHaveBeenCalled();
+  content.scrollTop = 200;
+  fireEvent.click(within(navigation).getByRole("button", { name: "Game" }));
+  expect(content.scrollTop).toBe(0);
+  expect(screen.getByRole("button", { name: "Travel" })).toBeTruthy();
+});
+
+test("mobile Town uses the current scene option and respects combat restrictions", async () => {
+  window.matchMedia.mockReturnValue({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() });
+  getVisibleOptions.mockReturnValue([{ label: "Town", next: "town" }]);
+  render(<App />);
+  await enterGame();
+  const navigation = screen.getByRole("navigation", { name: "Mobile navigation" });
+  fireEvent.click(within(navigation).getByRole("button", { name: "Town" }));
+  expect(processButton).toHaveBeenCalledWith("menu", "Town");
+  getEnemy.mockReturnValue({ name: "Enemy" });
+  fireEvent.click(within(navigation).getByRole("button", { name: /Character/ }));
+  expect(within(navigation).getByRole("button", { name: "Town" }).disabled).toBe(true);
+});
+
+test("mobile Menu restores focus to its bottom navigation trigger", async () => {
+  window.matchMedia.mockReturnValue({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() });
+  render(<App />);
+  await enterGame();
+  const navigation = screen.getByRole("navigation", { name: "Mobile navigation" });
+  const menu = within(navigation).getByRole("button", { name: "Menu" });
+  fireEvent.click(menu);
+  expect(screen.getByRole("dialog", { name: "Game menu" })).toBeTruthy();
+  expect(navigation.hasAttribute("inert")).toBe(true);
+  fireEvent.keyDown(screen.getByRole("button", { name: "Menu: Game" }), { key: "Escape" });
+  expect(screen.queryByRole("dialog", { name: "Game menu" })).toBeNull();
+  expect(document.activeElement).toBe(menu);
+});
+
+test("mobile bottom navigation is locked during a group dungeon", async () => {
+  window.matchMedia.mockReturnValue({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() });
+  getGroupStatus.mockReturnValue({ active: true, inRun: true, run: { id: "run-1" } });
+  isInGroupDungeon.mockReturnValue(true);
+  render(<App />);
+  await enterGame();
+  const navigation = screen.getByRole("navigation", { name: "Mobile navigation" });
+  expect(within(navigation).getByRole("button", { name: "Game" }).disabled).toBe(false);
+  ["Character", "Town"].forEach((name) => expect(within(navigation).getByRole("button", { name: new RegExp(name) }).disabled).toBe(true));
+  expect(screen.getByText("Group run actions")).toBeTruthy();
 });
 
 test("Escape closes navigation and restores focus to the visible toggle", async () => {
@@ -626,7 +710,8 @@ test("the portrait opens a profile with character details and account actions, n
   fireEvent.click(toggle);
   const popup = screen.getByRole("dialog", { name: "Character profile" });
   expect(toggle.getAttribute("aria-expanded")).toBe("true");
-  expect(within(popup).getByRole("heading", { name: "Nova the Warrior, Level 5" })).toBeTruthy();
+  expect(within(popup).getByRole("heading", { name: "Nova" })).toBeTruthy();
+  expect(within(popup).getByText("Warrior · Level 5")).toBeTruthy();
   expect(within(popup).getByText("Experience 12/60")).toBeTruthy();
   ["Health", "Stamina", "Power", "Attack", "Magic attack", "Defense", "Strength", "Dexterity",
     "Intelligence", "Vitality", "Agility", "Resilience", "Luck", "Speed", "Critical chance",

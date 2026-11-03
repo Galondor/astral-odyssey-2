@@ -35,7 +35,11 @@ import {
   incomingMult,
   outgoingMult,
 } from "./statuses";
-import { getEnemyStatusResistance, rollMaterialDrops } from "./enemies";
+import {
+  ENEMY_SPEED_MULTIPLIER,
+  getEnemyStatusResistance,
+  rollMaterialDrops,
+} from "./enemies";
 import { MATERIALS, addToMaterials } from "../items/materials";
 import { recordQuestKill } from "../world/quests";
 
@@ -118,6 +122,7 @@ export const startCombat = (template, { enemyFirst = false } = {}) => {
     stunGrace: false,
     ...(template.worldBossCycle ? { worldBossDamageDealt: 0 } : {}),
   };
+  enemy.speed = Math.round(enemy.speed * ENEMY_SPEED_MULTIPLIER);
   playerDefending = false;
   playerStatuses = [];
   openingReplies = [];

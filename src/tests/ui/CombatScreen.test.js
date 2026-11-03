@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { SCREENS } from "../../ui/screens";
 import { getContestCombatView } from "../../ui/ContestCombat";
@@ -84,6 +84,19 @@ test("combat displays the current round", () => {
   );
 
   expect(screen.getByText("Round 3")).toBeInTheDocument();
+});
+
+test("mobile combat keeps the latest result visible and earlier rounds in a collapsible log", () => {
+  window.matchMedia = () => ({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() });
+  render(<CombatScreen player={{}} data={{ round: 2 }} messages={[
+    { text: "You defend." }, { text: "The enemy attacks." },
+  ]} />);
+  expect(screen.getByText("The enemy attacks.")).toBeVisible();
+  expect(screen.getByText("You defend.")).not.toBeVisible();
+  const summary = screen.getByText("Combat log");
+  fireEvent.click(summary);
+  summary.closest("details").open = true;
+  expect(screen.getByText("You defend.")).toBeVisible();
 });
 
 test("Contest renders through the normal combat layout with live opponent and skill log", () => {

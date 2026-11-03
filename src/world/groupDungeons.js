@@ -3,7 +3,11 @@ import { CONSUMABLES } from "../items/consumables";
 import { MATERIALS, addToMaterials } from "../items/materials";
 import { expForLevel, gainExp } from "../character/stats";
 import { updateRecords } from "../character/records";
-import { getEnemyCriticalChance, getEnemyStatusResistance } from "../combat/enemies";
+import {
+  ENEMY_SPEED_MULTIPLIER,
+  getEnemyCriticalChance,
+  getEnemyStatusResistance,
+} from "../combat/enemies";
 import {
   GROUP_ROUND_MS,
   createGroupCombat,
@@ -13,7 +17,12 @@ import {
   resolveGroupRound,
 } from "../combat/groupCombat";
 import { UNIQUES } from "./dungeonData";
-import { GROUP_DUNGEONS, GROUP_RUN_MS, GROUP_WIPE_PENALTY_MS } from "./groupDungeonData";
+import {
+  GROUP_DUNGEONS,
+  GROUP_PARTY_SIZE,
+  GROUP_RUN_MS,
+  GROUP_WIPE_PENALTY_MS,
+} from "./groupDungeonData";
 import { PUZZLE_ROUND_MS, createPuzzle, resolvePuzzle } from "./groupPuzzles";
 import { recordQuestKill } from "./quests";
 
@@ -48,7 +57,7 @@ const BASE_SPEED = 4;
 export const GROUP_TIER = {
   basic: { label: "Basic", color: "#0070dd", hp: 3.6, atk: 3.1, def: 3.5, spd: 1, crit: 0.15, stunResist: 0.25, dotResist: 0.8 },
   elite: { label: "Elite", color: "#a335ee", hp: 16.8, atk: 5.5, def: 5, spd: 1.1, crit: 0.2, stunResist: 0.6, dotResist: 0.6 },
-  boss: { label: "Boss", color: "#ff2a2a", hp: 30.8, atk: 6.2, def: 5, spd: 1.15, crit: 0.25, stunResist: 1, dotResist: 0.5 },
+  boss: { label: "Boss", color: "#ff2a2a", hp: 43.1, atk: 7.2, def: 5.5, spd: 1.15, crit: 0.25, stunResist: 1, dotResist: 0.5 },
 };
 
 const rnd = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
@@ -58,15 +67,16 @@ const trimLog = (lines) => lines.slice(-GROUP_LOG_LIMIT);
 export const getGroupDungeon = (id) => GROUP_DUNGEONS[id] || null;
 export const groupEnemyLevel = (dungeon) => dungeon.level + GROUP_LEVEL_OFFSET;
 
-export function buildGroupEnemy(dungeonId, tplId) {
+export function buildGroupEnemy(dungeonId, tplId, partySize = GROUP_PARTY_SIZE) {
   const dungeon = GROUP_DUNGEONS[dungeonId];
   const template = dungeon?.enemies[tplId];
   if (!template) throw new Error(`Unknown group enemy ${tplId}`);
   const t = GROUP_TIER[template.tier];
   const m = { hp: 1, atk: 1, def: 1, spd: 1, ...template.mod };
   const scale = { hp: 1, atk: 1, ...dungeon.scale };
+  const soloScale = partySize === 1 ? dungeon.soloScale || { hp: 1, atk: 1 } : { hp: 1, atk: 1 };
   const level = groupEnemyLevel(dungeon);
-  const attack = BASE_ATTACK * level * t.atk * m.atk * scale.atk + 3;
+  const attack = BASE_ATTACK * level * t.atk * m.atk * scale.atk * soloScale.atk + 3;
   return {
     tpl: tplId,
     name: template.name,
@@ -74,10 +84,10 @@ export function buildGroupEnemy(dungeonId, tplId) {
     tierLabel: t.label,
     tierColor: t.color,
     level,
-    maxHp: Math.round(BASE_HP * level * t.hp * m.hp * scale.hp),
+    maxHp: Math.round(BASE_HP * level * t.hp * m.hp * scale.hp * soloScale.hp),
     attack: [Math.round(attack * 0.75), Math.round(attack * 1.25)],
     defense: Math.round(BASE_DEFENSE * level * t.def * m.def),
-    speed: Math.round((BASE_SPEED + 0.35 * level) * t.spd * m.spd),
+    speed: Math.round((BASE_SPEED + 0.35 * level) * t.spd * m.spd * ENEMY_SPEED_MULTIPLIER),
     critical: getEnemyCriticalChance(template.tier, t.crit),
     stunResist: t.stunResist,
     statusResistance: getEnemyStatusResistance(template.tier, "group", (level - 35) / 100),
@@ -91,7 +101,7 @@ export function buildGroupEnemy(dungeonId, tplId) {
   };
 }
 
-const spawnerFor = (run) => ({ spawn: (tpl) => buildGroupEnemy(run.dungeon, tpl) });
+const spawnerFor = (run) => ({ spawn: (tpl) => buildGroupEnemy(run.dungeon, tpl, activeMembers(run).length) });
 
 // Firebase drops empty arrays/objects; restore the run's shape and reattach the party to its combat.
 export function normalizeRun(run) {

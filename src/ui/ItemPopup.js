@@ -1,22 +1,54 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { itemTooltip, itemComparisonTooltip } from "../items/items";
 import { consumableTooltip } from "../items/consumables";
 import { TooltipContent } from "./Tooltip";
 
 export default function ItemPopup({ item, onClose, actions = [], comparison, message, onDelete, deleteDisabled, children }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const dialog = useRef(null);
+  const close = useRef(onClose);
+  close.current = onClose;
   const details = item?.kind === "consumable"
     ? consumableTooltip(item.key, `${item.count} available`)
     : itemTooltip(item);
   const comparisonDetails = comparison?.open ? itemComparisonTooltip(item) : null;
 
   useEffect(() => {
-    const closeOnEscape = (event) => {
-      if (event.key === "Escape") onClose();
+    const element = dialog.current;
+    if (!element) return undefined;
+    const previousFocus = document.activeElement;
+    element.querySelector("button").focus();
+    const keepFocusInside = (event) => {
+      if (!element.contains(event.target)) element.querySelector("button").focus();
     };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        close.current();
+      }
+      if (event.key === "Tab") {
+        const controls = Array.from(element.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]'))
+          .filter((control) => !control.closest("[hidden]"));
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener("focusin", keepFocusInside);
+    window.addEventListener("keydown", closeOnEscape, true);
+    return () => {
+      document.removeEventListener("focusin", keepFocusInside);
+      window.removeEventListener("keydown", closeOnEscape, true);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, []);
 
   if (!item || !details) return null;
 
@@ -28,6 +60,7 @@ export default function ItemPopup({ item, onClose, actions = [], comparison, mes
       }}
     >
       <section
+        ref={dialog}
         className='item-popup'
         role='dialog'
         aria-modal='true'

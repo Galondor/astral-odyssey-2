@@ -9,6 +9,7 @@ import ProfileMenu from "./ui/ProfileMenu";
 import CharacterSearch from "./ui/CharacterSearch";
 import Tooltip from "./ui/Tooltip";
 import QuickGuide from "./ui/QuickGuide";
+import { Bar } from "./ui/CharacterSummary";
 import { commitPlayerChange, getCharacterIdentity, getPlayer, getSaveStatus, loadPlayer, setPlayer, subscribeSaveStatus, unloadPlayer } from "./character/player";
 import { createCharacter, deleteCharacter, loadCharacters } from "./character/characters";
 import { endCombat, getEnemy } from "./combat/combat";
@@ -171,7 +172,7 @@ function App() {
   return <Game key={characterId} uid={uid} onLogout={logout} onMainMenu={mainMenu} />;
 }
 
-function Game({ uid, onLogout, onMainMenu }) {
+export function Game({ uid, onLogout, onMainMenu }) {
   const tutorialStorageKey = `astralOdyssey2QuickGuideSeen:${uid}`;
   const [tutorialOpen, setTutorialOpen] = useState(() => localStorage.getItem(tutorialStorageKey) !== "true");
   const [sceneId, setSceneId] = useState(() => {
@@ -189,6 +190,10 @@ function Game({ uid, onLogout, onMainMenu }) {
   const [mobileNavigation, setMobileNavigation] = useState(() => window.matchMedia("(max-width: 1000px)").matches);
   const sidebarToggle = useRef(null);
   const sidebar = useRef(null);
+  const gameContent = useRef(null);
+  const mobileMenuToggle = useRef(null);
+  const menuReturnFocus = useRef(null);
+  const [searchOpen, setSearchOpen] = useState(false);
   const navigationModal = mobileNavigation && sidebarOpen;
   const [sending, setSending] = useState(false);
   const [, setTick] = useState(0);
@@ -210,7 +215,10 @@ function Game({ uid, onLogout, onMainMenu }) {
       if (!sidebar.current.contains(event.target)) sidebarToggle.current.focus();
     };
     document.addEventListener("focusin", keepFocusInside);
-    return () => document.removeEventListener("focusin", keepFocusInside);
+    return () => {
+      document.removeEventListener("focusin", keepFocusInside);
+      if (menuReturnFocus.current?.isConnected) menuReturnFocus.current.focus();
+    };
   }, [navigationModal]);
 
   useEffect(() => startInbox(getCharacterIdentity(), () => setTick((t) => t + 1), uid), [uid]);
@@ -295,13 +303,16 @@ function Game({ uid, onLogout, onMainMenu }) {
   const mode = getInputMode(scenes[sceneId]);
   const showButtons = mode === INPUT_MODES[0] || mode === INPUT_MODES[2];
   const showText = mode === INPUT_MODES[1] || mode === INPUT_MODES[2];
+  const sceneControlsVisible = !mobileNavigation || !viewOverride ||
+    viewOverride === (scenes[sceneId].screen || DEFAULT_SCREEN);
 
   useEffect(() => {
-    if (!showButtons || sending || navigationModal || tutorialOpen || getContestStatus().playing || isInGroupDungeon() ||
+    if (!showButtons || !sceneControlsVisible || sending || navigationModal || tutorialOpen || getContestStatus().playing || isInGroupDungeon() ||
       (getContestStatus().match && viewOverride === "combat")) return undefined;
 
     const selectOptionByNumber = (event) => {
       if (!/^[1-9]$/.test(event.key) || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (document.querySelector('dialog[open], [aria-modal="true"]')) return;
       if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable='true']")) return;
 
       const option = getVisibleOptions(scenes[sceneId])[Number(event.key) - 1];
@@ -313,7 +324,7 @@ function Game({ uid, onLogout, onMainMenu }) {
 
     window.addEventListener("keydown", selectOptionByNumber);
     return () => window.removeEventListener("keydown", selectOptionByNumber);
-  }, [sceneId, showButtons, sending, navigationModal, tutorialOpen, pressButton, viewOverride]);
+  }, [sceneId, showButtons, sceneControlsVisible, sending, navigationModal, tutorialOpen, pressButton, viewOverride]);
 
   const scene = scenes[sceneId];
   const player = getPlayer();
@@ -327,9 +338,34 @@ function Game({ uid, onLogout, onMainMenu }) {
   const activeScreen = contestView ? "combat" : contestLocked ? "arena" : groupLocked ? "groupRun" : SCREENS[viewOverride] ? viewOverride : sceneScreen;
   const Screen = SCREENS[activeScreen].component;
   const screenData = contestView?.data || (activeScreen === sceneScreen && scene.screenData ? scene.screenData() : undefined);
+  useEffect(() => {
+    if (mobileNavigation && gameContent.current) gameContent.current.scrollTop = 0;
+  }, [mobileNavigation, activeScreen, sceneId]);
+  const visibleScreens = Object.entries(SCREENS)
+    .filter(([key, s]) => (!s.hideUnlessActive || key === sceneScreen) && (!s.adminOnly || isAdmin()))
+    .map(([key, screen]) => ({
+      key,
+      screen,
+      notification: !!(player && screen.notification?.(player)),
+    }));
+  const hasNotifications = visibleScreens.some(({ notification }) => notification);
+  const canNavigate = !!player?.stats && !player.needsNameChange;
+  const options = getVisibleOptions(scene);
+  const townOption = options.find((option) => option.next === "town" || option.label === "Town");
+  const townAvailable = canNavigate && !contestLocked && !groupLocked && !getEnemy() &&
+    (sceneId === "town" || !!townOption);
+  const characterNavigation = visibleScreens.find(({ key }) => key === "character");
+  const otherNotifications = visibleScreens.some(({ key, screen: s, notification }) =>
+    key !== "character" && (notification || (player && s.badge?.(player) > 0)));
+  const inTown = sceneId === "town" || options.some((option) => option.next === "town");
+  const openSidebar = (event) => {
+    menuReturnFocus.current = event.currentTarget;
+    setSidebarOpen(true);
+  };
   const closeSidebar = () => {
     setSidebarOpen(false);
-    if (sidebarToggle.current?.getClientRects().length) sidebarToggle.current.focus();
+    if (!navigationModal && menuReturnFocus.current?.isConnected) menuReturnFocus.current.focus();
+    else if (sidebarToggle.current?.getClientRects().length) sidebarToggle.current.focus();
   };
   const closeTutorial = () => {
     localStorage.setItem(tutorialStorageKey, "true");
@@ -344,10 +380,22 @@ function Game({ uid, onLogout, onMainMenu }) {
     <div className='App'>
       <header className='navbar' inert={navigationModal}>
         <span className='nav-title'>Astral Odyssey 2</span>
-        <CharacterSearch excludeIdentity={getCharacterIdentity()} />
+        {mobileNavigation && <button type='button' className='buttons mobile-search-toggle' aria-expanded={searchOpen} aria-controls='mobile-player-search' onClick={() => setSearchOpen((open) => !open)}>Search</button>}
+        <div id='mobile-player-search' className='player-search-shell' hidden={mobileNavigation && !searchOpen}>
+          <CharacterSearch excludeIdentity={getCharacterIdentity()} />
+        </div>
         <ProfileMenu player={player} sending={sending} inCombat={!!getEnemy() || contestLocked || groupLocked} contestLocked={contestLocked || groupLocked} onMainMenu={onMainMenu} onLogout={onLogout} onSetPublicProfile={updatePublicProfile} />
       </header>
       <div className='App-body'>
+        {mobileNavigation && canNavigate && !contestView && activeScreen !== "combat" && activeScreen !== "groupRun" &&
+          <section className='mobile-resources' aria-label='Character resources' inert={navigationModal}>
+            <span className='mobile-astra'>{player.astra || 0} astra</span>
+            <div className='mobile-resource-bars'>
+              <Bar label='Health' value={player.stats.health} max={player.stats.maxHealth} color='#1e8449' />
+              <Bar label='Stamina' value={player.stats.stamina} max={player.stats.maxStamina} color='#b7791f' />
+              <Bar label='Power' value={player.stats.power} max={player.stats.maxPower} color='#1f5fbf' />
+            </div>
+          </section>}
         {navigationModal && <div className='sidebar-backdrop' aria-hidden='true' onClick={closeSidebar} />}
         <div className='sidebar-shell' role={navigationModal ? "dialog" : undefined} aria-modal={navigationModal ? true : undefined} aria-label={navigationModal ? "Game menu" : undefined}>
         <nav ref={sidebar} className={`sidebar ${navigationModal ? "sidebar-open" : ""}`} aria-label='Game navigation' onKeyDown={(event) => {
@@ -374,23 +422,28 @@ function Game({ uid, onLogout, onMainMenu }) {
             className='sidebar-toggle'
             aria-expanded={sidebarOpen}
             aria-controls='sidebar-links'
-            onClick={() => setSidebarOpen((open) => !open)}
+            aria-describedby={hasNotifications ? "sidebar-notification-description" : undefined}
+            onClick={(event) => sidebarOpen ? closeSidebar() : openSidebar(event)}
           >
             <span>Menu: {SCREENS[activeScreen].label}</span>
-            <span className='burger-icon' aria-hidden='true'><span /><span /><span /></span>
+            <span className='burger-icon' aria-hidden='true'><span /><span /><span />
+              {hasNotifications && <span className='sidebar-toggle-notification-dot' />}
+            </span>
           </button>
+          {hasNotifications && <span id='sidebar-notification-description' hidden>Some tabs have notifications</span>}
           <div id='sidebar-links' className={`sidebar-links ${sidebarOpen ? "open" : ""}`}>
-            {Object.entries(SCREENS).filter(([key, s]) => (!s.hideUnlessActive || key === sceneScreen) && (!s.adminOnly || isAdmin())).map(([key, s], index, visibleScreens) => {
+            {visibleScreens.map(({ key, screen: s, notification }, index) => {
               const levelLocked = !!s.minLevel && (player?.level || 1) < s.minLevel && !(s.adminAccess && isAdmin());
               const enabled = (!contestLocked || key === (contestView ? "combat" : "arena")) && (!groupLocked || key === "groupRun") &&
                 !!player?.stats && !player.needsNameChange && (s.link || key === sceneScreen) &&
                 ((player?.level || 1) >= (s.minLevel || 0) || (s.adminAccess && isAdmin()));
               const badge = player && s.badge ? s.badge(player) : 0;
-              const notification = player && s.notification?.(player);
               const attention = s.hideUnlessActive && key !== activeScreen;
               return (
                 <Fragment key={key}>
-                  {index > 0 && s.sidebarGroup !== visibleScreens[index - 1][1].sidebarGroup && <hr className='sidebar-divider' />}
+                  {index > 0 && s.sidebarGroup !== visibleScreens[index - 1].screen.sidebarGroup && <hr className='sidebar-divider' />}
+                  {mobileNavigation && (index === 0 || s.sidebarGroup !== visibleScreens[index - 1].screen.sidebarGroup) &&
+                    <span className='mobile-menu-heading'>{s.sidebarGroup === "adventure" ? "Gameplay" : s.sidebarGroup === "character" ? "Character" : s.sidebarGroup === "community" ? "Community" : SCREENS[sceneScreen].label}</span>}
                   <button
                     type='button'
                     disabled={!enabled}
@@ -401,7 +454,7 @@ function Game({ uid, onLogout, onMainMenu }) {
                       closeSidebar();
                     }}
                   >
-                    {levelLocked ? `Level ${s.minLevel}+` : s.label}
+                    {levelLocked ? mobileNavigation ? `${s.label} · Level ${s.minLevel}+` : `Level ${s.minLevel}+` : s.label}
                     {notification && <span className='sidebar-notification-dot' role='img' aria-label={s.notificationLabel || "Unread inventory items"} />}
                     {badge > 0 && <span className='sidebar-badge'>{badge}</span>}
                   </button>
@@ -414,34 +467,40 @@ function Game({ uid, onLogout, onMainMenu }) {
             }}>
               Quick guide
             </button>
-            <span className='sidebar-version' aria-label='Game version'>v0.3.1.0-Alpha</span>
+            <span className='sidebar-version' aria-label='Game version'>v0.3.1.1-Alpha</span>
           </div>
         </nav>
         </div>
-        <div className='game-content' inert={navigationModal}>
+        <div ref={gameContent} className={`game-content ${mobileNavigation ? "mobile-game-content" : ""}`} inert={navigationModal}>
           <div className='game-screen'>
             <Screen messages={contestView?.messages || messages} data={screenData} player={contestView?.player || player} sceneId={sceneId} goToScene={goToScene} onNavigate={(key) => setViewOverride(key === sceneScreen ? null : key)} inCombat={sceneScreen === "combat" || !!getEnemy()} onChange={() => setTick((t) => t + 1)} />
           </div>
         {contestView ? <ContestCombat key={contest.entry?.matchId} navigationModal={navigationModal} onLeave={() => setViewOverride("arena")} />
           : groupLocked ? <GroupRunActions key={group.run?.id} navigationModal={navigationModal} />
-          : !contestLocked && <div className='game-controls'>
+          : !contestLocked && sceneControlsVisible && (!mobileNavigation || showText || mode === INPUT_MODES[3] || (showButtons && options.length > 0)) && <div className={`game-controls ${sceneId === "town" ? "town-controls" : ""}`}>
           {mode === INPUT_MODES[3] && (
             <GameForm key={sceneId} form={scenes[sceneId].form} onSubmit={submitForm} />
           )}
           {showButtons && (
             <div className='input-buttons'>
-              {getVisibleOptions(scenes[sceneId]).map((o, index) => (
+              {options.map((o, index) => {
+                const details = mobileNavigation && (o.label === "Travel" || o.label === "Rest")
+                  ? typeof o.tooltip === "function" ? o.tooltip() : o.tooltip
+                  : null;
+                const cost = details?.footer || (o.label === "Rest" ? details?.description : null);
+                return (
                 <Tooltip key={o.label} content={o.tooltip}>
                   <button
-                    className='buttons input-button'
+                    className={`buttons input-button ${["Travel", "Continue", "Melee Attack", "Rest"].includes(o.label) ? "input-primary" : ""}`}
                     type='button'
                     disabled={!!o.minLevel && (player?.level || 1) < o.minLevel}
                     onClick={() => pressButton(o.label)}
                   >
-                    {index + 1}. {!!o.minLevel && (player?.level || 1) < o.minLevel ? `Level ${o.minLevel}+` : o.label}
+                    {!mobileNavigation && `${index + 1}. `}{!!o.minLevel && (player?.level || 1) < o.minLevel ? mobileNavigation ? `${o.label} · Level ${o.minLevel}+` : `Level ${o.minLevel}+` : o.label}
+                    {cost && <span className='mobile-action-cost'>{cost}</span>}
                   </button>
                 </Tooltip>
-              ))}
+              ); })}
             </div>
           )}
           {showText && (
@@ -457,8 +516,26 @@ function Game({ uid, onLogout, onMainMenu }) {
             </form>
           )}
         </div>}
+        {mobileNavigation && !contestLocked && !groupLocked && !sceneControlsVisible &&
+          <button type='button' className='buttons mobile-return' onClick={() => setViewOverride(null)}>{SCREENS[sceneScreen].label}</button>}
         </div>
       </div>
+      {mobileNavigation && <nav className='mobile-bottom-nav' aria-label='Mobile navigation' inert={navigationModal}>
+        <button type='button' disabled={!canNavigate} aria-current={activeScreen === sceneScreen && !inTown ? "page" : undefined} onClick={() => setViewOverride(null)}>{SCREENS.adventure.label}</button>
+        <button type='button' disabled={!canNavigate || contestLocked || groupLocked} aria-current={activeScreen === "character" ? "page" : undefined} onClick={() => setViewOverride("character")}>
+          Character
+          {characterNavigation?.notification && <span className='sidebar-notification-dot' role='img' aria-label='Unread inventory items' />}
+          {!!player && SCREENS.character.badge?.(player) > 0 && <span className='sidebar-badge'>{SCREENS.character.badge(player)}</span>}
+        </button>
+        <button type='button' disabled={!townAvailable} aria-current={inTown && activeScreen === sceneScreen ? "page" : undefined} onClick={() => {
+          if (sceneId === "town") setViewOverride(null);
+          else if (townOption) pressButton(townOption.label);
+        }}>Town</button>
+        <button ref={mobileMenuToggle} type='button' aria-current={activeScreen !== sceneScreen && activeScreen !== "character" ? "page" : undefined} aria-expanded={sidebarOpen} aria-controls='sidebar-links' aria-haspopup='dialog' onClick={openSidebar}>
+          Menu
+          {otherNotifications && <span className='sidebar-notification-dot' role='img' aria-label='Some tabs have notifications' />}
+        </button>
+      </nav>}
       <QuickGuide open={tutorialOpen} onClose={closeTutorial} />
     </div>
   );

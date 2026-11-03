@@ -43,13 +43,15 @@ test("enemy stats scale against the 150 gear-score-per-level target across every
       boss: { hp: 4.5, attack: 3.8, defense: 7.5 },
     }[template.tier];
     const danger = REGIONS[template.regions[0]].danger;
+    const highLevelBossAdjustment =
+      template.tier === "boss" && template.level >= 40 ? 0.9 : 1;
 
     expect(enemy.level).toBe(template.level);
-    expect(enemy.maxHp).toBe(Math.round(template.maxHp * growth(template, enemy.level, 0.5) * tier.hp * danger));
+    expect(enemy.maxHp).toBe(Math.round(template.maxHp * growth(template, enemy.level, 0.5) * tier.hp * danger * highLevelBossAdjustment));
     expect(enemy.attack).toEqual(
-      template.attack.map((value) => Math.round(value * growth(template, enemy.level, 0.4) * tier.attack * danger)),
+      template.attack.map((value) => Math.round(value * growth(template, enemy.level, 0.4) * tier.attack * danger * highLevelBossAdjustment)),
     );
-    expect(enemy.defense).toBe(Math.round(template.defense * growth(template, enemy.level, 0.3) * tier.defense * danger));
+    expect(enemy.defense).toBe(Math.round(template.defense * growth(template, enemy.level, 0.3) * tier.defense * danger * highLevelBossAdjustment));
     expect(enemy.maxHp).toBeGreaterThan(0);
   }
 });

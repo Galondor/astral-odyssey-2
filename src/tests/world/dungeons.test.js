@@ -49,9 +49,9 @@ test.each(DUNGEON_TYPE_IDS)("all %s solo bosses receive lower stats without lowe
   dungeon.bosses.forEach((template, index) => {
     const boss = enemy("boss", dungeon, index);
     const mod = { hp: 1, atk: 1, def: 1, ...template.mod };
-    const attack = 1.1 * 20 * 6.1 * mod.atk + 3;
+    const attack = 1.1 * 20 * 6.4 * mod.atk + 3;
     expect(boss).toMatchObject({
-      maxHp: Math.round(14 * 20 * 8.5 * mod.hp),
+      maxHp: Math.round(14 * 20 * 9.2 * mod.hp),
       attack: [Math.round(attack * 0.75), Math.round(attack * 1.25)],
       defense: Math.round(0.55 * 20 * 9.5 * mod.def),
       critical: 0.28,

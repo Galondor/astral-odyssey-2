@@ -50,6 +50,11 @@ test("cleansing removes combat debuffs and spends one item and one turn", () => 
   expect(setPlayer.mock.calls.at(-1)[0].consumables).toEqual({ cleansingPotion: 1 });
 });
 
+test("enemy speed is tripled before turn order is resolved", () => {
+  startCombat({ name: "Swift Target", maxHp: 100, speed: 12, attack: [1, 1] });
+  expect(getEnemy().speed).toBe(36);
+});
+
 test("stun prevents cleansing without spending the potion or removing other debuffs", () => {
   getPlayer.mockReturnValue({ ...player, consumables: { cleansingPotion: 1 } });
   getPlayerStatuses().push({ id: "stun", turns: 1 }, { id: "poison", turns: 5, power: 0.03, stacks: 1 });

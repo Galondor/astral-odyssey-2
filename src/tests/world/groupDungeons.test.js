@@ -1,8 +1,10 @@
 import { calculateStats } from "../../character/stats";
 import { getClassForStats } from "../../character/classes";
-import { SLOTS, generateRandomItem } from "../../items/items";
+import { createUniqueItem, SLOTS, generateRandomItem } from "../../items/items";
 import { SKILLS } from "../../character/skills";
 import { GROUP_DUNGEONS, GROUP_RUN_MS, GROUP_WIPE_PENALTY_MS } from "../../world/groupDungeonData";
+import { ENEMY_SPEED_MULTIPLIER } from "../../combat/enemies";
+import { UNIQUES } from "../../world/dungeonData";
 import {
   allIntentsIn,
   buildGroupEnemy,
@@ -29,7 +31,7 @@ const ARCHETYPES = {
   rogue: { split: { strength: 0.3, dexterity: 0.7, intelligence: 0 }, skills: { backstab: 3, aegis: 3, battleHymn: 2 } },
 };
 
-const buildPlayer = (name, level, archetype, minRarity = 2, minTier = 0) => {
+const buildPlayer = (name, level, archetype, minRarity = 2, minTier = 0, { fullGemstones = false, maxSkills = false } = {}) => {
   mockLevel = level;
   const { split, skills } = ARCHETYPES[archetype];
   const points = 15 + 3 * (level - 1);
@@ -37,14 +39,63 @@ const buildPlayer = (name, level, archetype, minRarity = 2, minTier = 0) => {
   const equipment = {};
   for (const slot of SLOTS) {
     if (slot.key === "offHand" && equipment.mainHand?.twoHanded) continue;
-    equipment[slot.key] = generateRandomItem(slot.type, minRarity, undefined, minTier);
+    const item = generateRandomItem(slot.type, minRarity, undefined, minTier);
+    if (fullGemstones && item.socketCount) {
+      const stat = Object.entries(split).sort((a, b) => b[1] - a[1])[0][0];
+      item.gemstones = Array.from({ length: item.socketCount }, (_, index) => ({
+        id: `${name}-${slot.key}-gem-${index}`,
+        name: "Legendary Gemstone",
+        type: stat === "strength" ? "ruby" : stat === "dexterity" ? "emerald" : "sapphire",
+        stat,
+        value: 5,
+        rarity: "Legendary",
+      }));
+    }
+    equipment[slot.key] = item;
   }
   const player = {
     name, level, baseStats, equipment,
     bonusStats: { maxHealth: 10 * (level - 1), maxStamina: level - 1 },
-    skills, equippedSkills: Object.keys(skills),
+    skills: maxSkills
+      ? Object.fromEntries(Object.keys(skills).map((key) => [key, SKILLS[key].maxLevel]))
+      : skills,
+    equippedSkills: Object.keys(skills),
     consumables: { healthPotion: 3, minorPowerPotion: 2 },
   };
+  player.stats = calculateStats(player);
+  player.class = getClassForStats(player.stats);
+  return player;
+};
+
+const buildMinMaxPlayer = (name, level) => {
+  const player = buildPlayer(name, level, "rogue", 4, 5);
+  const uniqueSlots = {
+    mainHand: "ysoldeRapier",
+    offHand: "valeOrrery",
+    helmet: "rimeHelm",
+    chestplate: "kessikBulwark",
+    gauntlets: "slagheartGauntlets",
+    legs: "ulduGreaves",
+    boots: "verdessaBoots",
+    necklace: "astralColossusHeart",
+    ring1: "zugRing",
+    ring2: "cartographerSigil",
+  };
+  player.equipment = Object.fromEntries(Object.entries(uniqueSlots).map(([slot, id]) => {
+    const item = createUniqueItem(UNIQUES[id], level);
+    item.socketCount = 2;
+    item.gemstones = [0, 1].map((index) => ({
+      id: `${id}-gem-${index}`,
+      name: "Emerald",
+      type: "emerald",
+      stat: "dexterity",
+      value: 5,
+      rarity: "Legendary",
+    }));
+    return [slot, item];
+  }));
+  player.skills = { backstab: 5, venomStrike: 5, execute: 5, aegis: 5, battleHymn: 5 };
+  player.equippedSkills = ["venomStrike", "backstab", "execute"];
   player.stats = calculateStats(player);
   player.class = getClassForStats(player.stats);
   return player;
@@ -124,12 +175,14 @@ const chooseIntents = (run) => {
   return intents;
 };
 
-const simulate = (dungeonId, { roundSeconds = 8, puzzleSeconds = 30, archetypes = ["warrior", "mage", "rogue"], levelOffset = 5, minRarity = 3, minTier = 3 } = {}) => {
+const simulate = (dungeonId, { roundSeconds = 8, puzzleSeconds = 30, archetypes = ["warrior", "mage", "rogue"], levelOffset = 5, minRarity = 3, minTier = 3, minMax = false, highGear = false } = {}) => {
   const dungeon = GROUP_DUNGEONS[dungeonId];
   const level = dungeon.level + levelOffset;
   const members = archetypes.map((_, index) => String(index));
   const snapshots = Object.fromEntries(members.map((id, index) =>
-    [id, buildPlayer(id, level, archetypes[index], minRarity, minTier)]));
+    [id, minMax
+      ? buildMinMaxPlayer(id, level)
+      : buildPlayer(id, level, archetypes[index], minRarity, minTier, { fullGemstones: highGear, maxSkills: highGear })]));
   let now = 1_000_000;
   let run = createGroupRun({ id: "r", dungeonId, members, snapshots, now, actor: members[0] });
   if (process.env.GROUP_BALANCE === "2") {
@@ -218,23 +271,30 @@ describe("co-op puzzles", () => {
 
 describe("group dungeon runs", () => {
 
-  test.each(Object.keys(GROUP_DUNGEONS))("%s strengthens every enemy without scaling down for a solo party", (dungeonId) => {
+  test.each(Object.keys(GROUP_DUNGEONS))("%s scales enemies for solo runs without changing trio stats", (dungeonId) => {
     const dungeon = GROUP_DUNGEONS[dungeonId];
     const level = dungeon.level + 5;
     const tiers = {
       basic: { hp: 3.6, atk: 3.1, def: 3.5, crit: 0.15 },
       elite: { hp: 16.8, atk: 5.5, def: 5, crit: 0.2 },
-      boss: { hp: 30.8, atk: 6.2, def: 5, crit: 0.2 },
+      boss: { hp: 43.1, atk: 7.2, def: 5.5, crit: 0.2 },
     };
     for (const [id, template] of Object.entries(dungeon.enemies)) {
       const tier = tiers[template.tier];
       const mod = { hp: 1, atk: 1, def: 1, ...template.mod };
       const attack = 1.1 * level * tier.atk * mod.atk * dungeon.scale.atk + 3;
+      const soloScale = dungeon.soloScale || { hp: 1, atk: 1 };
+      const soloAttack = 1.1 * level * tier.atk * mod.atk * dungeon.scale.atk * soloScale.atk + 3;
       expect(buildGroupEnemy(dungeonId, id)).toMatchObject({
         maxHp: Math.round(14 * level * tier.hp * mod.hp * dungeon.scale.hp),
         attack: [Math.round(attack * 0.75), Math.round(attack * 1.25)],
         defense: Math.round(0.55 * level * tier.def * mod.def),
+        speed: Math.round((4 + 0.35 * level) * (template.tier === "elite" ? 1.1 : template.tier === "boss" ? 1.15 : 1) * (mod.spd || 1) * ENEMY_SPEED_MULTIPLIER),
         critical: tier.crit,
+      });
+      expect(buildGroupEnemy(dungeonId, id, 1)).toMatchObject({
+        maxHp: Math.round(14 * level * tier.hp * mod.hp * dungeon.scale.hp * soloScale.hp),
+        attack: [Math.round(soloAttack * 0.75), Math.round(soloAttack * 1.25)],
       });
     }
     const players = { a: buildPlayer("Ana", level, "warrior") };
@@ -244,8 +304,12 @@ describe("group dungeon runs", () => {
       snapshots: { ...players, b: buildPlayer("Bo", level, "mage"), c: buildPlayer("Cy", level, "rogue") },
       now: 0, actor: "a",
     });
-    expect(solo.combat.enemies.map(({ maxHp, attack, defense }) => ({ maxHp, attack, defense })))
-      .toEqual(trio.combat.enemies.map(({ maxHp, attack, defense }) => ({ maxHp, attack, defense })));
+    expect(solo.combat.enemies).toHaveLength(trio.combat.enemies.length);
+    solo.combat.enemies.forEach((enemy, index) => {
+      expect(enemy.maxHp).toBeGreaterThan(trio.combat.enemies[index].maxHp);
+      expect(enemy.attack[1]).toBeGreaterThan(trio.combat.enemies[index].attack[1]);
+      expect(enemy.defense).toBe(trio.combat.enemies[index].defense);
+    });
   });
 
   test("a run starts at stage 1 with a 15 minute deadline", () => {
@@ -439,7 +503,7 @@ describe("group dungeon balance (Epic+ T3+ trio 5 levels above the dungeon)", ()
 
 describe("group dungeons resist solo clears at their listed and enemy levels", () => {
   test.each(Object.keys(GROUP_DUNGEONS).flatMap((id) => [[id, 0], [id, 5]]))(
-    "%s cannot usually be soloed at level offset %s, even with Epic+ T3+ gear",
+    "%s cannot be soloed at level offset %s, even with Epic+ T3+ gear",
     (dungeonId, levelOffset) => {
       const results = Object.keys(ARCHETYPES).flatMap((archetype) =>
         Array.from({ length: 12 }, (_, index) => simulateSeeded(dungeonId, index + 1, {
@@ -447,9 +511,43 @@ describe("group dungeons resist solo clears at their listed and enemy levels", (
         })));
       const cleared = results.filter((result) => result.status === "cleared").length;
       if (process.env.GROUP_BALANCE) console.log(`${dungeonId} solo (offset ${levelOffset}) clears: ${cleared}/${results.length}`);
-      expect(cleared / results.length).toBeLessThanOrEqual(0.05);
-      expect(results.filter((result) => result.status === "failed" && result.endStage !== 1).length / results.length)
-        .toBeGreaterThanOrEqual(0.95);
+      expect(cleared).toBe(0);
     },
   );
+
+  test.each([
+    ["tidewrack", 30],
+    ["chronoforge", 40],
+  ])(
+    "%s can be soloed with a %s-level advantage and Legendary T5 gear",
+    (dungeonId, levelOffset) => {
+      const results = Object.keys(ARCHETYPES).flatMap((archetype) =>
+        Array.from({ length: 12 }, (_, index) => simulateSeeded(dungeonId, index + 1, {
+          archetypes: [archetype], levelOffset, minRarity: 4, minTier: 5, highGear: true,
+        })));
+      const cleared = results.filter((result) => result.status === "cleared").length;
+      if (process.env.GROUP_BALANCE) console.log(`${dungeonId} solo (offset ${levelOffset}, Legendary T5) clears: ${cleared}/${results.length}`);
+      expect(cleared).toBeGreaterThanOrEqual(Math.ceil(results.length * 0.2));
+    },
+  );
+
+  test("Starless cannot be soloed at level 100 with Legendary T5 gear alone", () => {
+    const results = Object.keys(ARCHETYPES).flatMap((archetype) =>
+      Array.from({ length: 12 }, (_, index) => simulateSeeded("starless", index + 1, {
+        archetypes: [archetype], levelOffset: 15, minRarity: 4, minTier: 5, highGear: true,
+      })));
+    const cleared = results.filter((result) => result.status === "cleared").length;
+    if (process.env.GROUP_BALANCE) console.log(`starless solo (max level, Legendary T5) clears: ${cleared}/${results.length}`);
+    expect(cleared).toBe(0);
+  });
+
+  test("Starless can be soloed by a level-100 min-maxed build with multiple Unique items", () => {
+    const results = Array.from({ length: 12 }, (_, index) =>
+      simulateSeeded("starless", index + 1, {
+        archetypes: ["rogue"], levelOffset: 15, minMax: true,
+      }));
+    const cleared = results.filter((result) => result.status === "cleared").length;
+    if (process.env.GROUP_BALANCE) console.log(`starless solo (max level, 10 Uniques, Legendary gems) clears: ${cleared}/${results.length}`);
+    expect(cleared).toBeGreaterThan(0);
+  });
 });

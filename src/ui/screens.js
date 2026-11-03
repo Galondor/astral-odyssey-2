@@ -145,7 +145,7 @@ import { DUNGEON_MIN_LEVEL, DUNGEON_REROLL_COST, describeOffer, formatTime, getB
    adminOnly - only shown to players listed under admins/{uid} in the database
    component - React component receiving { messages, data, player }
 */
-const MOBILE_QUERY = "(max-width: 800px)";
+const MOBILE_QUERY = "(max-width: 1000px)";
 const useIsMobile = () => {
   const [mobile, setMobile] = useState(() => window.matchMedia(MOBILE_QUERY).matches);
   useEffect(() => {
@@ -164,8 +164,11 @@ const Log = ({ messages, limit, mobileLimit }) => {
   const shown = effectiveLimit ? messages.slice(-effectiveLimit) : messages;
   useEffect(() => {
     const el = ref.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+    if (el) {
+      const scrollArea = isMobile && !effectiveLimit ? el.closest(".mobile-game-content") : el;
+      if (scrollArea) scrollArea.scrollTop = scrollArea.scrollHeight;
+    }
+  }, [messages, isMobile, effectiveLimit]);
   return (
     <div className='log' ref={ref}>
       {shown.map((m, i) => (
@@ -361,6 +364,7 @@ const CombatHealth = ({ label, value, max, color, marrowWard, wardLabel = "Marro
 };
 
 const CombatScreen = ({ messages, data, player }) => {
+  const mobile = useIsMobile();
   const { enemy, round, stats, defending, playerStatuses = [], marrowWard } = data || {};
   const analyzerUnlocked = getKeyItemEffect(player, "analyzer") > 0;
   const tier = enemy ? TIERS[enemy.tier] : null;
@@ -470,7 +474,13 @@ const CombatScreen = ({ messages, data, player }) => {
           )}
         </div>
       </div>
-      <Log messages={messages} limit={10} mobileLimit={4} />
+      {mobile ? <>
+        <Log messages={messages} limit={1} />
+        {messages.length > 1 && <details className='mobile-combat-log'>
+          <summary>Combat log</summary>
+          <Log messages={messages.slice(0, -1)} limit={10} />
+        </details>}
+      </> : <Log messages={messages} limit={10} />}
     </div>
   );
 };
@@ -2387,6 +2397,8 @@ const Inventory = ({ player, onChange, locked }) => {
 
 const CharacterScreen = ({ player: initial, inCombat, onChange }) => {
   const [player, setPlayerState] = useState(initial);
+  const [section, setSection] = useState("inventory");
+  const mobile = useIsMobile();
   const refresh = () => {
     setPlayerState(getPlayer());
     onChange?.();
@@ -2394,11 +2406,18 @@ const CharacterScreen = ({ player: initial, inCombat, onChange }) => {
   if (!player) return <div className='panel'>No character yet.</div>;
   return (
     <div className='panel character-layout'>
-      <div className='character-main'>
-        <CharacterSummary player={player} />
-        <Equipment player={player} onChange={refresh} locked={inCombat} />
+      {mobile && <div className='mobile-character-tabs' role='group' aria-label='Character sections'>
+        {[["inventory", "Inventory"], ["equipment", "Equipment"], ["stats", "Stats"]].map(([key, label]) =>
+          <button key={key} type='button' className='buttons' aria-pressed={section === key} onClick={() => setSection(key)}>{label}</button>)}
       </div>
-      <Inventory player={player} onChange={refresh} locked={inCombat} />
+      }
+      <div className='character-main' hidden={mobile && section === "inventory"}>
+        <div hidden={mobile && section !== "stats"}><CharacterSummary player={player} /></div>
+        <div hidden={mobile && section !== "equipment"}><Equipment player={player} onChange={refresh} locked={inCombat} /></div>
+      </div>
+      <div className='character-inventory' hidden={mobile && section !== "inventory"}>
+        <Inventory player={player} onChange={refresh} locked={inCombat} />
+      </div>
     </div>
   );
 };
