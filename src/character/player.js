@@ -6,6 +6,7 @@ import { hasInappropriateName } from "../shared/names";
 import { createDirectoryEntry, createPublicProfile } from "./profiles";
 import { TITLES } from "./titles";
 import { migrateHolofoilItems } from "../items/items";
+import { migrateWorkshopUpgrades } from "../items/workshopMigration";
 
 const PLAYER_KEY = "Player";
 const META_KEY = "PlayerMeta";
@@ -374,6 +375,17 @@ export const loadPlayer = async (accountId, characterId) => {
       setPlayer({ ...migrated, ...recalculated });
       player = getPlayer();
     }
+  }
+  const workshopMigration = migrateWorkshopUpgrades(player);
+  if (workshopMigration !== player) {
+    setPlayer(
+      {
+        ...workshopMigration,
+        ...(workshopMigration.workshopRefund ? recalculateStats(workshopMigration) : {}),
+      },
+      { countAstraGain: false },
+    );
+    player = getPlayer();
   }
   if (player?.name) {
     const valid = !validatePlayerName(player.name);

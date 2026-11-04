@@ -69,6 +69,7 @@ import {
   canAfford,
   getCraftedCount,
   getRecipeCost,
+  getRecipeRequirement,
   isMaxed,
 } from "../items/workshop";
 import { statusLabel, statusTooltip } from "../combat/statuses";
@@ -115,7 +116,7 @@ import {
   rewardText,
   turnInQuest,
 } from "../world/quests";
-import { getRegion } from "../world/regions";
+import { getRegion, REGIONS } from "../world/regions";
 import Tooltip from "./Tooltip";
 import InboxScreen from "./InboxScreen";
 import SocialScreen from "./SocialScreen";
@@ -487,6 +488,7 @@ const CombatScreen = ({ messages, data, player }) => {
 
 const CraftingScreen = ({ data, onChange }) => {
   const [note, setNote] = useState("");
+  const [tab, setTab] = useState("upgrade");
   const player = getPlayer() || data?.player || {};
   const make = (key) => {
     const result = craft(player, key);
@@ -497,15 +499,55 @@ const CraftingScreen = ({ data, onChange }) => {
     setNote(result.message);
   };
   return (
-    <div className='workshop'>
+    <div className='workshop workshop-tabbed'>
       <h3>
         Workshop <span className='recipe-astra'>{player.astra || 0} astra</span>
       </h3>
+      <div className='inventory-tabs' role='tablist' aria-label='Workshop'>
+        {[["upgrade", "Upgrades"], ["key", "Key Items"]].map(([key, label]) => (
+          <button
+            key={key}
+            id={`workshop-tab-${key}`}
+            type='button'
+            role='tab'
+            aria-selected={tab === key}
+            aria-controls={`workshop-panel-${key}`}
+            className={`inventory-tab ${tab === key ? "active" : ""}`}
+            onClick={() => { setTab(key); setNote(""); }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div
+        key={tab}
+        id={`workshop-panel-${tab}`}
+        role='tabpanel'
+        aria-labelledby={`workshop-tab-${tab}`}
+        tabIndex={0}
+        className='workshop-tab-panel'
+      >
+      {tab === "upgrade" && <p>Permanent upgrades have 10 levels. Higher levels require materials from later regions. Existing chance caps still apply.</p>}
+      {tab === "upgrade" && player.workshopRefund?.upgrades > 0 && (
+        <div className='recipe-note' role='status'>
+          <strong>Workshop rebalance refund</strong>
+          <p>
+            Your {player.workshopRefund.upgrades} previous stat upgrades were reset.
+            Refunded {player.workshopRefund.astra} astra and all original materials.
+            Key items and non-workshop bonuses were kept. This refund is applied only once.
+          </p>
+          <p>{Object.entries(player.workshopRefund.materials).map(
+            ([key, amount]) => `${amount} ${MATERIALS[key].name}`,
+          ).join(", ")}</p>
+        </div>
+      )}
       <div className='recipe-grid'>
-        {Object.entries(RECIPES).map(([key, r]) => {
+        {Object.entries(RECIPES).filter(([, recipe]) => recipe.type === tab).map(([key, r]) => {
           const maxed = isMaxed(player, key);
           const cost = getRecipeCost(player, key);
           const affordable = canAfford(player, key);
+          const requirement = getRecipeRequirement(player, key);
+          const locked = (player.level || 1) < requirement.minLevel;
           return (
             <Tooltip
               key={key}
@@ -517,7 +559,7 @@ const CraftingScreen = ({ data, onChange }) => {
             >
               <button
                 type='button'
-                disabled={maxed}
+                disabled={maxed || locked}
                 onClick={() => make(key)}
                 className={`recipe ${maxed ? "maxed" : affordable ? "" : "unaffordable"}`}
               >
@@ -528,6 +570,12 @@ const CraftingScreen = ({ data, onChange }) => {
                     : `Upgrade ${getCraftedCount(player, key)}/${r.limit}`}
                 </span>
                 <span>{r.description || KEY_ITEMS[r.item]?.description}</span>
+                {!maxed && (
+                  <span className='recipe-kind'>
+                    {locked ? "Requires" : "Available at"} level {requirement.minLevel}
+                    {` - ${REGIONS[requirement.region].name}`}
+                  </span>
+                )}
                 {maxed ? (
                   <span className='recipe-cost'>
                     {r.type === "key" ? "Owned" : "Maxed"}
@@ -561,6 +609,7 @@ const CraftingScreen = ({ data, onChange }) => {
             </Tooltip>
           );
         })}
+      </div>
       </div>
       <div className='recipe-note'>
         <RichText text={note || "Click a recipe to craft it."} />

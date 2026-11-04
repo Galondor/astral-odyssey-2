@@ -73,6 +73,9 @@ function captureLayout(name) {
 test("real mobile scenes keep the existing labels and run Town through the existing action", () => {
   render(<Game uid="layout-fixture" onLogout={jest.fn()} onMainMenu={jest.fn()} />);
   captureLayout("gameplay");
+  const resources = screen.getByRole("region", { name: "Character resources" });
+  expect(within(resources).getByText("1200 astra")).toBeTruthy();
+  ["Health", "Stamina", "Power"].forEach(name => expect(within(resources).getByText(name)).toBeTruthy());
   const navigation = screen.getByRole("navigation", { name: "Mobile navigation" });
   expect(within(navigation).getByRole("button", { name: "Gameplay" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Travel Cost 1 Stamina" })).toBeTruthy();
@@ -126,4 +129,19 @@ test("resizing the real Character screen to desktop restores the combined layout
   expect(screen.getByRole("heading", { name: "Equipment" })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Inventory" })).toBeTruthy();
   captureLayout("desktop-character");
+});
+
+test("desktop navigation displays character resources in the top bar", () => {
+  window.matchMedia.mockImplementation((media) => ({
+    media, matches: false,
+    addEventListener: jest.fn(), removeEventListener: jest.fn(),
+  }));
+  render(<Game uid="layout-fixture" onLogout={jest.fn()} onMainMenu={jest.fn()} />);
+  const resources = screen.getByRole("region", { name: "Character resources" });
+  const search = document.querySelector(".player-search-shell");
+  const actions = resources.parentElement;
+  expect(search.nextElementSibling).toBe(actions);
+  expect(resources.nextElementSibling.classList.contains("profile-menu")).toBe(true);
+  expect(within(resources).getByText("1200 astra")).toBeTruthy();
+  ["Health", "Stamina", "Power"].forEach(name => expect(within(resources).getByText(name)).toBeTruthy());
 });

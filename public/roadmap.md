@@ -11,4 +11,6 @@ Planned future updates and content will be listed here.
 - [ ] Subclass System
 - [ ] More Gemstones
 - [ ] Mythic Items
+- [ ] Raids
+- [ ] Boss Rush
 - TBD...

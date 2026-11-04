@@ -384,7 +384,18 @@ export function Game({ uid, onLogout, onMainMenu }) {
         <div id='mobile-player-search' className='player-search-shell' hidden={mobileNavigation && !searchOpen}>
           <CharacterSearch excludeIdentity={getCharacterIdentity()} />
         </div>
-        <ProfileMenu player={player} sending={sending} inCombat={!!getEnemy() || contestLocked || groupLocked} contestLocked={contestLocked || groupLocked} onMainMenu={onMainMenu} onLogout={onLogout} onSetPublicProfile={updatePublicProfile} />
+        <div className='navbar-actions'>
+          {!mobileNavigation && canNavigate && !contestView && activeScreen !== "combat" && activeScreen !== "groupRun" &&
+            <section className='desktop-resources' aria-label='Character resources'>
+              <span className='desktop-astra'>{player.astra || 0} astra</span>
+              <div className='desktop-resource-bars'>
+                <Bar label='Health' value={player.stats.health} max={player.stats.maxHealth} color='#1e8449' />
+                <Bar label='Stamina' value={player.stats.stamina} max={player.stats.maxStamina} color='#b7791f' />
+                <Bar label='Power' value={player.stats.power} max={player.stats.maxPower} color='#1f5fbf' />
+              </div>
+            </section>}
+          <ProfileMenu player={player} sending={sending} inCombat={!!getEnemy() || contestLocked || groupLocked} contestLocked={contestLocked || groupLocked} onMainMenu={onMainMenu} onLogout={onLogout} onSetPublicProfile={updatePublicProfile} />
+        </div>
       </header>
       <div className='App-body'>
         {mobileNavigation && canNavigate && !contestView && activeScreen !== "combat" && activeScreen !== "groupRun" &&

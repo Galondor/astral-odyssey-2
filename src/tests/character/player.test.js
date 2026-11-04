@@ -55,7 +55,7 @@ afterEach(() => {
 
 const existingPlayer = () => {
   const player = {
-    name: "Alice", level: 25, astra: 300,
+    name: "Alice", level: 25, astra: 300, workshopVersion: 2,
     stats: { health: 100, maxHealth: 100 },
     inventory: [], equipment: {},
     consumables: { elixirOfNameChanging: 2, healthPotion: 4 },
@@ -65,6 +65,106 @@ const existingPlayer = () => {
   records["characterNames/Alice"] = "alice";
   return player;
 };
+
+test.each([true, false])("loading persists workshop refunds once without counting income, power already migrated: %s", async (powerMigrated) => {
+  const player = existingPlayer();
+  delete player.workshopVersion;
+  player.level = 30;
+  player.baseStats = { strength: 2, dexterity: 2, intelligence: 2 };
+  player.powerLevelVersion = powerMigrated ? 1 : 0;
+  player.bonusStats = {
+    attackMax: 13, maxHealth: 310, maxStamina: 15,
+    maxPower: 11 + (powerMigrated ? 0 : 29),
+  };
+  player.crafted = { sharpeningStone: 2, vitalityTonic: 1, essenceVessel: 2, enduranceCharm: 1, analyzer: 1 };
+  player.keyItems = ["analyzer"];
+  player.materials = { slime_gel: 3 };
+  player.records = { totalAstraGained: 123 };
+  player.stats = { ...player.stats, maxPower: 100, power: 100, stamina: 100 };
+  records["users/alice"] = { player, saveRevision: 1 };
+  await loadPlayer("alice");
+  const refunded = getPlayer();
+  expect(refunded).toMatchObject({
+    workshopVersion: 2, astra: 1225,
+    workshopRefund: {
+      upgrades: 6, astra: 925,
+      materials: { goblin_scrap: 15, slime_gel: 10, wraith_essence: 15, obsidian_shard: 8, beast_fang: 7, primal_essence: 1 },
+    },
+    bonusStats: { attackMax: 3, maxHealth: 290, maxPower: 7, maxStamina: 14 },
+    crafted: { analyzer: 1 }, keyItems: ["analyzer"],
+    records: { totalAstraGained: 123 },
+  });
+  expect(refunded.crafted.sharpeningStone).toBeUndefined();
+  expect(refunded.stats.power).toBe(refunded.stats.maxPower);
+  expect(refunded.stats.stamina).toBe(refunded.stats.maxStamina);
+  expect(refunded.materials.slime_gel).toBe(13);
+  expect(records["users/alice"].player).toEqual(refunded);
+  expect(records["publicProfiles/alice"].crafted).toEqual({ analyzer: 1 });
+  expect(JSON.parse(localStorage.getItem("Player")).workshopVersion).toBe(2);
+  await loadPlayer("alice");
+  expect(getPlayer()).toEqual(refunded);
+  expect(records["users/alice"].player).toEqual(refunded);
+});
+
+test("previous regional workshop refunds persist removed upgrades and preserve non-workshop bonuses", async () => {
+  const player = existingPlayer();
+  player.workshopVersion = 1;
+  player.powerLevelVersion = 1;
+  player.baseStats = { strength: 2, dexterity: 2, intelligence: 2 };
+  player.bonusStats = { strength: 8, vitality: 9, resilience: 5, agility: 7, maxHealth: 290 };
+  player.crafted = { powerBracers: 2, lifeweave: 2, ironboneBrace: 1, windstepSoles: 3, analyzer: 1 };
+  player.keyItems = ["analyzer"];
+  player.materials = { slime_gel: 3 };
+  player.records = { totalAstraGained: 100 };
+  player.workshopRefund = { upgrades: 1, astra: 50, materials: { goblin_scrap: 6 } };
+  records["users/alice"] = { player, saveRevision: 1 };
+  await loadPlayer("alice");
+  const refunded = getPlayer();
+  expect(refunded).toMatchObject({
+    workshopVersion: 2, astra: 1400,
+    bonusStats: { strength: 6, vitality: 5, resilience: 3, agility: 1, maxHealth: 290 },
+    crafted: { analyzer: 1 }, keyItems: ["analyzer"],
+    workshopRefund: { upgrades: 8, astra: 1100 },
+    records: { totalAstraGained: 100 },
+  });
+  expect(refunded.crafted).toEqual({ analyzer: 1 });
+  expect(refunded.stats.strength).toBe(8);
+  expect(refunded.materials.slime_gel).toBe(19);
+  expect(records["publicProfiles/alice"].crafted).toEqual({ analyzer: 1 });
+  expect(records["users/alice"].player).toEqual(refunded);
+  await loadPlayer("alice");
+  expect(getPlayer()).toEqual(refunded);
+});
+
+test.each([undefined, 1])("workshop refunds survive a failed save and retry without duplication, version: %s", async (version) => {
+  const player = existingPlayer();
+  if (version) player.workshopVersion = version;
+  else delete player.workshopVersion;
+  player.baseStats = { strength: 2, dexterity: 2, intelligence: 2 };
+  player.bonusStats = { attackMax: version ? 20 : 10 };
+  player.crafted = { sharpeningStone: 2 };
+  records["users/alice"] = { player, saveRevision: 1 };
+  const save = update.getMockImplementation();
+  update.mockImplementationOnce(async () => { throw new Error("Offline"); });
+  const warning = jest.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    await expect(loadPlayer("alice")).rejects.toThrow("Offline");
+    expect(getSaveStatus().error).toMatch(/save could not be confirmed/);
+    expect(records["users/alice"].player.workshopVersion).toBe(version);
+    const astra = version ? 225 : 125;
+    expect(getPlayer().astra).toBe(300 + astra);
+    update.mockImplementation(save);
+    await loadPlayer("alice");
+    expect(getPlayer()).toMatchObject({
+      workshopVersion: 2, astra: 300 + astra, crafted: {},
+      materials: { goblin_scrap: version ? 16 : 15 },
+      workshopRefund: { upgrades: 2, astra },
+    });
+    expect(records["users/alice"].player).toEqual(getPlayer());
+  } finally {
+    warning.mockRestore();
+  }
+});
 
 test.each([true, false])("loading legacy holofoils persists bonuses once with saved base stats: %s", async (hasBaseStats) => {
   const player = existingPlayer();
