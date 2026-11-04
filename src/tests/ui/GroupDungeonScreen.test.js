@@ -7,10 +7,11 @@ import {
   createParty, getGroupStatus, invitePlayer, joinParty, leaveParty, sendChat, setReady, startRun, submitIntent, subscribeGroup,
 } from "../../world/groupParty";
 import { GroupLobby, GroupRunActions, GroupRunScreen } from "../../ui/GroupDungeonScreen";
+import Tooltip from "../../ui/Tooltip";
 
 jest.mock("../../firebase", () => ({ db: {} }));
 jest.mock("../../character/player", () => ({ getPlayer: () => ({ level: 45 }), setPlayer: () => {} }));
-jest.mock("../../ui/Tooltip", () => ({ children }) => children);
+jest.mock("../../ui/Tooltip", () => jest.fn(({ children }) => children));
 jest.mock("../../world/groupParty", () => ({
   GROUP_CHAT_MAX: 200,
   GROUP_MAX_MEMBERS: 3,
@@ -62,6 +63,8 @@ const makeRun = () => createGroupRun({
 
 let status;
 beforeEach(() => {
+  Tooltip.mockClear();
+  Tooltip.mockImplementation(({ children }) => children);
   status = baseStatus();
   getGroupStatus.mockImplementation(() => status);
   subscribeGroup.mockImplementation(() => () => {});
@@ -166,6 +169,36 @@ test("combat actions pick enemy targets and allies for guard, potions and suppor
   await screen.findByRole("button", { name: "5. Defend" });
   await act(async () => fireEvent.keyDown(window, { key: "5" }));
   expect(submitIntent).toHaveBeenLastCalledWith({ type: "defend" });
+});
+
+test("group enemies show Preparing and Recovering separately from scripted channels", () => {
+  const run = makeRun();
+  const [preparing, recovering] = run.combat.enemies;
+  preparing.pending = { name: "Broadside" };
+  recovering.recovering = { name: "Heavy Strike" };
+  recovering.channel = { name: "Gravity Well", need: 200, dealt: 50, rounds: 2 };
+  status = baseStatus({ run, active: true, inRun: true, remainingMs: 60000 });
+  render(<GroupRunScreen />);
+  expect(screen.getByText("Preparing Broadside! Defend or Guard!")).toBeTruthy();
+  expect(screen.getByText("Recovering from Heavy Strike: next action is recovery.")).toBeTruthy();
+  expect(screen.getByText(/Channeling Gravity Well: deal 150 more damage or stun it/)).toBeTruthy();
+});
+
+test("shared quick skills are explicitly labeled Action in group combat", () => {
+  const run = makeRun();
+  run.combat.players.a.skills = { provoke: 1, renewal: 1 };
+  run.combat.players.a.equipped = ["provoke", "renewal"];
+  status = baseStatus({ run, active: true, inRun: true, remainingMs: 60000, roundRemainingMs: 20000 });
+  render(<GroupRunActions />);
+  fireEvent.click(screen.getByRole("button", { name: "3. Skills" }));
+  expect(screen.getByRole("button", { name: /Provoke \(\d+ power\)/ })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /Renewal \(\d+ power\)/ })).toBeTruthy();
+  expect(screen.queryByText(/Quick Action/)).toBeNull();
+  for (const name of ["Provoke", "Renewal"]) {
+    const tooltip = Tooltip.mock.calls.map(([props]) => props.content).find((content) => content?.title === name);
+    expect(tooltip.stats.find((stat) => stat.label === "Action cost").value).toBe("Action");
+    expect(tooltip.footer).toBe("Action: takes your only action this round");
+  }
 });
 
 test("target buttons follow the living enemies, even when enemies share a name and health", () => {

@@ -4,6 +4,7 @@ jest.mock("../../firebase", () => ({
 }));
 jest.mock("firebase/database", () => ({
   get: jest.fn(),
+  onValue: jest.fn(),
   ref: (_, path = "") => path,
   remove: jest.fn(),
   update: jest.fn(),
@@ -25,6 +26,10 @@ beforeEach(() => {
   database = require("firebase/database");
   values = {};
   database.get.mockImplementation(async (path) => ({ val: () => values[path] ?? null }));
+  database.onValue.mockImplementation((path, listener) => {
+    listener({ val: () => values[path] ?? 0 });
+    return () => {};
+  });
   database.update.mockResolvedValue();
   database.remove.mockResolvedValue();
   database.runTransaction.mockImplementation(async (_, callback) => ({
@@ -37,38 +42,38 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-test("scores publish immediately and republish at the one-minute cooldown boundary", async () => {
+test("scores publish immediately and republish at the 15-second cooldown boundary", async () => {
   const now = jest.spyOn(Date, "now").mockReturnValue(100000);
   const player = { name: "Player", level: 10 };
   await api.publishLeaderboardEntry("character", player);
   expect(database.runTransaction).toHaveBeenCalledTimes(1);
 
-  now.mockReturnValue(159999);
+  now.mockReturnValue(114999);
   await api.publishLeaderboardEntry("character", { ...player, level: 11 });
   expect(database.runTransaction).toHaveBeenCalledTimes(1);
 
-  now.mockReturnValue(160000);
+  now.mockReturnValue(115000);
   await api.publishLeaderboardEntry("character", { ...player, level: 11 });
   expect(database.runTransaction).toHaveBeenCalledTimes(2);
   const [, publish] = database.runTransaction.mock.calls[1];
   expect(publish(null)).toMatchObject({ name: "Player", level: 11 });
 });
 
-test("the stored publication cooldown expires after one minute in a returning session", async () => {
-  const now = jest.spyOn(Date, "now").mockReturnValue(159999);
+test("the stored publication cooldown expires after 15 seconds in a returning session", async () => {
+  const now = jest.spyOn(Date, "now").mockReturnValue(114999);
   localStorage.setItem("LeaderboardPublishedV2:character", "100000");
   const player = { name: "Player", level: 11 };
 
   await api.publishLeaderboardEntry("character", player);
   expect(database.runTransaction).not.toHaveBeenCalled();
 
-  now.mockReturnValue(160000);
+  now.mockReturnValue(115000);
   await api.publishLeaderboardEntry("character", player);
   expect(database.runTransaction).toHaveBeenCalledTimes(1);
 });
 
-test("the server score cooldown expires after one minute in a new browser", async () => {
-  const now = jest.spyOn(Date, "now").mockReturnValue(159999);
+test("the server score cooldown expires after 15 seconds in a new browser", async () => {
+  const now = jest.spyOn(Date, "now").mockReturnValue(114999);
   const current = { ...score("Player"), accountId: "account", updatedAt: 100000 };
   database.runTransaction.mockImplementation(async (_, callback) => ({
     snapshot: { val: () => callback(current) ?? current },
@@ -78,13 +83,13 @@ test("the server score cooldown expires after one minute in a new browser", asyn
   await api.publishLeaderboardEntry("character", player);
   expect(database.runTransaction.mock.calls[0][1](current)).toBeUndefined();
 
-  now.mockReturnValue(160000);
+  now.mockReturnValue(115000);
   await api.publishLeaderboardEntry("character", player);
   expect(database.runTransaction).toHaveBeenCalledTimes(2);
   expect(database.runTransaction.mock.calls[1][1](current)).toMatchObject({ level: 11 });
 });
 
-test("rankings use the cache only until the one-minute refresh boundary", async () => {
+test("rankings use the cache only until the 15-second refresh boundary", async () => {
   const now = jest.spyOn(Date, "now").mockReturnValue(100000);
   values.leaderboardEntries = { character: { ...score("Player"), accountId: "account" } };
   await api.getLeaderboards();
@@ -92,13 +97,54 @@ test("rankings use the cache only until the one-minute refresh boundary", async 
     character: { ...score("Player"), level: 11, accountId: "account" },
   };
 
-  now.mockReturnValue(159999);
+  now.mockReturnValue(114999);
   expect((await api.getLeaderboards()).entries.character.level).toBe(10);
   expect(database.get.mock.calls.filter(([path]) => path === "leaderboardEntries")).toHaveLength(1);
 
-  now.mockReturnValue(160000);
+  now.mockReturnValue(115000);
   expect((await api.getLeaderboards()).entries.character.level).toBe(11);
   expect(database.get.mock.calls.filter(([path]) => path === "leaderboardEntries")).toHaveLength(2);
+});
+
+test("equipping and removing a title cannot bypass the publication cooldown", async () => {
+  const now = jest.spyOn(Date, "now").mockReturnValue(100000);
+  const player = { name: "Player", activeTitle: "monarchOfTheOdyssey" };
+  await api.publishLeaderboardEntry("character", player);
+  now.mockReturnValue(100001);
+  await api.publishLeaderboardEntry("character", { ...player, activeTitle: null });
+  expect(database.runTransaction).toHaveBeenCalledTimes(1);
+  now.mockReturnValue(115000);
+  await api.publishLeaderboardEntry("character", { ...player, activeTitle: null });
+  expect(database.runTransaction).toHaveBeenCalledTimes(2);
+  expect(database.runTransaction.mock.calls[1][1](null)).not.toHaveProperty("activeTitle");
+});
+
+test.each([-60000, 60000])("publication uses server time when the device clock is offset by %i ms", async (offset) => {
+  const now = jest.spyOn(Date, "now").mockReturnValue(114999 - offset);
+  values[".info/serverTimeOffset"] = offset;
+  localStorage.setItem("LeaderboardPublishedV2:character", "100000");
+  await api.publishLeaderboardEntry("character", { name: "Player" });
+  expect(database.runTransaction).not.toHaveBeenCalled();
+  now.mockReturnValue(115000 - offset);
+  await api.publishLeaderboardEntry("character", { name: "Player" });
+  expect(database.runTransaction).toHaveBeenCalledTimes(1);
+});
+
+test("a fresh server entry prevents a cold-browser write even when the title changed", async () => {
+  jest.spyOn(Date, "now").mockReturnValue(100001);
+  values["leaderboardEntries/character"] = {
+    ...score("Player"), accountId: "account", updatedAt: 100000,
+    activeTitle: "monarchOfTheOdyssey",
+  };
+  await api.publishLeaderboardEntry("character", { name: "Player", activeTitle: null });
+  expect(database.runTransaction).not.toHaveBeenCalled();
+  expect(localStorage.getItem("LeaderboardPublishedV2:character")).toBe("100000");
+});
+
+test("server time failures reject rather than attempting an unverified publication", async () => {
+  database.onValue.mockImplementation((_, __, reject) => reject(new Error("Disconnected")));
+  await expect(api.publishLeaderboardEntry("character", { name: "Player" })).rejects.toThrow("Disconnected");
+  expect(database.runTransaction).not.toHaveBeenCalled();
 });
 
 test("compact scores publish cleared waves, never the older reached-wave record", () => {

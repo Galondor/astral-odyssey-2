@@ -231,7 +231,7 @@ test("matched Contest opens the normal combat screen with live Skills and retain
   expect(screen.getByRole("button", { name: "Combat" }).disabled).toBe(false);
   expect(screen.getByRole("button", { name: "Arena" }).disabled).toBe(true);
   fireEvent.keyDown(window, { key: "5" });
-  expect(screen.getByRole("button", { name: "2. Fireball" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /2\. Fireball/ })).toBeTruthy();
   expect(processButton).not.toHaveBeenCalled();
   status = { ...status, locked: false, playing: false, yourTurn: false,
     match: { ...status.match, winner: "alice" } };

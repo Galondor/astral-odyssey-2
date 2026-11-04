@@ -82,7 +82,7 @@ function App() {
     try {
       await loadPlayer(uid, id);
       if (version === session.current) {
-        endCombat();
+        endCombat({ preserveSaved: true });
         endColosseumRun();
         clearBlackjack();
         setCharacterId(id);
@@ -481,7 +481,7 @@ export function Game({ uid, onLogout, onMainMenu }) {
             }}>
               Quick guide
             </button>
-            <span className='sidebar-version' aria-label='Game version'>v0.3.1.2-Alpha</span>
+            <span className='sidebar-version' aria-label='Game version'>v0.3.2.0-Alpha</span>
           </div>
         </nav>
         </div>
@@ -501,17 +501,19 @@ export function Game({ uid, onLogout, onMainMenu }) {
                 const details = mobileNavigation && (o.label === "Travel" || o.label === "Rest")
                   ? typeof o.tooltip === "function" ? o.tooltip() : o.tooltip
                   : null;
-                const cost = details?.footer || (o.label === "Rest" ? details?.description : null);
+                const cost = (typeof o.actionCost === "function" ? o.actionCost() : o.actionCost) ||
+                  details?.footer || (o.label === "Rest" ? details?.description : null);
                 return (
                 <Tooltip disableOnMobile={sceneId === "combatItems"} key={o.label} content={o.tooltip}>
                   <button
                     className={`buttons input-button ${["Travel", "Continue", "Melee Attack", "Rest"].includes(o.label) ? "input-primary" : ""}`}
                     type='button'
-                    disabled={!!o.minLevel && (player?.level || 1) < o.minLevel}
+                    disabled={(typeof o.disabled === "function" ? !!o.disabled() : !!o.disabled) || (!!o.minLevel && (player?.level || 1) < o.minLevel)}
+                    title={typeof o.disabled === "function" ? o.disabled() || undefined : undefined}
                     onClick={() => pressButton(o.label)}
                   >
                     {!mobileNavigation && `${index + 1}. `}{!!o.minLevel && (player?.level || 1) < o.minLevel ? mobileNavigation ? `${o.label} · Level ${o.minLevel}+` : `Level ${o.minLevel}+` : o.label}
-                    {cost && <span className='mobile-action-cost'>{cost}</span>}
+                    {cost && <> <span className='mobile-action-cost'>{cost}</span></>}
                   </button>
                 </Tooltip>
               ); })}

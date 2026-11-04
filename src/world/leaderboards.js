@@ -1,14 +1,13 @@
-import { get, ref, remove, runTransaction, serverTimestamp, update } from "firebase/database";
+import { get, onValue, ref, remove, runTransaction, serverTimestamp, update } from "firebase/database";
 import { auth, db } from "../firebase";
 
-export const LEADERBOARD_REFRESH_MS = 60 * 1000;
+export const LEADERBOARD_REFRESH_MS = 15 * 1000;
 const CACHE_KEY = "LeaderboardCacheV2";
 const PROFILE_KEY = "LeaderboardPublishedV2:";
 let cache = null;
 let loading = null;
 const publishing = new Map();
 const publishedAt = new Map();
-const publishedTitle = new Map();
 
 const readStored = (key) => {
   try {
@@ -50,7 +49,6 @@ export const publishLeaderboardEntry = (uid, player) => {
     if (admin.val() === true) {
       await remove(ref(db, `leaderboardEntries/${uid}`));
       publishedAt.delete(uid);
-      publishedTitle.delete(uid);
       const cached = cache || readStored(CACHE_KEY);
       if (cached?.entries) {
         delete cached.entries[uid];
@@ -59,19 +57,32 @@ export const publishLeaderboardEntry = (uid, player) => {
       }
       return;
     }
+    const offset = await new Promise((resolve, reject) => {
+      onValue(ref(db, ".info/serverTimeOffset"), (snapshot) => {
+        const value = snapshot.val();
+        if (!Number.isFinite(value)) reject(new Error("Leaderboard server time is unavailable."));
+        else resolve(value);
+      }, reject, { onlyOnce: true });
+    });
+    const publicationIsFresh = (timestamp) =>
+      Number.isFinite(timestamp) && Date.now() + offset - timestamp < LEADERBOARD_REFRESH_MS;
     const last = publishedAt.get(uid) ?? readStored(PROFILE_KEY + uid);
-    if (isFresh(last) && publishedTitle.get(uid) === player.activeTitle) return;
+    if (publicationIsFresh(last)) return;
     const entry = { ...buildLeaderboardEntry(player), accountId };
-    const { snapshot } = await runTransaction(ref(db, `leaderboardEntries/${uid}`), (current) => {
-      if (current && isFresh(current.updatedAt) && current.activeTitle === entry.activeTitle &&
-          Number.isFinite(current.highestClearedColosseumWave) && current.accountId === accountId)
-        return undefined;
-      return { ...entry, updatedAt: serverTimestamp() };
-    }, { applyLocally: false });
+    const entryRef = ref(db, `leaderboardEntries/${uid}`);
+    const currentIsFresh = (current) =>
+      current && publicationIsFresh(current.updatedAt) &&
+      Number.isFinite(current.highestClearedColosseumWave) && current.accountId === accountId;
+    let snapshot = await get(entryRef);
+    if (!currentIsFresh(snapshot.val())) {
+      ({ snapshot } = await runTransaction(entryRef, (current) => {
+        if (currentIsFresh(current)) return undefined;
+        return { ...entry, updatedAt: serverTimestamp() };
+      }, { applyLocally: false }));
+    }
     const timestamp = snapshot.val()?.updatedAt;
     if (!Number.isFinite(timestamp)) throw new Error("Leaderboard publication returned no timestamp.");
     publishedAt.set(uid, timestamp);
-    publishedTitle.set(uid, snapshot.val()?.activeTitle);
     store(PROFILE_KEY + uid, timestamp);
     const cached = cache || readStored(CACHE_KEY);
     if (cached?.entries?.[uid]) {

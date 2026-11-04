@@ -48,7 +48,8 @@
           "host": { ".validate": "newData.isString() && (data.exists() ? newData.val() === data.val() : root.child('contestPresence').child(newData.val()).val() === true)" },
           "guest": { ".validate": "newData.isString() && (data.exists() ? newData.val() === data.val() : root.child('contestPresence').child(newData.val()).val() === true)" },
           "turn": { ".validate": "newData.val() === newData.parent().child('host').val() || newData.val() === newData.parent().child('guest').val()" },
-          "deadline": { ".validate": "newData.val() === data.val() || (newData.isNumber() && newData.val() >= now + 55000 && newData.val() <= now + 65000)" },
+          "turnCount": { ".validate": "newData.isNumber() && (data.exists() ? newData.val() === data.val() + (newData.parent().child('turn').val() === data.parent().child('turn').val() ? 0 : 1) : newData.val() === 1)" },
+          "deadline": { ".validate": "(data.exists() && newData.parent().child('turn').val() === data.parent().child('turn').val() && newData.val() === data.val()) || ((!data.exists() || newData.parent().child('turn').val() !== data.parent().child('turn').val()) && newData.isNumber() && newData.val() >= now + 55000 && newData.val() <= now + 65000)" },
           "revision": { ".validate": "newData.isNumber()" },
           "fighters": { ".validate": "newData.hasChildren([newData.parent().child('host').val(), newData.parent().child('guest').val()])" },
           "winner": { ".validate": "newData.val() === newData.parent().child('host').val() || newData.val() === newData.parent().child('guest').val()" },
@@ -174,7 +175,7 @@
       ".write": "auth != null && root.child('admins').child(auth.uid).val() === true",
       ".read": "auth != null",
       "$uid": {
-        ".write": "auth != null && ((!newData.exists() && root.child('admins').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).val() === true) || (($uid === auth.uid || root.child('characterOwners').child($uid).child('accountId').val() === auth.uid) && ((!newData.exists() && !newData.parent().parent().child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').exists()) || (newData.exists() && (!data.exists() || !data.child('highestClearedColosseumWave').exists() || !data.child('accountId').exists() || now - data.child('updatedAt').val() >= 60000)))))",
+        ".write": "auth != null && ((!newData.exists() && root.child('admins').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).val() === true) || (($uid === auth.uid || root.child('characterOwners').child($uid).child('accountId').val() === auth.uid) && ((!newData.exists() && !newData.parent().parent().child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').exists()) || (newData.exists() && (!data.exists() || !data.child('highestClearedColosseumWave').exists() || !data.child('accountId').exists() || now - data.child('updatedAt').val() >= 15000)))))",
         ".validate": "root.child('admins').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).val() !== true && newData.hasChildren(['name', 'level', 'gearScore', 'astra', 'updatedAt']) && root.child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').exists()",
         "accountId": {
           ".validate": "newData.isString() && newData.val() === (root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)"
@@ -199,7 +200,7 @@
           ".validate": "newData.isNumber() && newData.val() === now"
         },
         "activeTitle": {
-          ".validate": "newData.isString() && newData.val() === 'monarchOfTheOdyssey' && newData.val() === root.child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').child('activeTitle').val()"
+          ".validate": "newData.isString() && newData.val().matches(/^(monarchOfTheOdyssey|giantSlayer)$/) && newData.val() === root.child('users').child((root.child('characterOwners').child($uid).exists() ? root.child('characterOwners').child($uid).child('accountId').val() : $uid)).child(root.child('characterOwners').child($uid).exists() ? 'characters/' + root.child('characterOwners').child($uid).child('characterId').val() + '/player' : 'player').child('activeTitle').val()"
         },
         "$other": {
           ".validate": false

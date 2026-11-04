@@ -285,7 +285,8 @@ const EnemyCard = ({ enemy }) => (
     </div>
     <Bar label='HP' value={Math.max(0, enemy.hp)} max={enemy.maxHp} color='#c0392b' />
     {enemy.immune && !enemy.dead && <div className='group-tag immune'>Immune to {enemy.immune} damage</div>}
-    {enemy.pending && !enemy.dead && <div className='group-tag telegraph'>Winding up {enemy.pending.name}! Defend or Guard!</div>}
+    {enemy.pending && !enemy.dead && <div className='group-tag telegraph'>Preparing {enemy.pending.name}! Defend or Guard!</div>}
+    {enemy.recovering && !enemy.dead && <div className='group-tag'>Recovering from {enemy.recovering.name}: next action is recovery.</div>}
     {enemy.channel && !enemy.dead && (
       <div className='group-tag channel'>
         Channeling {enemy.channel.name}: deal {Math.max(0, enemy.channel.need - enemy.channel.dealt)} more damage or stun it
@@ -578,9 +579,10 @@ export const GroupRunActions = ({ navigationModal }) => {
       options = [back, ...(me.equipped || []).filter((key) => SKILLS[key]).map((key) => {
         const skill = SKILLS[key];
         const cost = skillCost(player, key);
+        const tooltip = skillTooltip(key, me.skills[key] || 0, "Action: takes your only action this round", player);
         return {
           label: `${skill.name} (${cost} power)`,
-          tooltip: skillTooltip(key, me.skills[key] || 0, "Takes your action this round", player),
+          tooltip: { ...tooltip, stats: tooltip.stats.map((stat) => stat.label === "Action cost" ? { ...stat, value: "Action" } : stat) },
           disabled: me.stats.power < cost,
           select: () => {
             const intent = { type: "skill", key };
@@ -596,7 +598,7 @@ export const GroupRunActions = ({ navigationModal }) => {
       options = [back, ...Object.entries(me.consumables || {}).map(([key, count]) => [key, count - (me.spent?.[key] || 0)])
         .filter(([key, left]) => left > 0 && CONSUMABLES[key]).map(([key, left]) => ({
           label: `${CONSUMABLES[key].name} x${left}`,
-          tooltip: consumableTooltip(key, "Takes your action this round"),
+          tooltip: consumableTooltip(key, "Action: takes your only action this round"),
           select: () => (living.length > 1 ? pickAlly({ type: "item", key }) : send({ type: "item", key, target: identity })),
         }))];
       if (options.length === 1) prompt = "You have no usable potions left.";

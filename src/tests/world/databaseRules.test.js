@@ -2,14 +2,24 @@ import http from "http";
 import { CONSUMABLES } from "../../items/consumables";
 import databaseRules from "../../../database.rules.json";
 import { LEADERBOARD_REFRESH_MS } from "../../world/leaderboards";
+import { TITLES } from "../../character/titles";
 
 jest.mock("../../character/player", () => ({ getPlayer: jest.fn(), setPlayer: jest.fn() }));
 jest.mock("../../firebase", () => ({ db: {}, auth: {} }));
 
-test("leaderboard rules allow publication at the same one-minute boundary as the client", () => {
-  expect(LEADERBOARD_REFRESH_MS).toBe(60000);
+test("leaderboard rules allow publication at the same 15-second boundary as the client", () => {
+  expect(LEADERBOARD_REFRESH_MS).toBe(15000);
   expect(databaseRules.rules.leaderboardEntries.$uid[".write"])
     .toContain(`now - data.child('updatedAt').val() >= ${LEADERBOARD_REFRESH_MS}`);
+});
+
+test("leaderboard title rules accept exactly the supported title catalog", () => {
+  const validation = databaseRules.rules.leaderboardEntries.$uid.activeTitle[".validate"];
+  const pattern = validation.match(/\.matches\(\/(.+?)\/\)/);
+  expect(pattern).not.toBeNull();
+  const allowedTitles = pattern[1].replace(/^\^\(|\)\$$/g, "").split("|");
+  expect(allowedTitles.sort()).toEqual(Object.keys(TITLES).sort());
+  expect(validation).toContain(".child('activeTitle').val()");
 });
 
 test("marketplace rules accept exactly the current consumable catalog", () => {
@@ -140,6 +150,25 @@ rulesTests("Firebase name and consumable marketplace rules", () => {
     expect((await request("DELETE", "leaderboardEntries/seller", undefined, "buyer")).status).toBe(401);
   });
 
+  test("leaderboard titles must be supported and match the saved equipped title", async () => {
+    const entry = {
+      name: "Seller", accountId: "seller", level: 1, gearScore: 0, astra: 0,
+      highestClearedColosseumWave: 0, updatedAt: { ".sv": "timestamp" },
+    };
+    await request("PATCH", "users/seller/player", { activeTitle: "giantSlayer" }, "owner");
+    expect((await request("PUT", "leaderboardEntries/seller", {
+      ...entry, activeTitle: "monarchOfTheOdyssey",
+    }, "seller")).status).toBe(401);
+    await request("PATCH", "users/seller/player", { activeTitle: "unsupportedTitle" }, "owner");
+    expect((await request("PUT", "leaderboardEntries/seller", {
+      ...entry, activeTitle: "unsupportedTitle",
+    }, "seller")).status).toBe(401);
+    await request("PATCH", "users/seller/player", { activeTitle: "giantSlayer" }, "owner");
+    expect((await request("PUT", "leaderboardEntries/seller", {
+      ...entry, activeTitle: "giantSlayer",
+    }, "seller")).status).toBe(200);
+  });
+
   test("Colosseum leaderboard scores must match cleared waves in the saved player", async () => {
     await request("PATCH", "users/seller/player", {
       level: 10, records: { highestClearedColosseumWave: 8 },
@@ -157,7 +186,7 @@ rulesTests("Firebase name and consumable marketplace rules", () => {
     }, "seller")).status).toBe(200);
   });
 
-  test("leaderboard scores can update after one minute but not before or by another player", async () => {
+  test("leaderboard scores can update after 15 seconds but not before or by another player", async () => {
     const entry = {
       name: "Seller", accountId: "seller", level: 1, gearScore: 0, astra: 0,
       highestClearedColosseumWave: 0, updatedAt: { ".sv": "timestamp" },
@@ -165,7 +194,7 @@ rulesTests("Firebase name and consumable marketplace rules", () => {
     expect((await request("PUT", "leaderboardEntries/seller", entry, "seller")).status).toBe(200);
     expect((await request("PUT", "leaderboardEntries/seller", entry, "seller")).status).toBe(401);
 
-    await request("PUT", "leaderboardEntries/seller/updatedAt", Date.now() - 60000, "owner");
+    await request("PUT", "leaderboardEntries/seller/updatedAt", Date.now() - 15000, "owner");
     expect((await request("PUT", "leaderboardEntries/seller", entry, "buyer")).status).toBe(401);
     expect((await request("PUT", "leaderboardEntries/seller", entry, "seller")).status).toBe(200);
   });

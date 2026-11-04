@@ -1,5 +1,17 @@
 import { getPlayer, setPlayer } from "../../character/player";
-import { attackRound, consumeItemRound, getCombatRound, getEnemy, getMarrowWard, getPlayerStatuses, startCombat } from "../../combat/combat";
+import { attackRound as takeAttack, passRound, consumeItemRound, getCombatRound, getEnemy, getMarrowWard, getPlayerStatuses, startCombat as beginCombat } from "../../combat/combat";
+
+// These regression cases exercise a completed attack turn; Quick Action cases have their own suite.
+const attackRound = (...args) => {
+  const result = takeAttack(...args);
+  if (!result.used || result.over || result.turnEnded) return result;
+  const end = passRound();
+  return { ...result, ...end, replies: [...result.replies, ...end.replies] };
+};
+const startCombat = (...args) => {
+  beginCombat(...args);
+  setPlayer.mockClear();
+};
 
 jest.mock("../../character/player", () => ({
   getPlayer: jest.fn(),
@@ -40,13 +52,13 @@ beforeEach(() => {
 
 afterEach(() => jest.restoreAllMocks());
 
-test("cleansing removes combat debuffs and spends one item and one turn", () => {
+test("cleansing removes combat debuffs and spends one item and the Quick Action", () => {
   getPlayer.mockReturnValue({ ...player, consumables: { cleansingPotion: 2 } });
   getPlayerStatuses().push({ id: "poison", turns: 5, power: 0.03, stacks: 3 }, { id: "fortify", turns: 5, power: 0.4 });
   const round = getCombatRound();
   expect(consumeItemRound("cleansingPotion").used).toBe(true);
   expect(getPlayerStatuses().map((st) => st.id)).toEqual(["fortify"]);
-  expect(getCombatRound()).toBe(round + 1);
+  expect(getCombatRound()).toBe(round);
   expect(setPlayer.mock.calls.at(-1)[0].consumables).toEqual({ cleansingPotion: 1 });
 });
 
@@ -492,6 +504,7 @@ test("Star-Charted's aligned strike deals 150% more damage", () => {
     ...player,
     equipment: { ring: { ability: { name: "Star-Charted" } } },
     skills: { backstab: 1 },
+    equippedSkills: ["backstab"],
     stats: {
       ...player.stats,
       attackMin: 10,
@@ -525,6 +538,7 @@ test("skill bonuses cannot raise critical chance above 60 percent", () => {
     ...player,
     class: "Swordsman",
     skills: { backstab: 1 },
+    equippedSkills: ["backstab"],
     stats: {
       ...player.stats,
       speed: 20,
@@ -571,6 +585,7 @@ test("Fireball burn reduces enemy healing by 25%", () => {
   getPlayer.mockReturnValue({
     ...player,
     skills: { fireball: 1 },
+    equippedSkills: ["fireball"],
     stats: {
       ...player.stats,
       magicAttackMin: 300,

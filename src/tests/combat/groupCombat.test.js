@@ -36,6 +36,176 @@ const env = (spawn = () => dummy()) => ({ spawn });
 beforeEach(() => jest.spyOn(Math, "random").mockReturnValue(0.5));
 afterEach(() => jest.restoreAllMocks());
 
+const heavy = { name: "Broadside", power: 2, telegraph: true, weight: 100, cooldown: 4 };
+const heavyCombat = (overrides = {}, members = party("A")) =>
+  createGroupCombat(members, { enemies: ["x"] }, () => dummy({ abilities: [heavy], ...overrides }));
+
+test("telegraphs prepare, release without random criticals, spend a full recovery action, then act again", () => {
+  const c = heavyCombat({ critical: 1 });
+  const e = c.enemies[0];
+  const round = () => resolveGroupRound(c, {}, env()).log.join("\n");
+  expect(round()).toContain("prepares Broadside");
+  expect(c.players.A.stats.health).toBe(1000);
+  expect(e.pending.name).toBe("Broadside");
+  const restored = JSON.parse(JSON.stringify(c));
+  const release = resolveGroupRound(restored, {}, env()).log.join("\n");
+  expect(release).toContain("unleashes Broadside");
+  expect(release).not.toContain("Critical!");
+  expect(restored.players.A.stats.health).toBe(900);
+  expect(restored.enemies[0].pending).toBeNull();
+  expect(restored.enemies[0].recovering.name).toBe("Broadside");
+  const recovery = resolveGroupRound(restored, {}, env()).log.join("\n");
+  expect(recovery).toContain("recovering from Broadside. Ready.");
+  expect(restored.players.A.stats.health).toBe(900);
+  expect(restored.enemies[0].recovering).toBeNull();
+  resolveGroupRound(restored, {}, env());
+  expect(restored.players.A.stats.health).toBe(800);
+});
+
+test("stun delays a committed release and does not pay for recovery", () => {
+  const c = heavyCombat();
+  const e = c.enemies[0];
+  resolveGroupRound(c, {}, env());
+  e.statuses.push({ id: "stun", turns: 1, stacks: 1 });
+  expect(resolveGroupRound(c, {}, env()).log.join("\n")).toContain("stunned and loses its turn");
+  expect(e.pending.name).toBe("Broadside");
+  expect(c.players.A.stats.health).toBe(1000);
+  resolveGroupRound(c, {}, env());
+  expect(c.players.A.stats.health).toBe(900);
+  e.statuses.push({ id: "stun", turns: 1, stacks: 1 });
+  resolveGroupRound(c, {}, env());
+  expect(e.recovering.name).toBe("Broadside");
+  resolveGroupRound(c, {}, env());
+  expect(e.recovering).toBeNull();
+  expect(c.players.A.stats.health).toBe(900);
+});
+
+test("telegraphs retain unavoidable hits and the special Defend and Guard mitigation", () => {
+  const c = heavyCombat({}, party("A", "B"));
+  c.players.A.stats.evasion = 1;
+  c.players.B.stats.evasion = 1;
+  resolveGroupRound(c, {}, env());
+  resolveGroupRound(c, { A: { type: "defend" }, B: { type: "guard", target: "A" } }, env());
+  expect(c.players.A.stats.health).toBe(1000);
+  expect(c.players.B.stats.health).toBe(883);
+});
+
+test("Defend retains its existing extra telegraph reduction", () => {
+  const c = heavyCombat();
+  c.players.A.stats.evasion = 1;
+  resolveGroupRound(c, {}, env());
+  resolveGroupRound(c, { A: { type: "defend" } }, env());
+  expect(c.players.A.stats.health).toBe(983);
+});
+
+test("ordinary HP buffs wait through release and recovery even when the enemy takes no further damage", () => {
+  const c = heavyCombat({
+    maxHp: 1000,
+    phases: [{ below: 0.95, self: { id: "enrage", turns: 99, power: 1 }, text: "Enraged phase" }],
+  });
+  const e = c.enemies[0];
+  resolveGroupRound(c, {}, env());
+  resolveGroupRound(c, { A: { type: "melee", target: e.uid } }, env());
+  expect(c.players.A.stats.health).toBe(900);
+  expect(e.phasesDone).toEqual([]);
+  expect(e.statuses).toEqual([]);
+  const recovery = resolveGroupRound(c, {}, env()).log.join("\n");
+  expect(recovery).toContain("Enraged phase");
+  expect(e.phasesDone).toEqual([0]);
+  expect(c.players.A.stats.health).toBe(900);
+});
+
+test("recovery consumes only the enemy action, not periodic effects or the environment", () => {
+  const c = heavyCombat();
+  resolveGroupRound(c, {}, env());
+  resolveGroupRound(c, {}, env());
+  c.environment = { status: "temporalRot", turns: 4, power: 0.01 };
+  c.players.A.statuses.push({ id: "poison", turns: 2, power: 0.01, stacks: 1 });
+  c.enemies[0].statuses.push({ id: "burn", turns: 2, power: 0.01, stacks: 1 });
+  resolveGroupRound(c, {}, env());
+  expect(c.players.A.stats.health).toBe(890);
+  expect(c.enemies[0].hp).toBe(9900);
+  expect(c.players.A.statuses.some((st) => st.id === "temporalRot")).toBe(true);
+  expect(c.enemies[0].recovering).toBeNull();
+});
+
+test("mandatory add phases still run but their buffs cannot alter a warned attack", () => {
+  const c = heavyCombat({
+    maxHp: 1000,
+    phases: [{ below: 0.95, summon: ["add"], mechanic: "shieldWhileAdds", self: { id: "enrage", turns: 99, power: 1 } }],
+  });
+  resolveGroupRound(c, {}, env());
+  resolveGroupRound(c, { A: { type: "melee", target: c.enemies[0].uid } }, env());
+  expect(c.enemies).toHaveLength(2);
+  expect(c.enemies[0].phasesDone).toEqual([0]);
+  expect(c.enemies[0].shieldWhileAdds).toBe(true);
+  expect(c.players.A.stats.health).toBe(900);
+});
+
+test.each(["pending", "recovering"])("death cancels a heavy move during %s", (state) => {
+  const c = heavyCombat({ maxHp: 200 });
+  const e = c.enemies[0];
+  resolveGroupRound(c, {}, env());
+  if (state === "recovering") resolveGroupRound(c, {}, env());
+  e.hp = 50;
+  const health = c.players.A.stats.health;
+  const { outcome, log } = resolveGroupRound(c, { A: { type: "melee", target: e.uid } }, env());
+  expect(outcome).toBe("victory");
+  expect(e.pending).toBeNull();
+  expect(e.recovering).toBeNull();
+  expect(c.players.A.stats.health).toBe(health);
+  expect(log.join("\n")).not.toContain("unleashes");
+});
+
+test("mandatory split cancels preparation rather than losing its scripted transition", () => {
+  const c = heavyCombat({ maxHp: 1000, phases: [{ below: 0.95, mechanic: "split", into: "shard", count: 2 }] });
+  resolveGroupRound(c, {}, env());
+  resolveGroupRound(c, { A: { type: "melee", target: c.enemies[0].uid } }, env());
+  expect(c.enemies[0].hidden).toBe(true);
+  expect(c.enemies[0].pending).toBeNull();
+  expect(c.enemies[0].recovering).toBeNull();
+  expect(c.enemies.filter((e) => e.linkGroup)).toHaveLength(2);
+  expect(c.players.A.stats.health).toBe(1000);
+});
+
+test("scripted channels remain interruptible and do not become heavy moves", () => {
+  const c = heavyCombat({ abilities: [{ name: "Gravity Well", mechanic: "channel", effect: "gravity", need: 0.005, rounds: 2, weight: 100, cooldown: 6 }] });
+  resolveGroupRound(c, {}, env());
+  expect(c.enemies[0].channel.name).toBe("Gravity Well");
+  expect(c.enemies[0].pending).toBeFalsy();
+  resolveGroupRound(c, { A: { type: "melee", target: c.enemies[0].uid } }, env());
+  expect(c.enemies[0].channel).toBeNull();
+  expect(c.enemies[0].recovering).toBeFalsy();
+});
+
+test.each(["provoke", "renewal"])("group %s remains the sole action even with extra quick actions supplied", (key) => {
+  const members = party("A");
+  members.A.skills[key] = 1;
+  members.A.equipped = [key];
+  members.A.stats.health = 500;
+  const c = heavyCombat({}, members);
+  const { log } = resolveGroupRound(c, {
+    A: {
+      type: "skill", key, target: "A",
+      quickAction: { type: "item", key: "healthPotion", target: "A" },
+      actions: [{ type: "melee", target: c.enemies[0].uid }],
+    },
+  }, env());
+  expect(c.enemies[0].hp).toBe(c.enemies[0].maxHp);
+  expect(c.players.A.spent).toEqual({});
+  expect(c.players.A.stats.power).toBeLessThan(40);
+  expect(log.join("\n")).not.toContain("strikes");
+});
+
+test("a potion remains the whole group action, including in a one-member party", () => {
+  const c = heavyCombat();
+  c.players.A.stats.health = 100;
+  resolveGroupRound(c, { A: { type: "item", key: "healthPotion", target: "A", action: { type: "melee", target: c.enemies[0].uid } } }, env());
+  expect(c.players.A.spent.healthPotion).toBe(1);
+  expect(c.enemies[0].hp).toBe(c.enemies[0].maxHp);
+  expect(c.enemies[0].pending.name).toBe("Broadside");
+});
+
 test.each([[0, 900], [0.25, 925], [0.5, 950], [1, 950]])(
   "group critical resistance %s caps at 50%%",
   (resistance, health) => {

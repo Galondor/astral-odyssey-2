@@ -2,10 +2,10 @@
 
 Planned future updates and content will be listed here.
 
-- [ ] More Workshop Items
+- [X] More Workshop Items
 - [ ] NPC Characters
 - [ ] Long-term Quest System
-- [ ] Combat Rework
+- [X] Combat Rework
 - [ ] Passive & Ultimate Skills
 - [ ] Material Crafting
 - [ ] Subclass System

@@ -23,7 +23,7 @@ export default function QuickGuide({ open, onClose }) {
       }}
     >
       <h2 id='quick-guide-title'>Welcome, adventurer!</h2>
-      <p className='quick-guide-intro'>Four quick tips to get you going.</p>
+      <p className='quick-guide-intro'>Quick tips to get you going.</p>
       <div className='quick-guide-tips'>
         <section>
           <h3>Travel</h3>
@@ -36,6 +36,11 @@ export default function QuickGuide({ open, onClose }) {
         <section>
           <h3>Town</h3>
           <p>Use Lodging (for astra) to restore health, stamina, and power. Town also has supplies, crafting, and gear-selling services.</p>
+        </section>
+        <section>
+          <h3>Combat turns</h3>
+          <p>Solo and PvP turns have one Action and one Quick Action, in either order. Potions, Renewal, and Provoke are Quick Actions. You can spend your Action on a second Quick Action instead. Each skill can be used once per turn. Choose End Turn to forfeit unused slots.</p>
+          <p>Watch for Preparing heavy attacks, Defend against them, and exploit Recovery. Your next Travel begins an interactive training fight once per character. Group combat keeps one action per round: potions and all skills cost that action.</p>
         </section>
         <section>
           <h3>Adventures</h3>

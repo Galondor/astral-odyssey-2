@@ -60,7 +60,7 @@ export const createColosseumEnemy = (wave) => {
     abilities: isBoss
       ? [
           { name: "Shield Bash", power: 1.1, status: { id: "stun", chance: 0.2 }, cooldown: 3 },
-          { name: "Champion's Lunge", power: 1.45, ignoreDefense: 0.2, cooldown: 2 },
+          { name: "Champion's Lunge", power: 1.45, ignoreDefense: 0.2, cooldown: 5, heavy: true, warning: "An armor-piercing lunge is coming." },
         ]
       : tier === "elite"
         ? [{ name: "Spear Thrust", power: 1.25, ignoreDefense: 0.15, cooldown: 2 }]

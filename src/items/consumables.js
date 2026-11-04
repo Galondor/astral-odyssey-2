@@ -265,13 +265,16 @@ export function applyConsumable(player, key, s, { healScale = 1, statuses = [] }
     Math.floor((c.power || 0) * s.maxPower),
     s.maxPower - s.power,
   );
+  const removed = c.cleanse ? statuses.filter(isDebuff) : [];
+  if (healed <= 0 && powerRestored <= 0 && !c.stamina && !removed.length)
+    return { ok: false, message: "That item would restore nothing right now." };
   s.health += healed;
   s.power += powerRestored;
   const staminaRestored = c.stamina
     ? Math.min(Math.floor(c.stamina * s.maxStamina), s.maxStamina - s.stamina)
     : 0;
   if (staminaRestored) s.stamina += staminaRestored;
-  const removed = c.cleanse ? cleanseDebuffs(statuses) : [];
+  if (c.cleanse) cleanseDebuffs(statuses);
   const consumables = { ...player.consumables, [key]: count - 1 };
   if (count - 1 <= 0) delete consumables[key];
   const recovery = [

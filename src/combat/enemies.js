@@ -87,6 +87,8 @@ export const enemyAbilityTooltip = (ability) => {
   if (!ability) return null;
   const stats = [];
   const descriptions = [];
+  if (ability.heavy)
+    descriptions.push("Heavy attack: winds up for one turn, cannot critically hit, then recovers for one turn. " + (ability.warning || "Prepare your defense before it strikes."));
   if (ability.power > 0 && ability.power !== 1)
     stats.push({
       label: "Attack power",
@@ -567,7 +569,7 @@ export const ENEMIES = [
         power: 1.1,
         status: { id: "bleed", turns: 3, power: 0.05, chance: 0.9 },
       },
-      { name: "Savage Pounce", power: 2, cooldown: 3 },
+      { name: "Savage Pounce", power: 2, cooldown: 5, heavy: true, warning: "A powerful pounce is coming." },
     ],
     drops: [
       { key: "wolf_pelt", chance: 1, min: 2, max: 3 },
@@ -680,6 +682,8 @@ export const ENEMIES = [
       },
       {
         name: "Eruption",
+        heavy: true,
+        warning: "An eruption will deal heavy damage and may leave you Vulnerable. Defend or weaken the enemy.",
         power: 2.2,
         status: { id: "vulnerable", turns: 2, power: 0.25, chance: 0.6 },
         cooldown: 3,
@@ -818,7 +822,7 @@ export const ENEMIES = [
         power: 1.3,
         status: { id: "poison", turns: 3, power: 0.03, chance: 0.8 },
       },
-      { name: "Acid Rain", power: 0.8, hits: 2 },
+      { name: "Acid Rain", power: 0.8, hits: 2, cooldown: 5, heavy: true, warning: "Two acid strikes are coming." },
       {
         name: "Absorb",
         power: 0,
@@ -871,7 +875,7 @@ export const ENEMIES = [
         status: { id: "poison", turns: 4, power: 0.035, chance: 1 },
       },
       { name: "Brood Feast", power: 1.2, leech: 0.7, cooldown: 3 },
-      { name: "Skittering Flurry", power: 0.7, hits: 3, cooldown: 3 },
+      { name: "Skittering Flurry", power: 0.7, hits: 3, cooldown: 5, heavy: true, warning: "Three strikes are coming." },
     ],
     phases: [
       {
@@ -902,7 +906,7 @@ export const ENEMIES = [
     astra: 70,
     exp: 120,
     abilities: [
-      { name: "Soul Rend", power: 1.7, leech: 0.75, cooldown: 2 },
+      { name: "Soul Rend", power: 1.7, leech: 0.75, cooldown: 5, heavy: true, warning: "A life-stealing strike is coming." },
       {
         name: "Dread Aura",
         power: 0,
@@ -952,6 +956,8 @@ export const ENEMIES = [
     abilities: [
       {
         name: "Flame Breath",
+        heavy: true,
+        warning: "Heavy fire damage and burning are coming. Defend or prepare a barrier.",
         power: 1.8,
         status: { id: "burn", turns: 4, power: 0.06, chance: 1 },
         cooldown: 3,
@@ -1006,7 +1012,7 @@ export const ENEMIES = [
     exp: 145,
     abilities: [
       { name: "Sandstorm", power: 0, status: { id: "weaken", turns: 3, power: 0.3, chance: 1 }, cooldown: 4 },
-      { name: "Burrowing Charge", power: 1.8, cooldown: 2 },
+      { name: "Burrowing Charge", power: 1.8, cooldown: 5, heavy: true, warning: "The wyrm is lining up a charge." },
       { name: "Wyrm's Bite", power: 1.4, hits: 2, status: { id: "bleed", turns: 3, power: 0.05, chance: 0.6 } },
     ],
     phases: [{ below: 0.5, text: "The Buried Wyrm tears through the dunes in a frenzy!", self: { id: "enrage", turns: 99, power: 0.35 } }],
@@ -1027,7 +1033,7 @@ export const ENEMIES = [
     astra: 95,
     exp: 160,
     abilities: [
-      { name: "Tidal Slam", power: 1.7, status: { id: "stun", chance: 0.3 }, cooldown: 3 },
+      { name: "Tidal Slam", power: 1.7, status: { id: "stun", chance: 0.3 }, cooldown: 5, heavy: true, warning: "A heavy slam may stun you." },
       { name: "Undertow", power: 1.3, leech: 0.5, cooldown: 2 },
       { name: "Maelstrom", power: 0.8, hits: 2, status: { id: "weaken", turns: 2, power: 0.2, chance: 0.5 }, cooldown: 4 },
     ],
@@ -1049,7 +1055,7 @@ export const ENEMIES = [
     astra: 98,
     exp: 165,
     abilities: [
-      { name: "Avalanche Crush", power: 1.8, status: { id: "stun", chance: 0.35 }, cooldown: 3 },
+      { name: "Avalanche Crush", power: 1.8, status: { id: "stun", chance: 0.35 }, cooldown: 5, heavy: true, warning: "A crushing blow may stun you." },
       { name: "Permafrost Armor", power: 0, self: { id: "fortify", turns: 3, power: 0.4 }, cooldown: 5 },
       { name: "Glacier Fist", power: 1.6, below: 0.6 },
     ],
@@ -1072,7 +1078,7 @@ export const ENEMIES = [
     exp: 170,
     abilities: [
       { name: "Rally the Line", power: 0, self: { id: "enrage", turns: 3, power: 0.35 }, cooldown: 5 },
-      { name: "Shield Breaker", power: 1.6, status: { id: "vulnerable", turns: 2, power: 0.25, chance: 0.6 }, cooldown: 3 },
+      { name: "Shield Breaker", power: 1.6, status: { id: "vulnerable", turns: 2, power: 0.25, chance: 0.6 }, cooldown: 5, heavy: true, warning: "A heavy strike may leave you Vulnerable." },
       { name: "Commanding Strike", power: 1.7, status: { id: "weaken", turns: 2, power: 0.2, chance: 0.5 } },
     ],
     phases: [{ below: 0.5, text: "The Siege Captain rallies the remaining forces and presses the attack!", self: { id: "enrage", turns: 99, power: 0.35 } }],

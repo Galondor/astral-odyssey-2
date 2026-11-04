@@ -143,6 +143,7 @@ export const SKILLS = {
   },
   renewal: {
     name: "Renewal",
+    actionCost: "quick",
     description: "Blesses the target with lingering vitality.",
     type: "support",
     target: "ally",
@@ -196,6 +197,7 @@ export const SKILLS = {
   },
   provoke: {
     name: "Provoke",
+    actionCost: "quick",
     description: "Bellow a challenge and brace for the blows.",
     type: "support",
     target: "self",
@@ -300,6 +302,7 @@ export const skillTooltip = (key, level, extra, player = getPlayer()) => {
       subtitle: level > 0 ? `Level ${level}/${s.maxLevel}` : "Not learned",
       description: [s.description, ...s.describe(shown), "Outside group combat, support skills always target yourself."],
       stats: [
+        { label: "Action cost", value: s.actionCost === "quick" ? "Quick in solo/PvP; Action in group combat" : "Action" },
         { label: "Power cost", value: skillCost(player, key) },
         { label: "Type", value: "Support" },
         { label: "Target", value: TARGET_LABELS[s.target] },
@@ -307,6 +310,7 @@ export const skillTooltip = (key, level, extra, player = getPlayer()) => {
       footer: extra,
     };
   const stats = [
+    { label: "Action cost", value: "Action" },
     { label: "Power cost", value: skillCost(player, key) },
     { label: "Damage", value: `${Math.round(skillMultiplier(key, level) * 100)}% ${s.type} attack` },
   ];

@@ -35,7 +35,7 @@ import { SKILLS, applySupportSkill, skillMultiplier } from "../character/skills"
  enemy  = built by the dungeon (see groupDungeons.js) plus runtime fields:
    uid, hp, statuses, cooldowns, phasesDone, threat { [memberId]: n }, defending, dead, hidden,
    immune ("melee" | "magic"), immuneCycle, shieldWhileAdds, linkGroup, pending (telegraphed ability),
-   channel, rewind, collapse, corruptionReflect
+   recovering (released heavy ability), channel, rewind, collapse, corruptionReflect
 
  Intents (one per member per round): { type: "melee" | "magic" | "skill" | "defend" | "guard" | "item" | "pass",
    key (skill/consumable), target (enemy uid, or member id for support skills/items/guard) }
@@ -44,7 +44,8 @@ import { SKILLS, applySupportSkill, skillMultiplier } from "../character/skills"
  Enemy ability extras (on top of the solo fields name, power, hits, status, self, heal, leech, ignoreDefense,
  cooldown, below, weight, text):
    aoe        hits every living player
-   telegraph  announced a round early, then hits the whole party; Defending or being Guarded cuts it to 35%
+   telegraph  wind up, committed noncritical party strike, then one recovery action;
+              Defending or being Guarded cuts the strike to 35%
    mechanic   "rewind" | "channel" | "soulLink" | "doom" | "mirror" | "steal" (see enemyAbility)
  Phase extras: summon [template ids], mechanic "shieldWhileAdds" | "split" | "collapse".
 */
@@ -341,6 +342,7 @@ function dieIfDone(c, e, log) {
   e.diedRound = c.round;
   e.channel = null;
   e.pending = null;
+  e.recovering = null;
   log.push(`[gold]${The(e)} is defeated![/gold]`);
 }
 
@@ -369,6 +371,8 @@ function checkPhases(c, e, log, env) {
   if (e.hp <= 0) return;
   (e.phases || []).forEach((phase, index) => {
     if (e.phasesDone.includes(index) || e.hp / e.maxHp >= phase.below) return;
+    // Scripted transitions must still run; ordinary HP buffs wait until the heavy cycle ends.
+    if ((e.pending || e.recovering) && !phase.mechanic && !phase.summon?.length && phase.immune === undefined) return;
     e.phasesDone.push(index);
     if (phase.text) log.push(`[red]${phase.text}[/red]`);
     if (phase.self) addStatus(e.statuses, phase.self.id, phase.self);
@@ -389,6 +393,7 @@ function splitEnemy(c, e, phase, log, env) {
   e.channel = null;
   e.rewind = null;
   e.pending = null;
+  e.recovering = null;
   const count = phase.count || 3;
   const hp = Math.max(1, Math.round((e.hp * (phase.shardHp || 0.45))));
   for (let i = 0; i < count; i += 1) {
@@ -731,10 +736,11 @@ function enemyStrike(c, e, target, ability, log, { scale = 1, telegraphed = fals
     damageEnemy(c, e, riposte, log, c.env, victim);
     return 0;
   }
-  let dmg = roll(e.attack[0], e.attack[1]) * (ability?.power ?? 1) * scale;
-  const crit = Math.random() < (e.critical || 0);
+  const attack = telegraphed ? ability.committedAttack || e.attack : e.attack;
+  let dmg = roll(attack[0], attack[1]) * (ability?.power ?? 1) * scale;
+  const crit = !telegraphed && Math.random() < (e.critical || 0);
   if (crit) dmg *= 2;
-  dmg *= outgoingMult(e.statuses);
+  dmg *= telegraphed ? ability.committedOutgoing ?? outgoingMult(e.statuses) : outgoingMult(e.statuses);
   dmg = Math.max(1, Math.round(dmg - (s.defense || 0) * (1 - (ability?.ignoreDefense || 0))));
   const blocked = victim.defending || !!guardian;
   if (blocked) dmg = Math.max(1, Math.floor(dmg * (victim.cls === "Swordsman" ? BULWARK_DAMAGE_TAKEN : 0.5)));
@@ -894,6 +900,13 @@ function enemyAct(c, e, log) {
     return;
   }
   e.stunGrace = false;
+  if (e.recovering) {
+    const name = e.recovering.name;
+    e.recovering = null;
+    log.push(`${The(e)} spends its action recovering from ${name}. Ready.`);
+    checkPhases(c, e, log, c.env);
+    return;
+  }
   if (e.channel) {
     e.channel.rounds -= 1;
     if (e.channel.rounds <= 0) fireChannel(c, e, log);
@@ -903,9 +916,10 @@ function enemyAct(c, e, log) {
   if (e.pending) {
     const ability = e.pending;
     e.pending = null;
+    e.recovering = { name: ability.name };
     log.push(`[red]${The(e)} unleashes ${ability.name}![/red]`);
     for (const m of livingMembers(c))
-      if (!e.dead) enemyStrike(c, e, m, ability, log, { telegraphed: true });
+      if (!e.dead && !e.hidden) enemyStrike(c, e, m, ability, log, { telegraphed: true });
     return;
   }
   if (!livingMembers(c).length) return;
@@ -919,7 +933,7 @@ function enemyAct(c, e, log) {
     const ability = action.ability;
     if (ability.cooldown) e.cooldowns[ability.name] = ability.cooldown;
     if (ability.telegraph) {
-      e.pending = ability;
+      e.pending = { ...ability, committedAttack: [...e.attack], committedOutgoing: outgoingMult(e.statuses) };
       log.push(`[red]⚠ ${The(e)} prepares ${ability.name}! ${ability.warning || "Defend or guard your allies next round!"}[/red]`);
       return;
     }

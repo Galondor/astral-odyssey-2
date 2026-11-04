@@ -5,6 +5,7 @@ import {
   takeOpeningReplies,
 } from "../combat/combat";
 import { getRandomEnemy, hasEnemy } from "../combat/enemies";
+import { TUTORIAL_ENEMY } from "../combat/tutorial";
 import { addConsumable, getKeyItemEffect } from "../items/consumables";
 import { MATERIALS, addMaterial, getMaterials, spendMaterials } from "../items/materials";
 import { getPlayer, setPlayer as savePlayer } from "../character/player";
@@ -882,6 +883,13 @@ export function pickTravelEvent(ctx, pool = travelEvents, rng = Math.random) {
 }
 
 export function runTravelEvent({ player, setPlayer }) {
+  if (player?.stats && !player.combatTutorialCompleted) {
+    startCombat(TUTORIAL_ENEMY);
+    return {
+      reply: "A Training Sentinel offers a safe combat lesson. Follow the highlighted instructions; your own potions and pre-training resources are preserved.",
+      next: "combat",
+    };
+  }
   let region = getRegion(player);
   // Saves from before region level requirements may sit in a region they can no longer enter.
   if (!canEnterRegion(player, region)) {

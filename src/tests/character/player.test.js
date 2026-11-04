@@ -426,6 +426,82 @@ test("gameplay schedules a save immediately rather than after an inactivity wind
   expect(records["users/alice"]).toMatchObject({ saveRevision: 2, player: { astra: 123 } });
 });
 
+test("saves wait for leaderboard publication before completing or writing newer progress", async () => {
+  existingPlayer();
+  await loadPlayer("alice");
+  const { publishLeaderboardEntry } = require("../../world/leaderboards");
+  let finishPublication;
+  let publicationStarted;
+  const started = new Promise((resolve) => { publicationStarted = resolve; });
+  publishLeaderboardEntry.mockImplementationOnce(() => {
+    publicationStarted();
+    return new Promise((resolve) => { finishPublication = resolve; });
+  });
+  setPlayer({ astra: 123 });
+  let finished = false;
+  const first = flushPlayer().then(() => { finished = true; });
+  await started;
+  expect(records["users/alice"].player.astra).toBe(123);
+  expect(finished).toBe(false);
+
+  setPlayer({ astra: 456 });
+  const second = flushPlayer();
+  await Promise.resolve();
+  expect(records["users/alice"].player.astra).toBe(123);
+
+  finishPublication();
+  await first;
+  await second;
+  expect(finished).toBe(true);
+  expect(records["users/alice"].player.astra).toBe(456);
+  expect(publishLeaderboardEntry).toHaveBeenLastCalledWith("alice", expect.objectContaining({ astra: 456 }));
+});
+
+test("leaderboard publication failures are reported without failing confirmed progress saves", async () => {
+  existingPlayer();
+  await loadPlayer("alice");
+  const { publishLeaderboardEntry } = require("../../world/leaderboards");
+  const error = new Error("Leaderboard unavailable");
+  publishLeaderboardEntry.mockRejectedValueOnce(error);
+  const warning = jest.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    setPlayer({ astra: 123 });
+    await flushPlayer();
+    expect(records["users/alice"].player.astra).toBe(123);
+    expect(getSaveStatus().error).toBeNull();
+    expect(warning).toHaveBeenCalledWith("Couldn't update your leaderboard scores", error);
+    setPlayer({ astra: 456 });
+    await flushPlayer();
+    expect(records["users/alice"].player.astra).toBe(456);
+  } finally {
+    warning.mockRestore();
+  }
+});
+
+test("leaving a character waits for its saved leaderboard scores", async () => {
+  existingPlayer();
+  await loadPlayer("alice");
+  const { unloadPlayer } = require("../../character/player");
+  const { publishLeaderboardEntry } = require("../../world/leaderboards");
+  let finishPublication;
+  let publicationStarted;
+  const started = new Promise((resolve) => { publicationStarted = resolve; });
+  publishLeaderboardEntry.mockImplementationOnce(() => {
+    publicationStarted();
+    return new Promise((resolve) => { finishPublication = resolve; });
+  });
+  setPlayer({ astra: 123 });
+  const leaving = unloadPlayer();
+  await started;
+  expect(getPlayer()).toMatchObject({ name: "Alice", astra: 123 });
+  expect(localStorage.getItem("PlayerMeta")).not.toBeNull();
+
+  finishPublication();
+  await leaving;
+  expect(getPlayer()).toBeNull();
+  expect(localStorage.getItem("PlayerMeta")).toBeNull();
+});
+
 test("changes made while saving remain dirty and are saved in the next revision", async () => {
   existingPlayer();
   await loadPlayer("alice");

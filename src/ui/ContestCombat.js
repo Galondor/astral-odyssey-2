@@ -3,7 +3,9 @@ import { getContestStatus, sendContestCommand, subscribeContest } from "../world
 import { getConsumables, consumableTooltip, isCombatConsumable } from "../items/consumables";
 import { getEquippedSkills, getSkillLevel, SKILLS, skillCost, skillTooltip } from "../character/skills";
 import { STATUSES } from "../combat/statuses";
+import { actionCostLabel, getActionAvailability } from "../combat/actionEconomy";
 import Tooltip from "./Tooltip";
+import ActionSlots from "./ActionSlots";
 
 export const getContestCombatView = ({ match, uid }) => {
   const fighter = match?.fighters?.[uid];
@@ -43,7 +45,7 @@ export const getContestCombatView = ({ match, uid }) => {
         marrowWard: opponent.combat?.wardMax > 0
           ? { current: opponent.combat.ward, max: opponent.combat.wardMax } : null,
       },
-      round: Math.floor((match.revision || 0) / 2) + 1,
+      round: Math.floor(((match.turnCount || 1) - 1) / 2) + 1,
       stats: fighter.player.stats,
       defending: fighter.defending,
       playerStatuses: fighter.statuses || [],
@@ -87,34 +89,51 @@ export default function ContestCombat({ onLeave, navigationModal }) {
   const action = (type, key) => act({ type: "action", action: { type, ...(key ? { key } : {}) } });
   const disabled = busy || status.saving || !status.ready || !status.yourTurn || status.remainingMs === 0;
   const stunned = fighter?.statuses?.some((effect) => STATUSES[effect.id]?.kind === "skip");
+  const actions = {
+    actionAvailable: true, quickAvailable: true, ...fighter?.combat?.actions,
+    usedSkills: fighter?.combat?.actions?.usedSkills || [],
+  };
+  const costLabel = (type, key) => actionCostLabel(type, key, "contest", actions);
+  const actionOption = (label, type, key, tooltip) => {
+    const available = type === "pass" ? { ok: true } : getActionAvailability(actions, type, key);
+    const powerCost = type === "skill" ? skillCost(fighter.player, key) : null;
+    const reason = stunned && type !== "pass" ? "Stunned: End Turn to recover." :
+      !available.ok ? available.message :
+        powerCost != null && fighter.player.stats.power < powerCost ? `You need ${powerCost} Power.` : "";
+    const cost = type === "skill" ? `${powerCost} Power` :
+      type === "pass" || type === "consume" ? "" : costLabel(type, key);
+    return {
+      label: `${label}${cost ? ` (${cost})` : ""}`,
+      tooltip,
+      reason,
+      disabled: disabled || !!reason,
+      select: () => action(type, key),
+    };
+  };
   let options = [];
   if (match?.winner) {
     options = [{ label: "Return to Arena", disabled: busy || status.saving, select: onLeave }];
   } else if (fighter) {
     const back = { label: "Back", select: () => setMenu("combat") };
     if (menu === "skills") {
-      options = [back, ...getEquippedSkills(fighter.player).map((key) => ({
-        label: SKILLS[key].name,
-        tooltip: skillTooltip(key, getSkillLevel(fighter.player, key), "Takes your turn", fighter.player),
-        disabled: disabled || stunned || fighter.player.stats.power < skillCost(fighter.player, key),
-        select: () => action("skill", key),
-      }))];
+      options = [back, ...getEquippedSkills(fighter.player).map((key) => actionOption(
+        SKILLS[key].name, "skill", key,
+        skillTooltip(key, getSkillLevel(fighter.player, key), costLabel("skill", key), fighter.player),
+      )), actionOption("End Turn", "pass")];
     } else if (menu === "items") {
-      options = [back, ...getConsumables(fighter.player).filter(isCombatConsumable).map((item) => ({
-        label: `${item.name} x${item.count}`,
-        tooltip: consumableTooltip(item.key, "Takes your turn"),
-        disabled: disabled || stunned,
-        select: () => action("consume", item.key),
-      }))];
+      options = [back, ...getConsumables(fighter.player).filter(isCombatConsumable).map((item) => actionOption(
+        `${item.name} x${item.count}`, "consume", item.key,
+        consumableTooltip(item.key, costLabel("consume", item.key)),
+      )), actionOption("End Turn", "pass")];
     } else {
       options = [
-        { label: "Melee Attack", select: () => action("melee") },
-        { label: "Magic Attack", select: () => action("magic") },
-        { label: "Defend", select: () => action("defend") },
-        { label: "Use Item", select: () => setMenu("items") },
-        { label: "Skills", select: () => setMenu("skills") },
-        { label: "Pass", select: () => action("pass"), allowStunned: true },
-      ].filter((option) => !stunned || option.allowStunned).map((option) => ({ ...option, disabled }));
+        actionOption("Melee Attack", "melee"),
+        actionOption("Magic Attack", "magic"),
+        actionOption("Defend", "defend"),
+        { label: "Use Item", disabled, select: () => setMenu("items") },
+        { label: "Skills", disabled, select: () => setMenu("skills") },
+        actionOption("End Turn", "pass"),
+      ];
       options.push({
         label: "Forfeit Contest", disabled: busy || status.saving || !status.ready,
         select: () => act({ type: "forfeit" }),
@@ -138,17 +157,22 @@ export default function ContestCombat({ onLeave, navigationModal }) {
     {(error || status.error) && <p role='alert'>{error || status.error}</p>}
     {!match?.winner && <p role='status'>{!status.ready ? "Connecting to Contest..." :
       `${status.yourTurn ? "Your turn" : `${opponent?.player.name}'s turn`} - ${Math.ceil(status.remainingMs / 1000)} seconds remaining.`}</p>}
+    {fighter && !match?.winner && <ActionSlots actions={actions} />}
     {menu === "skills" && !match?.winner && <>
       <p>Choose a skill to use.</p>
       {!getEquippedSkills(fighter?.player).length && <p>No skills equipped. Equip learned skills in Progression before joining Contest.</p>}
     </>}
     {menu === "items" && !match?.winner && <p>Choose an item to use.</p>}
     <div className='input-buttons'>
-      {options.map((option, index) => <Tooltip disableOnMobile={menu === "items"} key={option.label} content={option.tooltip}>
-        <button type='button' className='buttons input-button' disabled={option.disabled} onClick={option.select}>
-          {index + 1}. {option.label}
-        </button>
-      </Tooltip>)}
+      {options.map((option, index) => <div key={option.label}>
+        <Tooltip disableOnMobile={menu === "items"} content={option.tooltip}>
+          <button type='button' className='buttons input-button' disabled={option.disabled} onClick={option.select}
+            aria-describedby={option.reason ? `contest-action-reason-${index}` : undefined}>
+            {index + 1}. {option.label}
+          </button>
+        </Tooltip>
+        {option.reason && <small id={`contest-action-reason-${index}`}>{option.reason}</small>}
+      </div>)}
     </div>
   </div>;
 }

@@ -128,6 +128,44 @@ test("the session automatically forfeits an expired turn after exactly 60 second
   expect(getContestStatus().match.winner).toBe("bob");
 });
 
+test("a partial turn at 59 seconds still times out at the original 60-second deadline", async () => {
+  const matchId = state.entries.alice.matchId;
+  state.matches[matchId].fighters.alice.player.stats.health = 20;
+  subscriptions.contest({ val: () => state });
+  jest.advanceTimersByTime(59000);
+  await settle();
+  await sendContestCommand({ type: "action", action: { type: "consume", key: "healthPotion" } });
+  expect(getContestStatus().remainingMs).toBe(1000);
+  expect(getContestStatus().yourTurn).toBe(true);
+  expect(current.consumables.healthPotion).toBe(1);
+  jest.advanceTimersByTime(1000);
+  await settle();
+  expect(update).toHaveBeenCalledTimes(2);
+  expect(current.records.playerDeaths).toBe(1);
+  expect(current.consumables.healthPotion).toBe(1);
+  expect(getContestStatus().match.winner).toBe("bob");
+});
+
+test("reconnecting preserves partial slots, deadline and exactly-once spending", async () => {
+  const matchId = state.entries.alice.matchId;
+  state.matches[matchId].fighters.alice.player.stats.health = 20;
+  subscriptions.contest({ val: () => state });
+  await sendContestCommand({ type: "action", action: { type: "consume", key: "healthPotion" } });
+  const deadline = getContestStatus().match.deadline;
+  stop();
+  await settle();
+  jest.advanceTimersByTime(10000);
+  stop = startContest();
+  await settle();
+  const status = getContestStatus();
+  expect(status.match.deadline).toBe(deadline);
+  expect(status.remainingMs).toBe(50000);
+  expect(status.yourTurn).toBe(true);
+  expect(status.match.fighters.alice.combat.actions).toMatchObject({ actionAvailable: true, quickAvailable: false });
+  expect(current.consumables.healthPotion).toBe(1);
+  expect(current.contestProgress.spent.healthPotion).toBe(1);
+});
+
 test("a stale lobby revision is retried without awarding duplicate results", async () => {
   update.mockRejectedValueOnce(Object.assign(new Error("Stale revision"), { code: "PERMISSION_DENIED" }));
   await sendContestCommand({ type: "forfeit" });

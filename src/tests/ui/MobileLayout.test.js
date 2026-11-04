@@ -105,7 +105,7 @@ test("real mobile scenes keep the existing labels and run Town through the exist
 test("real mobile combat keeps its existing actions and blocks Town", () => {
   startCombat({ name: "Slime", tier: "basic", level: 15, maxHp: 80, speed: 0 });
   render(<Game uid="layout-fixture" onLogout={jest.fn()} onMainMenu={jest.fn()} />);
-  ["Melee Attack", "Magic Attack", "Defend", "Use Item", "Skills", "Pass"].forEach(name =>
+  ["Melee Attack", "Magic Attack", "Defend", "Use Item", "Skills", "End Turn"].forEach(name =>
     expect(screen.getByRole("button", { name })).toBeTruthy());
   const navigation = screen.getByRole("navigation", { name: "Mobile navigation" });
   expect(within(navigation).getByRole("button", { name: "Town" }).disabled).toBe(true);
@@ -113,6 +113,33 @@ test("real mobile combat keeps its existing actions and blocks Town", () => {
   fireEvent.click(within(navigation).getByRole("button", { name: "Character" }));
   expect(screen.queryByRole("button", { name: "Melee Attack" })).toBeNull();
   expect(within(document.querySelector(".game-content")).getByRole("button", { name: "Combat" })).toBeTruthy();
+});
+
+test("interactive training completes through the real mobile combat controls", () => {
+  const originalStats = { ...player.stats };
+  render(<Game uid="layout-fixture" onLogout={jest.fn()} onMainMenu={jest.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Travel Cost 1 Stamina" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  expect(screen.getByLabelText("Combat tutorial").textContent).toContain("Use your Action");
+  captureLayout("combat-tutorial");
+  expect(screen.getByRole("button", { name: "Defend" }).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Melee Attack" }));
+  expect(screen.getByRole("button", { name: "Action: Used" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Use Item" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Health Potion x1$/ }));
+  expect(screen.getByLabelText("Combat tutorial").textContent).toContain("Read the telegraph");
+  captureLayout("combat-telegraph");
+  fireEvent.click(screen.getByRole("button", { name: "Defend" }));
+  fireEvent.click(screen.getByRole("button", { name: "End Turn" }));
+  expect(screen.getByLabelText("Combat tutorial").textContent).toContain("Exploit Recovery");
+  fireEvent.click(screen.getByRole("button", { name: "Magic Attack" }));
+  fireEvent.click(screen.getByRole("button", { name: "End Turn" }));
+  fireEvent.click(screen.getByRole("button", { name: "Melee Attack" }));
+  expect(screen.queryByLabelText("Combat tutorial")).toBeNull();
+  expect(player.combatTutorialCompleted).toBe(true);
+  expect(player.consumables.healthPotion).toBe(2);
+  expect(player.stats.health).toBe(originalStats.health);
+  expect(player.stats.stamina).toBe(originalStats.stamina - 1);
 });
 
 test("resizing the real Character screen to desktop restores the combined layout", () => {

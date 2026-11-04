@@ -42,6 +42,8 @@ import {
 } from "./enemies";
 import { MATERIALS, addToMaterials } from "../items/materials";
 import { recordQuestKill } from "../world/quests";
+import { freshActions, getActionAvailability } from "./actionEconomy";
+import { TUTORIAL_STEPS, tutorialActionError } from "./tutorial";
 
 const BASE_DROP_CHANCE = 0.25;
 
@@ -72,13 +74,38 @@ const setPlayer = (patch) => {
   else setSavedPlayer(patch);
 };
 
-export const getEnemy = () => enemy;
+const restoreSavedCombat = () => {
+  if (enemy || contestContext) return;
+  const saved = getSavedPlayer()?.combatState;
+  if (!saved) return;
+  enemy = { statuses: [], cooldowns: {}, phasesDone: [], abilities: [], phases: [], ...saved.enemy };
+  fight = restoreFight({ ...saved.fight, ab: getAbilityTotals(getSavedPlayer()) });
+  playerStatuses = saved.playerStatuses || [];
+  playerDefending = !!saved.playerDefending;
+};
+export const getEnemy = () => {
+  restoreSavedCombat();
+  return enemy;
+};
+export const getCombatActions = () => fight?.actions || freshActions();
+export const getCombatTutorial = () => fight?.tutorial
+  ? { ...TUTORIAL_STEPS[fight.tutorial.step], step: fight.tutorial.step + 1, total: TUTORIAL_STEPS.length }
+  : null;
+export const getCombatConsumables = () => fight?.tutorial
+  ? { healthPotion: fight.tutorial.step <= 1 ? 1 : 0 }
+  : getPlayer()?.consumables || {};
 export const getCombatRound = () => fight?.round ?? null;
 export const isPlayerDefending = () => playerDefending;
 export const getPlayerStatuses = () => playerStatuses;
 export const getMarrowWard = () =>
   fight?.wardMax > 0 ? { current: fight.ward, max: fight.wardMax } : null;
-export const endCombat = () => {
+export const endCombat = ({ preserveSaved = false } = {}) => {
+  if (!contestContext && !preserveSaved && getSavedPlayer()?.combatState) {
+    setSavedPlayer({
+      combatState: null,
+      ...(fight?.tutorial ? { stats: fight.tutorial.originalStats } : {}),
+    });
+  }
   enemy = null;
   playerDefending = false;
   playerStatuses = [];
@@ -135,6 +162,8 @@ export const startCombat = (template, { enemyFirst = false } = {}) => {
     ab,
     cls: p.class,
     round: 1,
+    actions: freshActions(),
+    ...(template.tutorial ? { tutorial: { step: 0, originalStats: { ...p.stats } } } : {}),
     secondWindUsed: false,
     combo: 0,
     kinds: new Set(),
@@ -159,6 +188,9 @@ export const startCombat = (template, { enemyFirst = false } = {}) => {
     fight.wardMax = Math.round((p.stats?.maxHealth || 0) * 0.2);
     fight.ward = fight.wardMax;
   }
+  if (template.tutorial) {
+    setPlayer({ stats: { ...p.stats, health: Math.max(1, Math.floor(p.stats.maxHealth * 0.6)) } });
+  }
 
   // The faster combatant acts first; ties go to the player.
   const speed = Math.round(
@@ -176,7 +208,21 @@ export const startCombat = (template, { enemyFirst = false } = {}) => {
   } else {
     openingReplies.push("You are faster and act first!");
   }
+  if (!contestContext) saveCombatState();
 };
+
+function saveCombatState() {
+  const combatState = combatSnapshot();
+  if (combatState) setPlayer({ combatState });
+}
+
+function combatSnapshot() {
+  // Scripted dungeon/world encounters own their restart and callback lifecycle.
+  if (!enemy || contestContext || enemy.dungeon || enemy.labyrinth || enemy.colosseum || enemy.worldBossCycle) return null;
+  return {
+    enemy, fight: serializeFight(fight), playerStatuses, playerDefending,
+  };
+}
 
 // ---- Statuses ----
 
@@ -404,7 +450,7 @@ function enemyStrike(s, replies, ability) {
       `Ability power: ${baseRoll} × ${abilityMultiplier} = ${dmg}.`,
     );
   let critical = false;
-  if (Math.random() < (enemy.critical || 0)) {
+  if (!ability?.heavy && Math.random() < (enemy.critical || 0)) {
     dmg *= 2;
     critical = true;
     replies.push(`${enemy.name} lands a critical hit!`);
@@ -515,6 +561,20 @@ function enemyStrike(s, replies, ability) {
 // Runs the enemy's turn against the stats copy `s` (mutated). Adds messages to `replies`.
 // Returns "victory" (the enemy died to a counter), "collapse" (the player fell) or null.
 function enemyTurn(s, replies) {
+  if (enemy.recovering) {
+    for (const key of Object.keys(enemy.cooldowns)) enemy.cooldowns[key] = Math.max(0, enemy.cooldowns[key] - 1);
+    const stun = enemy.statuses.findIndex((st) => STATUSES[st.id].kind === "skip");
+    if (stun >= 0) {
+      enemy.statuses.splice(stun, 1);
+      enemy.stunGrace = true;
+      replies.push(`The ${enemy.name} is stunned; recovery is delayed.`);
+      return null;
+    }
+    enemy.recovering = false;
+    replies.push(`The ${enemy.name} recovers and cannot act this turn.`);
+    return null;
+  }
+  if (!enemy.pending)
   for (const [i, phase] of (enemy.phases || []).entries()) {
     if (enemy.phasesDone.includes(i) || enemy.hp / enemy.maxHp >= phase.below)
       continue;
@@ -539,7 +599,13 @@ function enemyTurn(s, replies) {
 
   const wasDefending = enemy.defending;
   enemy.defending = false;
-  const action = chooseEnemyAction(wasDefending);
+  if (enemy.tutorial && !enemy.pending) {
+    enemy.pending = enemy.abilities[0];
+    replies.push("The Training Sentinel prepares Training Slam! Defend before ending your next turn.");
+    return null;
+  }
+  const committed = enemy.pending;
+  const action = committed ? { type: "skill", skill: committed } : chooseEnemyAction(wasDefending);
 
   if (action.type === "defend") {
     enemy.defending = true;
@@ -548,7 +614,23 @@ function enemyTurn(s, replies) {
   }
 
   const ability = action.type === "skill" ? action.skill : null;
-  if (ability?.cooldown) enemy.cooldowns[ability.name] = ability.cooldown;
+  if (ability?.heavy && !committed) {
+    enemy.pending = ability;
+    if (ability.cooldown) enemy.cooldowns[ability.name] = ability.cooldown;
+    replies.push(`The ${enemy.name} prepares ${ability.name}! ${ability.warning || "Defend or prepare protection before ending your next turn."}`);
+    return null;
+  }
+  if (committed) {
+    enemy.pending = null;
+    enemy.recovering = true;
+    if (enemy.tutorial) {
+      const damage = Math.max(1, Math.round(s.maxHealth * (playerDefending ? 0.08 : 0.2)));
+      s.health = Math.max(1, s.health - damage);
+      replies.push(`The Training Sentinel releases Training Slam! Your guard reduces it to ${damage} damage. It is now Recovering.`);
+      return null;
+    }
+  }
+  if (ability?.cooldown && !committed) enemy.cooldowns[ability.name] = ability.cooldown;
   const power = ability ? (ability.power ?? 1) : 1;
   const buffSelf = () => {
     if (!ability?.self) return;
@@ -716,6 +798,13 @@ function settle(outcome, p, s, replies, patch) {
     setPlayer({ ...patch, stats: s });
     return { replies, over: !!outcome, outcome };
   }
+  if (fight.tutorial && outcome === "victory") {
+    const originalStats = fight.tutorial.originalStats;
+    setPlayer({ combatTutorialCompleted: true, combatState: null, stats: originalStats });
+    replies.push("Training complete! Your health and resources are restored to their pre-training values. Your own items were not spent. On future turns choose an Action and a Quick Action in either order, or two Quick Actions.");
+    endCombat();
+    return { replies, over: true, outcome, turnEnded: true };
+  }
   const increments = {};
   if (outcome === "victory" && ["basic", "elite", "boss"].includes(enemy.tier))
     increments[`${enemy.tier}EnemiesKilled`] = 1;
@@ -738,7 +827,7 @@ function settle(outcome, p, s, replies, patch) {
     setPlayer({ ...patch, stats: s });
     return { replies, over: true, outcome };
   }
-  setPlayer({ ...patch, stats: s });
+  setPlayer({ ...patch, stats: s, combatState: combatSnapshot() });
   return { replies, over: false, outcome: null };
 }
 
@@ -754,20 +843,47 @@ function finishRound(p, s, replies, patch) {
     });
     if (fight.cls === "Spellcaster" && s.power < s.maxPower) s.power += 1;
     fight.round += 1;
-    return settle(s.health <= 0 ? "collapse" : enemy.hp <= 0 ? "victory" : null, p, s, replies, patch);
+    fight.actions = freshActions();
+    return { ...settle(s.health <= 0 ? "collapse" : enemy.hp <= 0 ? "victory" : null, p, s, replies, patch), turnEnded: true };
   }
   const outcome = enemyTurn(s, replies) || endOfRound(s, replies);
   playerDefending = false;
+  if (!outcome) {
+    fight.round += 1;
+    fight.actions = freshActions();
+  }
   const result = settle(outcome, p, s, replies, patch);
   if (!result.over) {
-    fight.round += 1;
     if (Number.isFinite(enemy.maxRounds) && enemy.maxRounds > 0 && fight.round > enemy.maxRounds) {
       replies.push(`The ${enemy.name} forces you from the fight after ${enemy.maxRounds} rounds. Your damage contribution is recorded.`);
       endCombat();
       result.over = true;
     }
   }
-  return result;
+  return { ...result, turnEnded: true };
+}
+
+function actionError(type, key) {
+  if (!enemy || !fight) return "There is nothing to fight.";
+  if (fight.tutorial) {
+    const error = tutorialActionError(fight.tutorial.step, type, key);
+    if (error) return error;
+  }
+  return type === "pass" ? null : getActionAvailability(fight.actions, type, key).message;
+}
+
+const rejectedAction = (message) => ({ replies: [message], over: false, used: false, turnEnded: false });
+
+function completeAction(type, key, p, s, replies, patch = {}) {
+  const { slot } = getActionAvailability(fight.actions, type, key);
+  fight.actions[slot] = false;
+  if (type === "skill") fight.actions.usedSkills.push(key);
+  if (fight.tutorial) fight.tutorial.step += 1;
+  if (s.health <= 0 || enemy.hp <= 0)
+    return { ...settle(s.health <= 0 ? "collapse" : "victory", p, s, replies, patch), turnEnded: true };
+  if (!fight.actions.actionAvailable && !fight.actions.quickAvailable)
+    return finishRound(p, s, replies, patch);
+  return { ...settle(null, p, s, replies, patch), turnEnded: false };
 }
 
 // If the player is stunned their action is forfeited. Returns true if so.
@@ -788,6 +904,11 @@ function loseTurnToStun(replies) {
 // Runs one round of attacking, optionally with an equipped skill. Returns { replies, over, used } and updates the saved player.
 // used is false (and no turn passes) if the skill can't be used.
 export function attackRound(type, skillKey) {
+  if ((skillKey && !SKILLS[skillKey]) || (!skillKey && !["melee", "magic"].includes(type)))
+    return rejectedAction("Choose an available attack or equipped skill.");
+  const actionType = skillKey ? "skill" : type;
+  const error = actionError(actionType, skillKey);
+  if (error) return rejectedAction(error);
   const p = getPlayer();
   const s = { ...p.stats };
   const replies = [];
@@ -795,7 +916,7 @@ export function attackRound(type, skillKey) {
   const level = skill ? getSkillLevel(p, skillKey) : 0;
   let cost = 0;
   if (skill) {
-    if (level < 1)
+    if (level < 1 || !(p.equippedSkills || []).includes(skillKey))
       return {
         replies: ["You haven't learned that skill."],
         over: false,
@@ -810,9 +931,15 @@ export function attackRound(type, skillKey) {
       };
     type = skill.type;
   }
-  playerDefending = false;
   if (loseTurnToStun(replies))
     return { ...finishRound(p, s, replies, {}), used: true };
+  if (fight.tutorial) {
+    const final = fight.tutorial.step === TUTORIAL_STEPS.length - 1;
+    const dealt = final ? enemy.hp : Math.min(25, enemy.hp - 1);
+    enemy.hp = final ? 0 : Math.max(1, enemy.hp - 25);
+    replies.push(`Your training strike deals ${dealt} damage.`);
+    return { ...completeAction(type, null, p, s, replies), used: true };
+  }
   s.power -= cost;
   const echo = advanceEcho(fight, fight.ab);
 
@@ -827,7 +954,11 @@ export function attackRound(type, skillKey) {
     }
     playerStatuses = self.statuses;
     fight.combo += 1;
-    return { ...finishRound(p, s, replies, {}), used: true };
+    if (fight.cls === "Spellblade") {
+      fight.spellstrike = true;
+      replies.push("Your weapon crackles with energy!");
+    }
+    return { ...completeAction(actionType, skillKey, p, s, replies), used: true };
   }
 
   const { ab, cls } = fight;
@@ -1112,18 +1243,20 @@ export function attackRound(type, skillKey) {
   }
 
   if (enemy.hp <= 0)
-    return { ...settle("victory", p, s, replies, {}), used: true };
-  return { ...finishRound(p, s, replies, {}), used: true };
+    return { ...settle("victory", p, s, replies, {}), used: true, turnEnded: true };
+  return { ...completeAction(actionType, skillKey, p, s, replies), used: true };
 }
 
 // Skipping your turn: a stun is used up, otherwise you simply wait while the enemy acts.
 export function passRound() {
+  const error = actionError("pass");
+  if (error) return rejectedAction(error);
   const p = getPlayer();
   const s = { ...p.stats };
   const replies = [];
-  playerDefending = false;
-  if (!loseTurnToStun(replies)) replies.push("You pass your turn.");
-  return finishRound(p, s, replies, {});
+  if (!loseTurnToStun(replies)) replies.push("You end your turn.");
+  if (fight.tutorial) fight.tutorial.step += 1;
+  return { ...finishRound(p, s, replies, {}), used: true };
 }
 
 export const isPlayerStunned = () =>
@@ -1131,28 +1264,31 @@ export const isPlayerStunned = () =>
 
 // Guarding on your turn reduces the next hit you take.
 export function defendRound() {
+  const error = actionError("defend");
+  if (error) return rejectedAction(error);
   const p = getPlayer();
   const s = { ...p.stats };
   const replies = [];
-  if (!loseTurnToStun(replies)) {
-    playerDefending = true;
-    replies.push("You brace yourself and defend.");
-  }
-  return finishRound(p, s, replies, {});
+  if (loseTurnToStun(replies))
+    return { ...finishRound(p, s, replies, {}), used: true };
+  playerDefending = true;
+  replies.push("You brace yourself and defend.");
+  return { ...completeAction("defend", null, p, s, replies), used: true };
 }
 
 // Using a consumable takes your turn. Returns { replies, over, used }; used is false (and no turn passes) if it can't be used.
 export function consumeItemRound(key) {
+  const error = actionError("consume", key);
+  if (error) return rejectedAction(error);
   const p = getPlayer();
   const used = { ...p.stats };
   const statuses = [...playerStatuses];
-  const result = applyConsumable(p, key, used, {
+  const result = applyConsumable(fight.tutorial ? { ...p, consumables: getCombatConsumables() } : p, key, used, {
     healScale: healMult(playerStatuses),
     statuses,
   });
   if (!result.ok)
     return { replies: [result.message], over: false, used: false };
-  playerDefending = false;
   const replies = [];
   // A stunned player loses the turn without spending the item.
   if (loseTurnToStun(replies))
@@ -1160,7 +1296,7 @@ export function consumeItemRound(key) {
   playerStatuses = statuses;
   replies.push(result.message);
   return {
-    ...finishRound(p, used, replies, { consumables: result.consumables }),
+    ...completeAction("consume", key, p, used, replies, fight.tutorial ? {} : { consumables: result.consumables }),
     used: true,
   };
 }
@@ -1172,6 +1308,7 @@ const serializeFight = (state) => ({
 });
 const restoreFight = (state) => ({
   ...state,
+  actions: { ...freshActions(), ...state.actions, usedSkills: state.actions?.usedSkills || [] },
   kinds: new Set(state.kinds || []),
   starKinds: new Set(state.starKinds || []),
 });
@@ -1251,7 +1388,7 @@ export const playContestAction = (actor, target, action) => {
   return withContestContext(context, () => {
     fight = restoreFight({ ...attacker.combat, ab: getAbilityTotals(attacker.player) });
     playerStatuses = attacker.statuses || [];
-    playerDefending = false;
+    playerDefending = attacker.turnEnded === false && !!attacker.defending;
     enemy = {
       name: defender.player.name,
       hp: defender.player.stats.health,
@@ -1275,9 +1412,10 @@ export const playContestAction = (actor, target, action) => {
     attacker.combat = serializeFight(fight);
     attacker.statuses = playerStatuses;
     attacker.defending = playerDefending;
+    attacker.turnEnded = result.turnEnded;
     defender.player.stats.health = enemy.hp;
     defender.statuses = enemy.statuses;
     defender.combat.playerStunGrace = enemy.stunGrace;
-    return { attacker, defender, replies: [...result.replies, ...context.reactions] };
+    return { attacker, defender, replies: [...result.replies, ...context.reactions], turnEnded: result.turnEnded, used: result.used };
   });
 };

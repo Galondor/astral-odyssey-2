@@ -59,11 +59,18 @@ test("speed ties favor the first queued player; alternate turns without AI attac
   expect(matchOf(state).turn).toBe("alice");
   state = command(state, "alice", "action", { type: "melee" });
   let match = matchOf(state);
+  expect(match.turn).toBe("alice");
+  expect(match.turnCount).toBe(1);
+  state = command(state, "alice", "action", { type: "pass" });
+  match = matchOf(state);
   expect(match.turn).toBe("bob");
+  expect(match.turnCount).toBe(2);
   expect(match.fighters.alice.player.stats.health).toBe(100);
   expect(match.fighters.bob.player.stats.health).toBeLessThan(100);
   expect(() => command(state, "alice", "action", { type: "melee" })).toThrow("Wait");
   state = command(state, "bob", "action", { type: "magic" });
+  expect(matchOf(state).turn).toBe("bob");
+  state = command(state, "bob", "action", { type: "pass" });
   match = matchOf(state);
   expect(match.turn).toBe("alice");
   expect(match.fighters.alice.player.stats.health).toBeLessThan(100);
@@ -144,6 +151,7 @@ test("stunning skills produce Firebase-safe state and make the opponent lose one
   };
   verifyFirebaseValue(state);
   const health = match.fighters.bob.player.stats.health;
+  state = command(state, "bob", "action", { type: "pass" });
   state = command(state, "alice", "action", { type: "pass" });
   match = matchOf(state);
   expect(match.turn).toBe("bob");
@@ -155,8 +163,10 @@ test("defend persists until the defender next acts", () => {
   let state = paired(10, 10);
   state = command(state, "alice", "action", { type: "defend" });
   expect(matchOf(state).fighters.alice.defending).toBe(true);
+  state = command(state, "alice", "action", { type: "pass" });
   state = command(state, "bob", "action", { type: "melee" });
   expect(matchOf(state).fighters.alice.player.stats.health).toBe(90);
+  state = command(state, "bob", "action", { type: "pass" });
   state = command(state, "alice", "action", { type: "pass" });
   expect(matchOf(state).fighters.alice.defending).toBe(false);
 });
@@ -203,6 +213,7 @@ test("Contest calculations restore an existing PvE fight and never save adventur
   getPlayer.mockReturnValue(player("adventure", 100));
   startCombat({ name: "PvE target", maxHp: 100, speed: 0 });
   const enemy = getEnemy();
+  setPlayer.mockClear();
   command(paired(), "bob", "action", { type: "melee" });
   expect(getEnemy()).toBe(enemy);
   expect(enemy.hp).toBe(100);
@@ -217,21 +228,69 @@ test("consumable spending is durable and reconciled exactly once", () => {
   expect(reconcileContestProgress({ ...p, ...patch }, entry)).toBeNull();
 });
 
-test("consumables take exactly one turn and insufficient-power skills spend neither power nor a turn", () => {
+test("consumables spend Quick without handing off; invalid skills preserve the partial turn", () => {
   let state = paired();
   const fighter = matchOf(state).fighters.bob;
   fighter.player.stats.health = 20;
   state = command(state, "bob", "action", { type: "consume", key: "healthPotion" });
   let match = matchOf(state);
-  expect(match.turn).toBe("alice");
+  expect(match.turn).toBe("bob");
+  expect(match.fighters.bob.combat.actions).toMatchObject({ actionAvailable: true, quickAvailable: false });
   expect(match.fighters.bob.player.stats.health).toBe(70);
   expect(state.entries.bob.spent.healthPotion).toBe(1);
-  state = command(state, "alice", "action", { type: "pass" });
-  match = matchOf(state);
   match.fighters.bob.player.stats.power = 0;
   const original = JSON.stringify(state);
   expect(() => command(state, "bob", "action", { type: "skill", key: "fireball" })).toThrow("need 5 power");
   expect(JSON.stringify(state)).toBe(original);
+});
+
+test("partial actions preserve the actor, turn count, deadline and durable item spending", () => {
+  let state = paired();
+  const deadline = matchOf(state).deadline;
+  matchOf(state).fighters.bob.player.stats.health = 20;
+  state = command(state, "bob", "action", { type: "consume", key: "healthPotion" }, deadline - 2000);
+  let match = matchOf(state);
+  expect(match).toMatchObject({ turn: "bob", turnCount: 1, revision: 1, deadline });
+  expect(state.entries.bob.spent).toEqual({ healthPotion: 1 });
+  const restored = JSON.parse(JSON.stringify(state));
+  state = command(restored, "bob", "action", { type: "melee" }, deadline - 1000);
+  match = matchOf(state);
+  expect(match).toMatchObject({ turn: "alice", turnCount: 2, revision: 2, deadline: deadline - 1000 + CONTEST_TURN_MS });
+  expect(state.entries.bob.spent).toEqual({ healthPotion: 1 });
+});
+
+test("a stale partial request cannot duplicate item spending or restore a slot", () => {
+  let state = paired();
+  const id = state.entries.bob.matchId;
+  matchOf(state).fighters.bob.player.stats.health = 20;
+  state = command(state, "bob", "action", { type: "consume", key: "healthPotion" });
+  const original = JSON.stringify(state);
+  expect(() => reduceContest(state, "bob", "bob", {
+    type: "action", action: { type: "consume", key: "healthPotion" }, matchId: id, revision: 0,
+  }, 3000)).toThrow("changed");
+  expect(JSON.stringify(state)).toBe(original);
+  expect(state.entries.bob.spent.healthPotion).toBe(1);
+});
+
+test.each(["timeout", "forfeit"])("%s preserves spending and effects of an accepted partial turn", (type) => {
+  let state = paired();
+  matchOf(state).fighters.bob.player.stats.health = 20;
+  state = command(state, "bob", "action", { type: "consume", key: "healthPotion" });
+  state = command(state, "bob", type, null, matchOf(state).deadline);
+  expect(matchOf(state)).toMatchObject({ winner: "alice", reason: type, turnCount: 1 });
+  expect(matchOf(state).fighters.bob.player.stats.health).toBe(70);
+  expect(state.entries.bob.spent.healthPotion).toBe(1);
+});
+
+test("two effective Quick consumables hand off only after spending both slots", () => {
+  let state = paired();
+  matchOf(state).fighters.bob.player.stats.health = 1;
+  state = command(state, "bob", "action", { type: "consume", key: "healthPotion" });
+  expect(matchOf(state).turn).toBe("bob");
+  state = command(state, "bob", "action", { type: "consume", key: "healthPotion" });
+  expect(matchOf(state)).toMatchObject({ turn: "alice", turnCount: 2 });
+  expect(state.entries.bob.spent.healthPotion).toBe(2);
+  expect(matchOf(state).fighters.bob.player.consumables.healthPotion || 0).toBe(0);
 });
 
 test("damage over time can end a fight on the affected player's turn", () => {

@@ -48,7 +48,7 @@ export default function LeaderboardScreen({ arenaOnly = false }) {
   return (
     <section className='progression leaderboards'>
       <h2>{arenaOnly ? "Colosseum leaderboard" : "Leaderboards"}</h2>
-      <p>Scores are published when players save, up to once per minute. Rankings refresh every minute.</p>
+      <p>Scores are published when players save, up to every 15 seconds. Rankings refresh every 15 seconds.</p>
       {!arenaOnly &&
       <div className='inventory-tabs' role='tablist' aria-label='Leaderboards'>
         {TABS.map(([key, title]) => (

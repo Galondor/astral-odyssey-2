@@ -33,7 +33,7 @@ test("the arena leaderboard opens directly on cleared-wave rankings", async () =
   expect(await screen.findByRole("cell", { name: "7" })).toBeTruthy();
 });
 
-test("open rankings refresh after one minute and stop refreshing on unmount", async () => {
+test("open rankings refresh after 15 seconds and stop refreshing on unmount", async () => {
   jest.useFakeTimers();
   getLeaderboards.mockClear();
   try {
@@ -41,7 +41,7 @@ test("open rankings refresh after one minute and stop refreshing on unmount", as
     await act(async () => { view = render(<LeaderboardScreen />); });
     expect(getLeaderboards).toHaveBeenCalledTimes(1);
 
-    await act(async () => { jest.advanceTimersByTime(59999); });
+    await act(async () => { jest.advanceTimersByTime(14999); });
     expect(getLeaderboards).toHaveBeenCalledTimes(1);
 
     getLeaderboards.mockResolvedValue({
@@ -53,7 +53,7 @@ test("open rankings refresh after one minute and stop refreshing on unmount", as
     expect(screen.getByRole("cell", { name: "6" })).toBeTruthy();
 
     view.unmount();
-    await act(async () => { jest.advanceTimersByTime(60000); });
+    await act(async () => { jest.advanceTimersByTime(15000); });
     expect(getLeaderboards).toHaveBeenCalledTimes(2);
   } finally {
     jest.useRealTimers();

@@ -257,7 +257,7 @@ export const startWorldBossAttempt = async (player = getPlayer()) => {
     dropChance: 0,
     abilities: [
       { name: "Starfall", power: 1.4, hits: 2, ignoreDefense: 0.25, cooldown: 3 },
-      { name: "Gravitic Crush", power: 2.1, status: { id: "stun", chance: 0.25 }, cooldown: 4 },
+      { name: "Gravitic Crush", power: 2.1, status: { id: "stun", chance: 0.25 }, cooldown: 5, heavy: true, warning: "A crushing blow may stun you." },
       { name: "Voidfire", power: 1.1, status: { id: "burn", power: 0.07, turns: 3 }, cooldown: 3 },
       { name: "Celestial Renewal", power: 0, heal: 0.025, self: { id: "fortify", power: 0.25, turns: 2 }, cooldown: 5 },
     ],

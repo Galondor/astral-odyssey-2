@@ -118,6 +118,7 @@ import {
 } from "../world/quests";
 import { getRegion, REGIONS } from "../world/regions";
 import Tooltip from "./Tooltip";
+import ActionSlots from "./ActionSlots";
 import useIsMobile from "./useIsMobile";
 import InboxScreen from "./InboxScreen";
 import SocialScreen from "./SocialScreen";
@@ -355,7 +356,7 @@ const CombatHealth = ({ label, value, max, color, marrowWard, wardLabel = "Marro
 
 const CombatScreen = ({ messages, data, player }) => {
   const mobile = useIsMobile();
-  const { enemy, round, stats, defending, playerStatuses = [], marrowWard } = data || {};
+  const { enemy, round, stats, defending, playerStatuses = [], marrowWard, actions, tutorial } = data || {};
   const analyzerUnlocked = getKeyItemEffect(player, "analyzer") > 0;
   const tier = enemy ? TIERS[enemy.tier] : null;
   const chips = (list) => (
@@ -369,6 +370,18 @@ const CombatScreen = ({ messages, data, player }) => {
   );
   return (
     <div className='screen-split'>
+      {tutorial && <section className='combat-tutorial' aria-label='Combat tutorial' aria-live='polite'>
+        <h3>Combat training {tutorial.step}/{tutorial.total}: {tutorial.title}</h3>
+        <p>{tutorial.text}</p>
+        <p>Practice supplies only. Your original health, Power, and inventory are preserved.</p>
+      </section>}
+      <ActionSlots actions={actions} />
+      {enemy?.pending && <div className='combat-warning' role='status'>
+        Preparing: {enemy.pending.name}. {enemy.pending.warning || "Defend or prepare protection before ending your turn."}
+      </div>}
+      {enemy?.recovering && <div className='combat-warning' role='status'>
+        Recovering: {enemy.name} cannot act on its next turn.
+      </div>}
       {round != null && <div className='combat-round'>Round {round}</div>}
       <div className='combat-arena'>
         <div className='combatant'>

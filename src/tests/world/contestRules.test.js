@@ -1,5 +1,6 @@
 import http from "http";
 import { reduceContest } from "../../world/contest";
+import databaseRules from "../../../database.rules.json";
 
 jest.mock("../../firebase", () => ({ db: {}, auth: {} }));
 jest.mock("../../character/player", () => ({ getPlayer: jest.fn(), setPlayer: jest.fn() }));
@@ -8,6 +9,14 @@ const emulator = process.env.DATABASE_RULES_TEST_URL;
 if (emulator && !["127.0.0.1", "localhost", "[::1]"].includes(new URL(emulator).hostname))
   throw new Error("Contest rules tests must use a local emulator.");
 const integration = emulator ? describe : describe.skip;
+
+test("Contest rules retain partial deadlines and allow explicit turn counts", () => {
+  const rules = databaseRules.rules.contest.matches.$match;
+  expect(rules.turnCount[".validate"]).toContain("newData.isNumber()");
+  expect(rules.turnCount[".validate"]).toContain("newData.val() === 1");
+  expect(rules.deadline[".validate"]).toContain("newData.parent().child('turn').val() === data.parent().child('turn').val() && newData.val() === data.val()");
+  expect(rules.deadline[".validate"]).toContain("newData.parent().child('turn').val() !== data.parent().child('turn').val()");
+});
 const token = (uid) => {
   const encode = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
   const now = Math.floor(Date.now() / 1000);
@@ -80,6 +89,7 @@ integration("Contest Firebase rules and atomic concurrency", () => {
     await queue("alice", 20);
     await queue("bob", 10);
     await action("alice", { type: "action", action: { type: "melee" } });
+    await action("alice", { type: "action", action: { type: "pass" } });
     await action("bob", { type: "action", action: { type: "consume", key: "healthPotion" } });
     const after = await action("alice", { type: "forfeit" });
     expect(after.entries.alice.deaths).toBe(1);
@@ -100,6 +110,7 @@ integration("Contest Firebase rules and atomic concurrency", () => {
       const id = state.entries.alice.matchId;
       expect(state.matches[id].fighters.alice.player.stats.power).toBe(6);
       expect(state.matches[id].fighters.bob.statuses).toContainEqual(expect.objectContaining({ id: "stun", power: 0 }));
+      await action("alice", { type: "action", action: { type: "pass" } });
       await action("bob", { type: "action", action: { type: "pass" } });
       state = await read();
       expect(state.matches[id].turn).toBe("alice");
@@ -107,6 +118,28 @@ integration("Contest Firebase rules and atomic concurrency", () => {
     } finally {
       jest.restoreAllMocks();
     }
+  });
+
+  test("partial actions persist without renewing the deadline or advancing the turn count", async () => {
+    await queue("alice", 20);
+    await queue("bob", 10);
+    const before = await read();
+    const id = before.entries.alice.matchId;
+    const deadline = before.matches[id].deadline;
+    await action("alice", { type: "action", action: { type: "melee" } });
+    const partial = await read();
+    expect(partial.matches[id]).toMatchObject({ turn: "alice", turnCount: 1, revision: 1, deadline });
+    expect(partial.matches[id].fighters.alice.combat.actions).toMatchObject({ actionAvailable: false, quickAvailable: true });
+    const forged = JSON.parse(JSON.stringify(partial));
+    forged.revision += 1;
+    forged.matches[id].revision += 1;
+    forged.matches[id].deadline += 1000;
+    expect((await request("PATCH", "contest", writes(partial, forged), "alice")).status).toBe(401);
+    forged.matches[id].deadline = deadline;
+    forged.matches[id].turnCount += 1;
+    expect((await request("PATCH", "contest", writes(partial, forged), "alice")).status).toBe(401);
+    await action("alice", { type: "action", action: { type: "pass" } });
+    expect((await read()).matches[id]).toMatchObject({ turn: "bob", turnCount: 2 });
   });
 
   test("stale matchmaking writes fail atomically and outsiders cannot change or delete matches", async () => {

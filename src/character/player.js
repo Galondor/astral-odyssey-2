@@ -304,10 +304,10 @@ const writePlayer = async (writes = {}) => {
     [`${accountPath(meta)}/saveRevision`]: writingRevision,
     ...(meta.characterId ? { [`${accountPath(meta)}/lastCharacterIdentity`]: meta.uid } : {}),
   }))
-    .then(() => {
+    .then(async () => {
       setMeta({ ...getMeta(), revision: writingRevision, dirty: JSON.stringify(getPlayer()) !== serialized, savedAt: Date.now() });
-      // Public score publication must not delay subsequent progress saves.
-      syncLeaderboard(meta.uid, player);
+      // Keep the saved scores valid until publication finishes, including when leaving the character.
+      await syncLeaderboard(meta.uid, player);
     })
     .catch((error) => {
       console.warn("Couldn't save player data", error);

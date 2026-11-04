@@ -12,6 +12,8 @@
    puzzle   "stations" | "dials" | "rings" (see groupPuzzles.js)
  Enemy templates: { name, tier: "basic" | "elite" | "boss", mod: { hp, atk, def, spd }, abilities, phases,
    immune, immuneCycle, corruptionReflect } — ability/phase fields are documented in groupCombat.js.
+ Broadside is deliberately telegraphed: preparation, a noncritical release, then recovery.
+ Scripted channels (such as Gravity Well) keep their separate interrupt mechanics.
 */
 
 const stun = (chance) => ({ id: "stun", chance });

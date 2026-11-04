@@ -21,7 +21,12 @@ import {
   consumeItemRound,
   passRound,
   isPlayerStunned,
+  getCombatActions,
+  getCombatTutorial,
+  getCombatConsumables,
 } from "../combat/combat";
+import { actionCostLabel, getActionAvailability } from "../combat/actionEconomy";
+import { tutorialActionError } from "../combat/tutorial";
 import { finishWorldBossAttempt, reportWorldBossError } from "./worldBoss";
 import { createStarterInventory, getGearTraderStock } from "../items/items";
 import {
@@ -37,6 +42,7 @@ import {
   getEquippedSkills,
   getSkillLevel,
   skillTooltip,
+  skillCost,
 } from "../character/skills";
 import { recalculateStats } from "../character/stats";
 import { getClassForStats } from "../character/classes";
@@ -55,6 +61,20 @@ export const INPUT_MATCHING = ["strict", "open"];
 export const INPUT_TYPE = ["numbers", "letters", "both"];
 const DYNAMIC_SCENE = "dynamic";
 export const getInputMode = (scene) => scene.input || INPUT_MODES[0];
+const combatOptionDisabled = (type, key) => {
+  const tutorial = getCombatTutorial();
+  if (tutorial) {
+    const error = tutorialActionError(tutorial.step - 1, type, key);
+    if (error) return error;
+  }
+  if (type === "pass") return false;
+  return getActionAvailability(getCombatActions(), type, key).message || false;
+};
+const combatScreenData = () => ({
+  enemy: getEnemy(), round: getCombatRound(), stats: getPlayer()?.stats,
+  defending: isPlayerDefending(), playerStatuses: getPlayerStatuses(),
+  marrowWard: getMarrowWard(), actions: getCombatActions(), tutorial: getCombatTutorial(),
+});
 
 // Static portal fare for a region, reduced by key items such as the Wayfinder's Compass.
 export const getPortalFare = (player, regionId) => {
@@ -590,17 +610,11 @@ export const scenes = {
         : "There is nothing to fight.";
       return [first, ...opening].join("\n");
     },
-    screenData: () => ({
-      enemy: getEnemy(),
-      round: getCombatRound(),
-      stats: getPlayer()?.stats,
-      defending: isPlayerDefending(),
-      playerStatuses: getPlayerStatuses(),
-      marrowWard: getMarrowWard(),
-    }),
+    screenData: combatScreenData,
     options: [
       {
         label: "Melee Attack",
+        disabled: () => combatOptionDisabled("melee"),
         keywords: ["attack", "1"],
         tooltip: () => {
           const s = getPlayer().stats;
@@ -618,6 +632,7 @@ export const scenes = {
       },
       {
         label: "Magic Attack",
+        disabled: () => combatOptionDisabled("magic"),
         keywords: ["magic", "2"],
         tooltip: () => {
           const s = getPlayer().stats;
@@ -635,12 +650,13 @@ export const scenes = {
       },
       {
         label: "Defend",
+        disabled: () => combatOptionDisabled("defend"),
         keywords: ["defend", "3"],
         tooltip: {
           title: "Defend",
           description:
             "Brace yourself, taking half damage from the next attack.",
-          footer: "Takes your turn",
+          footer: "Action",
         },
         onSelect: () => {
           const enemy = getEnemy();
@@ -654,7 +670,7 @@ export const scenes = {
         tooltip: {
           title: "Use Item",
           description: "Use a consumable such as a potion.",
-          footer: "Takes your turn",
+          footer: "Quick Action (or your Action if Quick Action is used)",
         },
         onSelect: () => {
           if (!getEnemy()) return { next: "menu" };
@@ -667,7 +683,7 @@ export const scenes = {
         tooltip: {
           title: "Skills",
           description: "Use one of your equipped skills. Costs power.",
-          footer: "Takes your turn",
+          footer: "Action or Quick Action, depending on the skill",
         },
         onSelect: () => {
           if (!getEnemy()) return { next: "menu" };
@@ -675,13 +691,14 @@ export const scenes = {
         },
       },
       {
-        label: "Pass",
-        keywords: ["pass", "6"],
+        label: "End Turn",
+        disabled: () => combatOptionDisabled("pass"),
+        keywords: ["pass", "end turn", "6"],
         tooltip: {
-          title: "Pass",
+          title: "End Turn",
           description:
-            "Skip your turn. While stunned, this is your only action.",
-          footer: "Takes your turn",
+            "Forfeit unused Action and Quick Action slots and let the enemy act. While stunned, this is your only option.",
+          footer: "Ends your turn",
         },
         onSelect: () => {
           const enemy = getEnemy();
@@ -711,7 +728,7 @@ export const scenes = {
         },
       },
     ].map((o) => {
-      if (o.label === "Pass") return o;
+      if (o.label === "End Turn") return o;
       if (o.label === "Withdraw") return { ...o, when: () => !!getEnemy()?.worldBossCycle };
       if (o.label === "Leave Colosseum")
         return { ...o, when: () => !!getEnemy()?.colosseum };
@@ -722,13 +739,7 @@ export const scenes = {
     screen: "combat",
     input: INPUT_MODES[0],
     text: "Choose a skill to use.",
-    screenData: () => ({
-      enemy: getEnemy(),
-      round: getCombatRound(),
-      stats: getPlayer()?.stats,
-      defending: isPlayerDefending(),
-      playerStatuses: getPlayerStatuses(),
-    }),
+    screenData: combatScreenData,
     get options() {
       const player = getPlayer();
       return [
@@ -739,12 +750,15 @@ export const scenes = {
         },
         ...getEquippedSkills(player).map((key) => ({
           label: SKILLS[key].name,
+          actionCost: () => `${skillCost(getPlayer(), key)} Power`,
+          disabled: () => combatOptionDisabled("skill", key) ||
+            (getPlayer().stats.power < skillCost(getPlayer(), key) ? "Not enough Power." : false),
           keywords: [SKILLS[key].name.toLowerCase()],
           tooltip: () =>
             skillTooltip(
               key,
               getSkillLevel(getPlayer(), key),
-              "Takes your turn",
+              actionCostLabel("skill", key, "solo", getCombatActions()),
             ),
           onSelect: () => {
             const enemy = getEnemy();
@@ -761,13 +775,7 @@ export const scenes = {
     screen: "combat",
     input: INPUT_MODES[0],
     text: "Choose an item to use.",
-    screenData: () => ({
-      enemy: getEnemy(),
-      round: getCombatRound(),
-      stats: getPlayer()?.stats,
-      defending: isPlayerDefending(),
-      playerStatuses: getPlayerStatuses(),
-    }),
+    screenData: combatScreenData,
     get options() {
       return [
         {
@@ -775,10 +783,11 @@ export const scenes = {
           keywords: ["back", "1"],
           onSelect: () => ({ next: "combat", keepLog: true }),
         },
-        ...getConsumables().filter(isCombatConsumable).map((c) => ({
+        ...getConsumables({ consumables: getCombatConsumables() }).filter(isCombatConsumable).map((c) => ({
           label: `${c.name} x${c.count}`,
           keywords: [c.name.toLowerCase()],
-          tooltip: () => consumableTooltip(c.key, "Takes your turn"),
+          disabled: () => combatOptionDisabled("consume", c.key),
+          tooltip: () => consumableTooltip(c.key, actionCostLabel("consume", c.key, "solo", getCombatActions())),
           onSelect: () => {
             const enemy = getEnemy();
             if (!enemy) return { next: "menu" };
@@ -915,6 +924,8 @@ function navigate(sceneId, result, fallbackNext) {
 // Runs a chosen option and returns { sceneId, replies: string[] }.
 export function selectOption(sceneId, option, input = "") {
   const scene = scenes[sceneId];
+  const disabled = typeof option.disabled === "function" ? option.disabled() : option.disabled;
+  if (disabled) return navigate(sceneId, { reply: typeof disabled === "string" ? disabled : "That action is unavailable." });
   const result =
     (option.onSelect &&
       option.onSelect({

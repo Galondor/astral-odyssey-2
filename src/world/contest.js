@@ -101,6 +101,7 @@ export const reduceContest = (current, actor, accountId, command, timestamp) => 
     if (!match || match.winner) throw new Error("This Contest has already ended.");
     if (command.matchId !== entry.matchId || command.revision !== match.revision)
       throw new Error("The Contest changed. Wait for the latest turn.");
+    match.turnCount ||= 1;
     if (command.type === "timeout") {
       if (timestamp < match.deadline) return undefined;
       completeMatch(state, match, match.turn === match.host ? match.guest : match.host, "timeout");
@@ -111,7 +112,7 @@ export const reduceContest = (current, actor, accountId, command, timestamp) => 
       if (timestamp >= match.deadline) throw new Error("Your turn has expired.");
       const opponent = actor === match.host ? match.guest : match.host;
       const before = match.fighters[actor];
-      const { attacker, defender, replies } = playContestAction(before, match.fighters[opponent], command.action);
+      const { attacker, defender, replies, turnEnded } = playContestAction(before, match.fighters[opponent], command.action);
       match.fighters[actor] = attacker;
       match.fighters[opponent] = defender;
       for (const [key, count] of Object.entries(before.player.consumables || {})) {
@@ -127,8 +128,9 @@ export const reduceContest = (current, actor, accountId, command, timestamp) => 
       }].slice(-30);
       if (defender.player.stats.health <= 0) completeMatch(state, match, actor, "kill");
       else if (attacker.player.stats.health <= 0) completeMatch(state, match, opponent, "kill");
-      else {
+      else if (turnEnded === true) {
         match.turn = opponent;
+        match.turnCount += 1;
         match.deadline = timestamp + CONTEST_TURN_MS;
       }
     } else throw new Error("Unknown Contest command.");
@@ -152,7 +154,7 @@ export const reduceContest = (current, actor, accountId, command, timestamp) => 
       second.playerActsFirst = turn === actor;
       state.matches[id] = {
         host, guest: actor, fighters: { [host]: hostEntry.fighter, [actor]: own.fighter },
-        turn, deadline: timestamp + CONTEST_TURN_MS, revision: 0,
+        turn, turnCount: 1, deadline: timestamp + CONTEST_TURN_MS, revision: 0,
       };
       for (const ticket of [hostEntry, own]) {
         ticket.status = "playing";

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { SCREENS } from "../../ui/screens";
 import { getContestCombatView } from "../../ui/ContestCombat";
@@ -12,6 +12,27 @@ jest.mock("../../ui/AdminScreen", () => () => null);
 jest.mock("../../ui/BugReportScreen", () => () => null);
 
 const CombatScreen = SCREENS.combat.component;
+
+test("combat shows interactive training instructions, remaining slots, and public heavy warnings", () => {
+  render(<CombatScreen messages={[]} player={{}} data={{
+    actions: { actionAvailable: false, quickAvailable: true },
+    tutorial: { step: 2, total: 7, title: "Use your Quick Action", text: "Drink the training potion." },
+    enemy: { name: "Training Sentinel", level: 1, pending: { name: "Training Slam", warning: "Defend before ending your turn." } },
+  }} />);
+  expect(screen.getByLabelText("Combat tutorial")).toHaveTextContent("Drink the training potion.");
+  const slots = within(screen.getByRole("group", { name: "Turn actions" }));
+  expect(slots.getByRole("button", { name: "Action: Used" })).toHaveClass("action-slot-used");
+  const quick = slots.getByRole("button", { name: "Quick Action: Ready" });
+  expect(quick).not.toHaveClass("action-slot-used");
+  expect(quick).not.toHaveTextContent(/Quick Action/);
+  jest.useFakeTimers();
+  fireEvent.click(quick);
+  act(() => jest.advanceTimersByTime(200));
+  expect(screen.getByRole("tooltip")).toHaveTextContent("Quick Action");
+  expect(screen.getByRole("tooltip")).toHaveTextContent("Combat items and Quick skills");
+  jest.useRealTimers();
+  expect(screen.getByRole("status")).toHaveTextContent("Preparing: Training Slam");
+});
 
 beforeEach(() => {
   Object.defineProperty(window, "matchMedia", {

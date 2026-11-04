@@ -367,6 +367,14 @@ input[type='checkbox']:disabled {
 
 .combat-arena { display: flex; align-items: center; flex-direction: row-reverse; justify-content: space-around; gap: 20px; padding: 10px; }
 .combat-round { color: var(--muted); font-weight: 600; text-align: center; }
+.combat-actions { flex: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.action-slot { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; min-height: 36px; padding: 0; border-radius: 50%; font-size: 18px; line-height: 1; cursor: pointer; }
+.action-slot-action { color: #f6d58e; border: 2px solid #b7791f; background: #2b2417; }
+.action-slot-quick { color: #b7d4fa; border: 2px solid #83b4f1; background: #17223a; }
+.action-slot-used { opacity: 0.35; filter: grayscale(1); }
+.combat-tutorial, .combat-warning { flex: none; padding: 10px 12px; border: 1px solid #b7791f; border-radius: 6px; background: #2b2417; }
+.combat-tutorial h3 { margin: 0 0 6px; }
+.combat-tutorial p { margin: 6px 0; }
 .combatant { flex: 1; max-width: 300px; }
 .combat-vs { font-weight: bold; color: #c0392b; font-size: 22px; }
 .combatant-stats { margin-top: 8px; display: flex; flex-direction: row; gap: 16px; justify-content: space-between; }
@@ -2013,6 +2021,7 @@ input[type='checkbox']:disabled {
   .inventory-tab, .spend-button, .inventory-item, .equip-slot, .recipe, .market-card { min-height: 44px; }
   .inventory-tab { padding: 10px 12px; }
   .mobile-game-content .game-screen button { min-height: 44px; }
+  .mobile-game-content .game-screen .action-slot { width: 44px; height: 44px; }
   .equip-slot, .inventory-item, .recipe, .market-card { padding: 12px; text-align: left; }
   .inventory-item > *, .recipe > *, .market-card > * { text-align: left; }
   .game-screen p, .game-screen .message { text-align: left; }

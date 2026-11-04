@@ -7,6 +7,8 @@ import { CLASSES, classTooltip } from "../character/classes";
  Entries use the same shape as Tooltip content (string, data object or function).
 */
 export const GLOSSARY = {
+  action: { title: "Action", description: "Solo/PvP: one per turn for attacking, most skills, Defend, or a second Quick Action. Group content has just one Action and no Quick Actions." },
+  quickAction: { title: "Quick Action", description: "Solo/PvP: one per turn, before or after your Action. Combat consumables, Renewal, and Provoke qualify. Your Action can pay for a second Quick Action. Each skill is usable once per turn." },
   astra: { title: "Astra", tags: ["Currency"] },
   strength: { title: "Strength", description: "Increases melee damage and health." },
   dexterity: { title: "Dexterity", description: "Increases melee damage and agility." },
