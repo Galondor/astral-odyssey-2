@@ -56,7 +56,7 @@ function PublicCharacterProfile({ profile, onClose }) {
                 <li key={slot.key} style={item ? getHolofoilStyle(item) : undefined}>
                   <span>{slot.label}</span>
                   {item ? (
-                    <Tooltip content={itemTooltip(item)}>
+                    <Tooltip disableOnMobile content={itemTooltip(item)}>
                       <span className='public-profile-item' style={{
                         color: RARITY_COLORS[item.rarity],
                       }}>

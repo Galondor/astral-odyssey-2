@@ -70,20 +70,20 @@ function parse(text, keyPrefix = "") {
       } else if (materialKey && MATERIALS[materialKey]) {
         const material = MATERIALS[materialKey];
         out.push(
-          <Tooltip key={key} content={() => materialTooltip(materialKey, getMaterialCount(getPlayer(), materialKey))}>
+          <Tooltip disableOnMobile key={key} content={() => materialTooltip(materialKey, getMaterialCount(getPlayer(), materialKey))}>
             <span className='tip-word' tabIndex={0} style={{ color: MATERIAL_TIERS[material.tier].color }}>{parse(m[1], key + ".")}</span>
           </Tooltip>
         );
       } else if (consumableKey) {
         out.push(
-          <Tooltip key={key} content={() => consumableTooltip(consumableKey) || "This consumable is unknown."}>
+          <Tooltip disableOnMobile key={key} content={() => consumableTooltip(consumableKey) || "This consumable is unknown."}>
             <span className='tip-word' tabIndex={0}>{parse(m[1], key + ".")}</span>
           </Tooltip>
         );
       } else if (gemstoneId) {
         const gemstone = findGemstone(gemstoneId);
         out.push(
-          <Tooltip key={key} content={() => gemstoneTooltip(findGemstone(gemstoneId)) || "This gemstone is gone."}>
+          <Tooltip disableOnMobile key={key} content={() => gemstoneTooltip(findGemstone(gemstoneId)) || "This gemstone is gone."}>
             <span className='tip-word' tabIndex={0} style={gemstone ? { color: RARITY_COLORS[gemstone.rarity] } : undefined}>{parse(m[1], key + ".")}</span>
           </Tooltip>
         );
@@ -91,7 +91,7 @@ function parse(text, keyPrefix = "") {
         // Item links resolve on hover so the tooltip stays accurate (e.g. after the item is equipped)
         const item = findItem(itemId);
         out.push(
-          <Tooltip key={key} content={() => itemTooltip(findItem(itemId)) || "This item is gone."}>
+          <Tooltip disableOnMobile key={key} content={() => itemTooltip(findItem(itemId)) || "This item is gone."}>
             <span className='tip-word' tabIndex={0} style={item ? { color: RARITY_COLORS[item.rarity] } : undefined}>{parse(m[1], key + ".")}</span>
           </Tooltip>
         );

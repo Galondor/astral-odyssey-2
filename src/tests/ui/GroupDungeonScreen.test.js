@@ -4,7 +4,7 @@ import { getClassForStats } from "../../character/classes";
 import { createGroupRun } from "../../world/groupDungeons";
 import { createPuzzle, puzzleClues } from "../../world/groupPuzzles";
 import {
-  createParty, getGroupStatus, invitePlayer, joinParty, sendChat, setReady, startRun, submitIntent, subscribeGroup,
+  createParty, getGroupStatus, invitePlayer, joinParty, leaveParty, sendChat, setReady, startRun, submitIntent, subscribeGroup,
 } from "../../world/groupParty";
 import { GroupLobby, GroupRunActions, GroupRunScreen } from "../../ui/GroupDungeonScreen";
 
@@ -257,4 +257,107 @@ test("puzzle stages offer station choices and private dial clues without leaking
   fireEvent.change(document.querySelector(".group-setter select"), { target: { value: "4" } });
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Lock In" })));
   expect(submitIntent).toHaveBeenLastCalledWith({ type: "dial", values: { 0: 4, 2: run.puzzle.values[2] } });
+});
+
+test("mobile group combat shows enemies and your resources first, with party and history collapsed", () => {
+  window.matchMedia.mockReturnValue({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() });
+  const run = makeRun();
+  run.log = ["Earlier round.", "Latest round."];
+  status = baseStatus({ run, active: true, inRun: true, intentsIn: { b: true } });
+  const { container } = render(<GroupRunScreen />);
+  const battlefield = container.querySelector(".group-battlefield");
+  expect(battlefield.firstElementChild.classList.contains("group-opponents")).toBe(true);
+  expect(battlefield.children[1].classList.contains("group-player")).toBe(true);
+  const self = container.querySelector(".group-player");
+  expect(within(self).getByText("Ana")).toBeTruthy();
+  expect(within(self).getByText("Health")).toBeTruthy();
+  expect(within(self).getByText("Power")).toBeTruthy();
+  const party = container.querySelector(".mobile-party-details");
+  expect(party.open).toBe(false);
+  expect(within(party).getByText("Bo")).toBeTruthy();
+  expect(within(party).getByText("✔ Ready")).toBeTruthy();
+  expect(container.querySelector(".group-latest").textContent).toBe("Latest round.");
+  const history = container.querySelector(".mobile-combat-log");
+  expect(history.open).toBe(false);
+  expect(history.textContent).toContain("Earlier round.");
+});
+
+test("mobile group action order matches combat and still submits targets and potions", async () => {
+  window.matchMedia.mockReturnValue({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() });
+  status = baseStatus({ run: makeRun(), active: true, inRun: true, remainingMs: 60000, roundRemainingMs: 20000 });
+  render(<GroupRunActions />);
+  expect(screen.getAllByRole("button").slice(0, 7).map(button => button.textContent))
+    .toEqual(["Melee Attack", "Magic Attack", "Defend", "Use Item", "Skills", "Guard an Ally", "Pass"]);
+  fireEvent.click(screen.getByRole("button", { name: "Use Item" }));
+  fireEvent.click(screen.getByRole("button", { name: "Health Potion x2" }));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: /^Yourself/ })));
+  expect(submitIntent).toHaveBeenLastCalledWith({ type: "item", key: "healthPotion", target: "a" });
+  fireEvent.click(screen.getByRole("button", { name: "Melee Attack" }));
+  const enemy = status.run.combat.enemies.find(enemy => !enemy.dead && !enemy.hidden);
+  await act(async () => fireEvent.click(screen.getAllByRole("button", { name: new RegExp(enemy.name) })[0]));
+  expect(submitIntent).toHaveBeenLastCalledWith({ type: "melee", target: enemy.uid });
+});
+
+test("mobile group puzzle clues stay available and chat suppresses action shortcuts", () => {
+  window.matchMedia.mockReturnValue({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() });
+  const run = makeRun();
+  run.combat = null;
+  run.stage = 1;
+  run.puzzle = createPuzzle("dials", ["a", "b"]);
+  status = baseStatus({ run, active: true, inRun: true, remainingMs: 60000, roundRemainingMs: 20000 });
+  render(<><GroupRunScreen /><GroupRunActions /></>);
+  for (const clue of puzzleClues(run.puzzle, ["a", "b"], "a")) expect(screen.getByText(clue)).toBeTruthy();
+  for (const clue of puzzleClues(run.puzzle, ["a", "b"], "b")) expect(screen.queryByText(clue)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+  fireEvent.keyDown(window, { key: "1" });
+  expect(submitIntent).not.toHaveBeenCalled();
+});
+
+test.each(["pending", "disconnected", "stunned", "downed"])("mobile group controls preserve %s restrictions", (state) => {
+  window.matchMedia.mockReturnValue({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() });
+  const run = makeRun();
+  if (state === "stunned") run.party.a.statuses = [{ id: "stun", turns: 1 }];
+  if (state === "downed") run.party.a.downed = true;
+  status = baseStatus({ run, active: true, inRun: true, pending: state === "pending", connected: state !== "disconnected" });
+  render(<GroupRunActions />);
+  if (state === "pending" || state === "disconnected") {
+    const melee = screen.getByRole("button", { name: "Melee Attack" });
+    expect(melee.disabled).toBe(true);
+    fireEvent.click(melee);
+    fireEvent.keyDown(window, { key: "1" });
+    expect(submitIntent).not.toHaveBeenCalled();
+  } else {
+    expect(screen.queryByRole("button", { name: "Melee Attack" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Pass" }) != null).toBe(state === "stunned");
+  }
+});
+
+test("mobile group combat updates visible enemies and history without revealing hidden enemies", () => {
+  window.matchMedia.mockReturnValue({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() });
+  const run = makeRun();
+  run.combat.enemies[0].hidden = true;
+  run.combat.enemies[0].name = "Hidden enemy";
+  status = baseStatus({ run, active: true, inRun: true });
+  const { container, rerender } = render(<GroupRunScreen />);
+  expect(screen.queryByText("Hidden enemy")).toBeNull();
+  expect(container.querySelectorAll(".group-enemy")).toHaveLength(1);
+  run.combat.enemies[1].dead = true;
+  run.log.push("New round.");
+  run.revision += 1;
+  rerender(<GroupRunScreen />);
+  expect(container.querySelectorAll(".group-enemy")).toHaveLength(0);
+  expect(container.querySelector(".group-latest").textContent).toBe("New round.");
+});
+
+test("mobile leaving a run still requires confirmation and can be cancelled", () => {
+  window.matchMedia.mockReturnValue({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() });
+  status = baseStatus({ run: makeRun(), active: true, inRun: true });
+  render(<GroupRunActions />);
+  fireEvent.click(screen.getByRole("button", { name: "Leave Run" }));
+  expect(leaveParty).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Stay" }));
+  expect(screen.queryByRole("button", { name: /Confirm: leave/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Leave Run" }));
+  fireEvent.click(screen.getByRole("button", { name: /Confirm: leave/ }));
+  expect(leaveParty).toHaveBeenCalledTimes(1);
 });

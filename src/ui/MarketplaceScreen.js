@@ -51,7 +51,7 @@ const itemKindLabel = (item) => isConsumableListing(item)
 
 // Card body shared by every tab: name, rarity/slot, level, main stat, ability, then a tab-specific footer.
 const ItemCard = ({ item, tooltip, selected, dimmed, favorite, onClick, children }) => (
-  <Tooltip content={tooltip}>
+  <Tooltip disableOnMobile content={tooltip}>
     <button
       type='button'
       className={`market-card ${item.slot ? "gear-card" : ""} ${selected ? "selected" : ""} ${dimmed ? "dimmed" : ""} ${favorite ? "favorite-item" : ""}`}

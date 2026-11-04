@@ -3,6 +3,8 @@ import { Game } from "../../App";
 import { recalculateStats } from "../../character/stats";
 import { getPlayer, setPlayer } from "../../character/player";
 import { endCombat, startCombat } from "../../combat/combat";
+import { getGroupStatus } from "../../world/groupParty";
+import { createGroupRun } from "../../world/groupDungeons";
 
 jest.mock("../../firebase", () => ({ db: {}, auth: {} }));
 jest.mock("../../character/player", () => ({
@@ -23,7 +25,7 @@ jest.mock("../../world/social", () => ({
 jest.mock("../../world/groupParty", () => ({
   ...jest.requireActual("../../world/groupParty"),
   startGroupSession: () => () => {}, subscribeGroup: () => () => {},
-  getGroupStatus: () => ({}),
+  getGroupStatus: jest.fn(() => ({})),
 }));
 jest.mock("../../world/contest", () => ({
   ...jest.requireActual("../../world/contest"),
@@ -39,6 +41,7 @@ jest.mock("../../ui/changelogFiles", () => ({ changelogFiles: [] }));
 let player;
 afterEach(() => endCombat());
 beforeEach(() => {
+  getGroupStatus.mockReturnValue({});
   window.matchMedia.mockImplementation((media) => ({
     media, matches: media === "(max-width: 1000px)",
     addEventListener: jest.fn(), removeEventListener: jest.fn(),
@@ -144,4 +147,56 @@ test("desktop navigation displays character resources in the top bar", () => {
   expect(resources.nextElementSibling.classList.contains("profile-menu")).toBe(true);
   expect(within(resources).getByText("1200 astra")).toBeTruthy();
   ["Health", "Stamina", "Power"].forEach(name => expect(within(resources).getByText(name)).toBeTruthy());
+});
+
+test("mobile item and consumable cards open details without showing hover or focus tooltips", () => {
+  jest.useFakeTimers();
+  try {
+    render(<Game uid="layout-fixture" onLogout={jest.fn()} onMainMenu={jest.fn()} />);
+    const navigation = screen.getByRole("navigation", { name: "Mobile navigation" });
+    fireEvent.click(within(navigation).getByRole("button", { name: "Character" }));
+    const sword = screen.getByRole("button", { name: "Iron Sword" });
+    fireEvent.mouseEnter(sword);
+    fireEvent.focus(sword);
+    act(() => jest.advanceTimersByTime(200));
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    fireEvent.click(sword);
+    expect(screen.getByRole("dialog", { name: "Iron Sword details" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close item details" }));
+    fireEvent.click(screen.getByRole("tab", { name: /Consumables/ }));
+    const potion = screen.getByRole("button", { name: "Health Potion x2" });
+    fireEvent.mouseEnter(potion);
+    fireEvent.focus(potion);
+    act(() => jest.advanceTimersByTime(200));
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    fireEvent.click(potion);
+    expect(screen.getByRole("dialog", { name: "Health Potion details" })).toBeTruthy();
+    expect(player.consumables.healthPotion).toBe(2);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test("mobile group combat renders inside the same screen and controls shell", () => {
+  const snapshot = { ...player, level: 45, skills: {}, equippedSkills: [] };
+  const run = createGroupRun({
+    id: "layout-run", dungeonId: "tidewrack", members: ["layout-fixture", "ally"], now: 1000, actor: "layout-fixture",
+    snapshots: { "layout-fixture": snapshot, ally: { ...snapshot, name: "Ally" } },
+  });
+  run.log = ["Earlier round.", "Latest round."];
+  getGroupStatus.mockReturnValue({
+    identity: "layout-fixture", partyId: "layout-party", run, active: true, inRun: true,
+    connected: true, intentsIn: {}, chat: [], remainingMs: 60000, roundRemainingMs: 20000,
+  });
+  render(<Game uid="layout-fixture" onLogout={jest.fn()} onMainMenu={jest.fn()} />);
+  expect(screen.getByRole("button", { name: "Melee Attack" })).toBeTruthy();
+  expect(document.querySelector(".group-player .me")).toBeTruthy();
+  captureLayout("group-combat");
+  fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+  expect(screen.getByRole("dialog", { name: "Party chat" })).toBeTruthy();
+  captureLayout("group-chat");
+  fireEvent.click(screen.getByRole("button", { name: "Close party chat" }));
+  fireEvent.click(screen.getByRole("button", { name: "Leave Run" }));
+  expect(screen.getByRole("button", { name: /Confirm: leave run/ })).toBeTruthy();
+  captureLayout("group-leave");
 });

@@ -1,7 +1,7 @@
 import { get, ref, remove, runTransaction, serverTimestamp, update } from "firebase/database";
 import { auth, db } from "../firebase";
 
-export const LEADERBOARD_REFRESH_MS = 30 * 60 * 1000;
+export const LEADERBOARD_REFRESH_MS = 60 * 1000;
 const CACHE_KEY = "LeaderboardCacheV2";
 const PROFILE_KEY = "LeaderboardPublishedV2:";
 let cache = null;

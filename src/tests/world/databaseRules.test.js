@@ -1,8 +1,16 @@
 import http from "http";
 import { CONSUMABLES } from "../../items/consumables";
 import databaseRules from "../../../database.rules.json";
+import { LEADERBOARD_REFRESH_MS } from "../../world/leaderboards";
 
 jest.mock("../../character/player", () => ({ getPlayer: jest.fn(), setPlayer: jest.fn() }));
+jest.mock("../../firebase", () => ({ db: {}, auth: {} }));
+
+test("leaderboard rules allow publication at the same one-minute boundary as the client", () => {
+  expect(LEADERBOARD_REFRESH_MS).toBe(60000);
+  expect(databaseRules.rules.leaderboardEntries.$uid[".write"])
+    .toContain(`now - data.child('updatedAt').val() >= ${LEADERBOARD_REFRESH_MS}`);
+});
 
 test("marketplace rules accept exactly the current consumable catalog", () => {
   const validation = databaseRules.rules.marketplace.$listingId[".validate"];
@@ -147,6 +155,19 @@ rulesTests("Firebase name and consumable marketplace rules", () => {
     expect((await request("PUT", "leaderboardEntries/seller", {
       ...entry, highestClearedColosseumWave: 8,
     }, "seller")).status).toBe(200);
+  });
+
+  test("leaderboard scores can update after one minute but not before or by another player", async () => {
+    const entry = {
+      name: "Seller", accountId: "seller", level: 1, gearScore: 0, astra: 0,
+      highestClearedColosseumWave: 0, updatedAt: { ".sv": "timestamp" },
+    };
+    expect((await request("PUT", "leaderboardEntries/seller", entry, "seller")).status).toBe(200);
+    expect((await request("PUT", "leaderboardEntries/seller", entry, "seller")).status).toBe(401);
+
+    await request("PUT", "leaderboardEntries/seller/updatedAt", Date.now() - 60000, "owner");
+    expect((await request("PUT", "leaderboardEntries/seller", entry, "buyer")).status).toBe(401);
+    expect((await request("PUT", "leaderboardEntries/seller", entry, "seller")).status).toBe(200);
   });
 
   test("name creation requires a reservation, and saves the player immediately", async () => {

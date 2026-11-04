@@ -339,7 +339,10 @@ export function Game({ uid, onLogout, onMainMenu }) {
   const Screen = SCREENS[activeScreen].component;
   const screenData = contestView?.data || (activeScreen === sceneScreen && scene.screenData ? scene.screenData() : undefined);
   useEffect(() => {
-    if (mobileNavigation && gameContent.current) gameContent.current.scrollTop = 0;
+    if (mobileNavigation && gameContent.current) {
+      gameContent.current.scrollTop = 0;
+      gameContent.current.querySelector(".game-screen").scrollTop = 0;
+    }
   }, [mobileNavigation, activeScreen, sceneId]);
   const visibleScreens = Object.entries(SCREENS)
     .filter(([key, s]) => (!s.hideUnlessActive || key === sceneScreen) && (!s.adminOnly || isAdmin()))
@@ -478,7 +481,7 @@ export function Game({ uid, onLogout, onMainMenu }) {
             }}>
               Quick guide
             </button>
-            <span className='sidebar-version' aria-label='Game version'>v0.3.1.1-Alpha</span>
+            <span className='sidebar-version' aria-label='Game version'>v0.3.1.2-Alpha</span>
           </div>
         </nav>
         </div>
@@ -500,7 +503,7 @@ export function Game({ uid, onLogout, onMainMenu }) {
                   : null;
                 const cost = details?.footer || (o.label === "Rest" ? details?.description : null);
                 return (
-                <Tooltip key={o.label} content={o.tooltip}>
+                <Tooltip disableOnMobile={sceneId === "combatItems"} key={o.label} content={o.tooltip}>
                   <button
                     className={`buttons input-button ${["Travel", "Continue", "Melee Attack", "Rest"].includes(o.label) ? "input-primary" : ""}`}
                     type='button'

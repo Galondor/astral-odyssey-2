@@ -14,6 +14,7 @@ import {
 import { Bar } from "./CharacterSummary";
 import RichText from "./RichText";
 import Tooltip from "./Tooltip";
+import useIsMobile from "./useIsMobile";
 import { filterChatText } from "../shared/names";
 
 const DUNGEON_LIST = Object.values(GROUP_DUNGEONS).sort((a, b) => a.level - b.level);
@@ -388,6 +389,7 @@ const PuzzlePanel = ({ run, identity }) => {
 
 export const GroupRunScreen = () => {
   const status = useGroupStatus();
+  const mobile = useIsMobile();
   const log = useRef(null);
   const { run } = status;
   useEffect(() => {
@@ -397,6 +399,16 @@ export const GroupRunScreen = () => {
   const dungeon = GROUP_DUNGEONS[run.dungeon];
   const stage = dungeon.stages[run.stage];
   const enemies = (run.combat?.enemies || []).filter((enemy) => !enemy.hidden && !enemy.dead);
+  const partyCards = (ids) => ids.map((id) => run.party[id] && (
+    <MemberCard key={id} member={run.party[id]} run={run} intentIn={status.intentsIn[id]} me={id === status.identity} />
+  ));
+  const opponents = run.puzzle ? <PuzzlePanel run={run} identity={status.identity} /> : (
+    <>
+      <h4>Enemies</h4>
+      {enemies.map((enemy) => <EnemyCard key={enemy.uid} enemy={enemy} />)}
+    </>
+  );
+  const allies = run.members.filter((id) => id !== status.identity);
   return (
     <div className='panel group-run' style={{ "--group-color": dungeon.color }}>
       <div className='group-run-header'>
@@ -411,24 +423,34 @@ export const GroupRunScreen = () => {
         {run.combat?.objective?.survive ? ` · Survive ${Math.max(0, run.combat.objective.survive - run.combat.round + 1)} more round(s)` : ""}
       </div>
       <div className='group-battlefield'>
+        {mobile ? <>
+          <div className='group-side group-opponents'>{opponents}</div>
+          <div className='group-side group-player'>{partyCards([status.identity])}</div>
+          {allies.length > 0 && <details className='mobile-party-details'>
+            <summary>Party ({allies.length})</summary>
+            <div className='group-side'>{partyCards(allies)}</div>
+          </details>}
+        </> : <>
         <div className='group-side'>
           <h4>Party</h4>
-          {run.members.map((id) => run.party[id] && (
-            <MemberCard key={id} member={run.party[id]} run={run} intentIn={status.intentsIn[id]} me={id === status.identity} />
-          ))}
+          {partyCards(run.members)}
         </div>
-        <div className='group-side'>
-          {run.puzzle ? <PuzzlePanel run={run} identity={status.identity} /> : (
-            <>
-              <h4>Enemies</h4>
-              {enemies.map((enemy) => <EnemyCard key={enemy.uid} enemy={enemy} />)}
-            </>
-          )}
-        </div>
+        <div className='group-side'>{opponents}</div>
+        </>}
       </div>
-      <div className='log group-log' ref={log}>
+      {mobile ? <>
+        <div className='log group-latest' aria-live='polite'>
+          {run.log.length > 0 && <div className='message game'><RichText text={run.log[run.log.length - 1]} /></div>}
+        </div>
+        {run.log.length > 1 && <details className='mobile-combat-log'>
+          <summary>Combat log</summary>
+          <div className='log group-log' ref={log}>
+            {run.log.slice(0, -1).map((line, index) => <div key={index} className='message game'><RichText text={line} /></div>)}
+          </div>
+        </details>}
+      </> : <div className='log group-log' ref={log}>
         {run.log.map((line, index) => <div key={index} className='message game'><RichText text={line} /></div>)}
-      </div>
+      </div>}
     </div>
   );
 };
@@ -487,6 +509,7 @@ const chatSeen = { partyId: Symbol("unset"), ids: new Set() };
 
 export const GroupRunActions = ({ navigationModal }) => {
   const status = useGroupStatus();
+  const mobile = useIsMobile();
   const [menu, setMenu] = useState({ view: "main" });
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -588,14 +611,19 @@ export const GroupRunActions = ({ navigationModal }) => {
         ...(living.length > 1 ? [{ label: "Guard an Ally", select: () => pickAlly({ type: "guard" }, { excludeSelf: true }) }] : []),
         { label: "Pass", select: () => send({ type: "pass" }) },
       ];
+      if (mobile && !stunned) {
+        const order = ["Melee Attack", "Magic Attack", "Defend", "Use Item", "Skills", "Guard an Ally", "Pass"];
+        options.sort((a, b) => order.indexOf(a.label) - order.indexOf(b.label));
+      }
     }
   }
   options = options.map((option) => ({ ...option, disabled: disabled || option.disabled }));
 
   useEffect(() => {
-    if (navigationModal) return undefined;
+    if (navigationModal || chatOpen) return undefined;
     const selectByNumber = (event) => {
       if (!/^[1-9]$/.test(event.key) || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (document.querySelector('dialog[open], [aria-modal="true"]')) return;
       if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable='true']")) return;
       const option = options[Number(event.key) - 1];
       if (!option || option.disabled) return;
@@ -628,12 +656,13 @@ export const GroupRunActions = ({ navigationModal }) => {
       )}
       <div className='input-buttons'>
         {options.map((option, index) => (
-          <Tooltip key={`${menu.view}-${index}`} content={option.tooltip}>
-            <button type='button' className='buttons input-button' disabled={option.disabled} onClick={option.select}>
-              {index + 1}. {option.label}
+          <Tooltip disableOnMobile={menu.view === "items"} key={`${menu.view}-${index}`} content={option.tooltip}>
+            <button type='button' className={`buttons input-button ${mobile && option.label === "Melee Attack" ? "input-primary" : ""}`} disabled={option.disabled} onClick={option.select}>
+              {!mobile && `${index + 1}. `}{option.label}
             </button>
           </Tooltip>
         ))}
+        <div className='group-run-tools'>
         <button
           type='button'
           className='buttons input-button group-chat-toggle'
@@ -657,6 +686,7 @@ export const GroupRunActions = ({ navigationModal }) => {
             Leave Run
           </button>
         )}
+        </div>
       </div>
       {chatOpen && <Chat status={status} overlay onClose={() => setChatOpen(false)} />}
     </div>

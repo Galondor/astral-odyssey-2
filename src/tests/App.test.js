@@ -516,17 +516,22 @@ test("mobile bottom navigation opens Character without executing a scene action"
   await enterGame();
   const navigation = screen.getByRole("navigation", { name: "Mobile navigation" });
   const content = document.querySelector(".game-content");
+  const scene = content.querySelector(".game-screen");
   content.scrollTop = 200;
+  scene.scrollTop = 200;
   fireEvent.click(within(navigation).getByRole("button", { name: /Character/ }));
   expect(content.scrollTop).toBe(0);
+  expect(scene.scrollTop).toBe(0);
   expect(screen.getByRole("heading", { name: "Character screen" })).toBeTruthy();
   expect(processButton).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "Travel" })).toBeNull();
   fireEvent.keyDown(window, { key: "1" });
   expect(processButton).not.toHaveBeenCalled();
   content.scrollTop = 200;
+  scene.scrollTop = 200;
   fireEvent.click(within(navigation).getByRole("button", { name: "Game" }));
   expect(content.scrollTop).toBe(0);
+  expect(scene.scrollTop).toBe(0);
   expect(screen.getByRole("button", { name: "Travel" })).toBeTruthy();
 });
 

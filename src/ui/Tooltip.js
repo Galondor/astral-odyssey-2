@@ -1,5 +1,6 @@
 import { cloneElement, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import useIsMobile from "./useIsMobile";
 
 const OFFSET = 12;
 const MARGIN = 8;
@@ -73,7 +74,9 @@ function resolve(content) {
 }
 
 /* Wraps a single element, showing a tooltip on hover/focus. Renders nothing extra if content is empty. */
-export default function Tooltip({ content, delay = 150, onView, openOnClick = false, children }) {
+export default function Tooltip({ content, delay = 150, onView, openOnClick = false, disableOnMobile = false, children }) {
+  const mobile = useIsMobile();
+  const disabled = disableOnMobile && mobile;
   const [state, setState] = useState(null); // { data, x, y }
   const [pos, setPos] = useState(null);
   const tipRef = useRef(null);
@@ -82,19 +85,25 @@ export default function Tooltip({ content, delay = 150, onView, openOnClick = fa
 
   const open = useCallback(() => {
     clearTimeout(timer.current);
+    if (disabled) return;
     timer.current = setTimeout(() => {
       const data = resolve(content);
       if (data == null || data === "" || data === false) return;
       setState({ data });
       onView?.();
     }, delay);
-  }, [content, delay, onView]);
+  }, [content, delay, onView, disabled]);
 
   const close = useCallback(() => {
     clearTimeout(timer.current);
     setState(null);
     setPos(null);
   }, []);
+
+  useLayoutEffect(() => {
+    if (disabled) close();
+    return () => clearTimeout(timer.current);
+  }, [disabled, close]);
 
   const move = (e) => {
     anchor.current = { x: e.clientX, y: e.clientY };
@@ -160,7 +169,7 @@ export default function Tooltip({ content, delay = 150, onView, openOnClick = fa
   return (
     <>
       {child}
-      {state &&
+      {state && !disabled &&
         createPortal(
           <div
             ref={tipRef}

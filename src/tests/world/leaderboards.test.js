@@ -33,6 +33,74 @@ beforeEach(() => {
   api = require("../../world/leaderboards");
 });
 
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
+test("scores publish immediately and republish at the one-minute cooldown boundary", async () => {
+  const now = jest.spyOn(Date, "now").mockReturnValue(100000);
+  const player = { name: "Player", level: 10 };
+  await api.publishLeaderboardEntry("character", player);
+  expect(database.runTransaction).toHaveBeenCalledTimes(1);
+
+  now.mockReturnValue(159999);
+  await api.publishLeaderboardEntry("character", { ...player, level: 11 });
+  expect(database.runTransaction).toHaveBeenCalledTimes(1);
+
+  now.mockReturnValue(160000);
+  await api.publishLeaderboardEntry("character", { ...player, level: 11 });
+  expect(database.runTransaction).toHaveBeenCalledTimes(2);
+  const [, publish] = database.runTransaction.mock.calls[1];
+  expect(publish(null)).toMatchObject({ name: "Player", level: 11 });
+});
+
+test("the stored publication cooldown expires after one minute in a returning session", async () => {
+  const now = jest.spyOn(Date, "now").mockReturnValue(159999);
+  localStorage.setItem("LeaderboardPublishedV2:character", "100000");
+  const player = { name: "Player", level: 11 };
+
+  await api.publishLeaderboardEntry("character", player);
+  expect(database.runTransaction).not.toHaveBeenCalled();
+
+  now.mockReturnValue(160000);
+  await api.publishLeaderboardEntry("character", player);
+  expect(database.runTransaction).toHaveBeenCalledTimes(1);
+});
+
+test("the server score cooldown expires after one minute in a new browser", async () => {
+  const now = jest.spyOn(Date, "now").mockReturnValue(159999);
+  const current = { ...score("Player"), accountId: "account", updatedAt: 100000 };
+  database.runTransaction.mockImplementation(async (_, callback) => ({
+    snapshot: { val: () => callback(current) ?? current },
+  }));
+  const player = { name: "Player", level: 11 };
+
+  await api.publishLeaderboardEntry("character", player);
+  expect(database.runTransaction.mock.calls[0][1](current)).toBeUndefined();
+
+  now.mockReturnValue(160000);
+  await api.publishLeaderboardEntry("character", player);
+  expect(database.runTransaction).toHaveBeenCalledTimes(2);
+  expect(database.runTransaction.mock.calls[1][1](current)).toMatchObject({ level: 11 });
+});
+
+test("rankings use the cache only until the one-minute refresh boundary", async () => {
+  const now = jest.spyOn(Date, "now").mockReturnValue(100000);
+  values.leaderboardEntries = { character: { ...score("Player"), accountId: "account" } };
+  await api.getLeaderboards();
+  values.leaderboardEntries = {
+    character: { ...score("Player"), level: 11, accountId: "account" },
+  };
+
+  now.mockReturnValue(159999);
+  expect((await api.getLeaderboards()).entries.character.level).toBe(10);
+  expect(database.get.mock.calls.filter(([path]) => path === "leaderboardEntries")).toHaveLength(1);
+
+  now.mockReturnValue(160000);
+  expect((await api.getLeaderboards()).entries.character.level).toBe(11);
+  expect(database.get.mock.calls.filter(([path]) => path === "leaderboardEntries")).toHaveLength(2);
+});
+
 test("compact scores publish cleared waves, never the older reached-wave record", () => {
   expect(api.buildLeaderboardEntry({
     name: "Player",

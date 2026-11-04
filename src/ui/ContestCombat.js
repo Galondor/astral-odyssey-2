@@ -144,7 +144,7 @@ export default function ContestCombat({ onLeave, navigationModal }) {
     </>}
     {menu === "items" && !match?.winner && <p>Choose an item to use.</p>}
     <div className='input-buttons'>
-      {options.map((option, index) => <Tooltip key={option.label} content={option.tooltip}>
+      {options.map((option, index) => <Tooltip disableOnMobile={menu === "items"} key={option.label} content={option.tooltip}>
         <button type='button' className='buttons input-button' disabled={option.disabled} onClick={option.select}>
           {index + 1}. {option.label}
         </button>

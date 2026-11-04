@@ -118,6 +118,7 @@ import {
 } from "../world/quests";
 import { getRegion, REGIONS } from "../world/regions";
 import Tooltip from "./Tooltip";
+import useIsMobile from "./useIsMobile";
 import InboxScreen from "./InboxScreen";
 import SocialScreen from "./SocialScreen";
 import { hasSocialNotification } from "../world/social";
@@ -146,18 +147,6 @@ import { DUNGEON_MIN_LEVEL, DUNGEON_REROLL_COST, describeOffer, formatTime, getB
    adminOnly - only shown to players listed under admins/{uid} in the database
    component - React component receiving { messages, data, player }
 */
-const MOBILE_QUERY = "(max-width: 1000px)";
-const useIsMobile = () => {
-  const [mobile, setMobile] = useState(() => window.matchMedia(MOBILE_QUERY).matches);
-  useEffect(() => {
-    const mq = window.matchMedia(MOBILE_QUERY);
-    const onChange = (e) => setMobile(e.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return mobile;
-};
-
 const Log = ({ messages, limit, mobileLimit }) => {
   const ref = useRef(null);
   const isMobile = useIsMobile();
@@ -166,7 +155,7 @@ const Log = ({ messages, limit, mobileLimit }) => {
   useEffect(() => {
     const el = ref.current;
     if (el) {
-      const scrollArea = isMobile && !effectiveLimit ? el.closest(".mobile-game-content") : el;
+      const scrollArea = isMobile && !effectiveLimit ? el.closest(".game-screen") : el;
       if (scrollArea) scrollArea.scrollTop = scrollArea.scrollHeight;
     }
   }, [messages, isMobile, effectiveLimit]);
@@ -690,7 +679,7 @@ const ForgeScreen = ({ onChange }) => {
               const status = getItemUpgradeStatus(item);
               return (
                 <section key={item.id} className='relic-forge-section forge-upgrade-card' aria-label={`${item.name} upgrade`}>
-                  <Tooltip content={details}>
+                  <Tooltip disableOnMobile content={details}>
                     <button type='button' className='inventory-item gear-card' style={getHolofoilStyle(item)} onClick={() => setSelectedUpgradeId(item.id)}>
                       <strong style={{ color: RARITY_COLORS[item.rarity] }}>{item.name}</strong>
                       <span>{details.subtitle}</span>
@@ -941,7 +930,7 @@ const GearTraderScreen = ({ data, onChange }) => {
     isEquipped = false,
     canFavorite = false,
   ) => (
-    <Tooltip key={key} content={itemTooltip(item)}>
+    <Tooltip disableOnMobile key={key} content={itemTooltip(item)}>
       <button
         type='button'
         className={`inventory-item gear-card ${isEquipped ? "equipped-gear" : ""} ${canFavorite && isFavorite(player, "gear", item) ? "favorite-item" : ""}`}
@@ -1148,7 +1137,7 @@ const GearTraderScreen = ({ data, onChange }) => {
                       current.includes(key) ? current.filter((entry) => entry !== key) : [...current, key],
                     )}
                   />
-                  <Tooltip content={gemstoneTooltip(gemstone)}>
+                  <Tooltip disableOnMobile content={gemstoneTooltip(gemstone)}>
                     <button
                       type='button'
                       className={`inventory-item ${favorite ? "favorite-item" : ""}`}
@@ -1309,7 +1298,7 @@ const Equipment = ({ player, onChange, locked }) => {
               ? equipment[slotItem.twoHandedOf]
               : slotItem;
             return (
-              <Tooltip key={slot.key} content={item ? itemTooltip(item) : null}>
+              <Tooltip disableOnMobile key={slot.key} content={item ? itemTooltip(item) : null}>
                 <button
                   type='button'
                   className={`equip-slot ${item ? "filled" : ""}`}
@@ -1477,7 +1466,7 @@ const ItemTargetPopup = ({
         {targets.length ? (
           <div className='gemstone-popup-targets'>
             {targets.map(({ item, label }) => (
-              <Tooltip key={`${label}-${item.id}`} content={itemTooltip(item)}>
+              <Tooltip disableOnMobile key={`${label}-${item.id}`} content={itemTooltip(item)}>
                 <button
                   type='button'
                   className={`gemstone-popup-target ${selectedId === item.id ? "selected" : ""}`}
@@ -1578,7 +1567,7 @@ const GemstonePickerPopup = ({ gemstones, itemName, onPick, onClose, locked, mes
         ) : (
           <div className='gemstone-popup-targets'>
             {matches.map((gemstone) => (
-              <Tooltip key={gemstone.id} content={gemstoneTooltip(gemstone)}>
+              <Tooltip disableOnMobile key={gemstone.id} content={gemstoneTooltip(gemstone)}>
                 <button
                   type='button'
                   className='gemstone-popup-target'
@@ -1958,7 +1947,7 @@ const Inventory = ({ player, onChange, locked }) => {
                     onChange();
                   }}
                 >
-                  <Tooltip content={titleTooltip(title)}>
+                  <Tooltip disableOnMobile content={titleTooltip(title)}>
                     <strong style={{ color: title.color }}>{title.name}</strong>
                   </Tooltip>
                   <span>{title.rarity} title{equipped ? " · Equipped (click to unequip)" : " · Click to equip"}</span>
@@ -2035,7 +2024,7 @@ const Inventory = ({ player, onChange, locked }) => {
                 <div className='equip-empty'>No gear matches these filters.</div>
               )}
               {sortedGear.map(({ item, index }) => (
-                <Tooltip key={item.id || index} content={itemTooltip(item)}>
+                <Tooltip disableOnMobile key={item.id || index} content={itemTooltip(item)}>
                   <button
                     type='button'
                     className={`inventory-item gear-card ${canEquip(item, player.level) ? "" : "too-high"} ${favoriteClass("gear", item)}`}
@@ -2156,6 +2145,7 @@ const Inventory = ({ player, onChange, locked }) => {
             <div className='inventory-list'>
               {consumables.map((c) => (
                 <Tooltip
+                  disableOnMobile
                   key={c.key}
                   onView={() => viewItem("consumables", c.key)}
                   content={consumableTooltip(
@@ -2260,6 +2250,7 @@ const Inventory = ({ player, onChange, locked }) => {
                 <div className='inventory-list gemstone-inventory'>
                   {filteredGemstones.map((gemstone) => (
                     <Tooltip
+                      disableOnMobile
                       key={gemstone.id}
                       onView={() => viewItem("gemstones", gemstone.id)}
                       content={gemstoneTooltip(gemstone)}
@@ -2297,6 +2288,7 @@ const Inventory = ({ player, onChange, locked }) => {
             <div className='inventory-list'>
               {materials.map((m) => (
                 <Tooltip
+                  disableOnMobile
                   key={m.key}
                   onView={() => viewItem("materials", m.key)}
                   content={materialTooltip(m.key, m.count)}
@@ -2322,6 +2314,7 @@ const Inventory = ({ player, onChange, locked }) => {
             <div className='inventory-list'>
               {keyItems.map((k) => (
                 <Tooltip
+                  disableOnMobile
                   key={k.key}
                   onView={() => viewItem("keyItems", k.key)}
                   content={keyItemTooltip(k.key, player)}

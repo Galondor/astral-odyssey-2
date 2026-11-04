@@ -1960,6 +1960,7 @@ input[type='checkbox']:disabled {
 
 .player-search-shell[hidden], .character-layout [hidden] { display: none; }
 .character-inventory { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+.group-run-tools { display: contents; }
 
 @media (max-width: 1000px) {
   .navbar { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -1988,18 +1989,18 @@ input[type='checkbox']:disabled {
   .mobile-bottom-nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .mobile-bottom-nav .sidebar-notification-dot { position: absolute; top: 4px; right: 8px; }
   .mobile-bottom-nav .sidebar-badge { margin-left: 4px; }
-  .mobile-game-content { overflow-y: auto; overscroll-behavior-y: contain; display: block; }
-  .mobile-game-content .game-screen { min-height: 0; height: auto; margin-bottom: 8px; }
+  .mobile-game-content { display: flex; flex-direction: column; overflow: hidden; }
+  .mobile-game-content .game-screen { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; height: auto; margin-bottom: 0; }
   .mobile-game-content .panel, .mobile-game-content .log, .mobile-game-content .screen-split,
   .mobile-game-content .workshop, .mobile-game-content .character-main, .mobile-game-content .inventory-panel { flex: none; overflow-y: visible; height: auto; max-height: none; }
-  .mobile-game-content .game-controls { position: sticky; bottom: -8px; z-index: 5; min-height: 0; max-height: none; overflow: visible; margin-top: 8px; padding: 8px; background: var(--surface); }
-  .mobile-game-content .town-controls { position: static; }
+  .mobile-game-content .game-controls { position: relative; flex: 0 0 auto; justify-content: flex-start; z-index: 5; min-height: 0; max-height: 45%; overflow-y: auto; overscroll-behavior-y: contain; margin-top: 0; padding: 8px; background: var(--surface); }
+  .mobile-game-content .game-controls > * { flex-shrink: 0; }
   .mobile-game-content .input-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0; }
   .mobile-game-content .input-button { min-width: 0; min-height: 48px; width: 100%; margin: 0; text-align: left; font-size: 15px; }
   .mobile-game-content .input-buttons .input-primary { border-color: #83b4f1; }
   .mobile-action-cost { display: block; color: var(--muted); text-align: left; font-size: 12px; margin-top: 4px; }
   .mobile-game-content .input-form { width: 100%; }
-  .mobile-return { display: block; min-height: 48px; width: 100%; text-align: left; }
+  .mobile-return { display: block; flex-shrink: 0; min-height: 48px; width: 100%; text-align: left; }
   .mobile-character-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 16px; }
   .mobile-character-tabs button { min-height: 48px; padding: 8px 4px; }
   .mobile-character-tabs button[aria-pressed='true'] { color: #b7d4fa; border-color: #83b4f1; }
@@ -2027,6 +2028,21 @@ input[type='checkbox']:disabled {
   .mobile-combat-log { border-top: 1px solid var(--border); }
   .mobile-combat-log summary { min-height: 44px; padding: 10px 0; color: var(--muted); text-align: left; cursor: pointer; }
   .mobile-combat-log .log { padding-top: 8px; }
+  .group-run-header h2 { font-size: 18px; }
+  .group-run-header .dungeon-timer, .group-run-sub { font-size: 13px; }
+  .group-run-sub { text-align: left; }
+  .group-player .group-member { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .group-player .group-member-head, .group-player .group-tag, .group-player .status-chips { grid-column: 1 / -1; }
+  .group-member .bar, .group-enemy .bar { margin: 4px 0; }
+  .group-member .bar-label { font-size: 12px; }
+  .group-member-head > strong, .group-enemy-head > strong { color: #b7d4fa; }
+  .group-latest { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
+  .mobile-party-details summary { min-height: 44px; padding: 10px 0; color: var(--muted); text-align: left; cursor: pointer; }
+  .group-controls > p { font-size: 13px; margin: 4px 0 8px; text-align: left; }
+  .group-run-tools { display: flex; flex-wrap: wrap; gap: 8px; grid-column: 1 / -1; }
+  .group-run-tools .input-button { flex: 1 1 40%; width: auto; }
+  .group-controls .group-chat-overlay { top: 8px; bottom: calc(76px + env(safe-area-inset-bottom)); max-height: none; min-height: 0; background: var(--surface); }
+  .group-chat-overlay .group-chat-form { flex: 0 0 auto; }
   .item-popup-backdrop { align-items: flex-end; padding: 8px; }
   .item-popup { width: min(600px, 100%); max-height: calc(100dvh - 16px); padding: 20px 16px max(20px, env(safe-area-inset-bottom)); border-radius: 14px; }
   .item-popup-close { width: 44px; height: 44px; }
