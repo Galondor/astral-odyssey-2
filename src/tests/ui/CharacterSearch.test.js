@@ -22,8 +22,10 @@ test("shows searchable character details, disables private profiles, and opens p
     class: "Spellblade",
     stats: null,
     equipment: {},
-    skills: { backstab: 3 },
-    equippedSkills: ["backstab"],
+    skills: { backstab: 3, meteor: 2 },
+    equippedSkills: ["backstab", "meteor"],
+    passives: ["vitalityOverflow"],
+    equippedPassives: ["vitalityOverflow"],
     crafted: { sharpeningStone: 2 },
     keyItems: ["analyzer"],
     region: "Meadowlands",
@@ -44,7 +46,10 @@ test("shows searchable character details, disables private profiles, and opens p
   expect(dialog.parentElement.parentElement).toBe(document.body);
   expect(container.contains(dialog)).toBe(false);
   expect(screen.getByText(/Sharpening Stone × 2/)).toBeTruthy();
-  expect(screen.getByText("Backstab — Level 3").closest("li").textContent).toBe("Backstab — Level 3");
+  expect(screen.getAllByText("Backstab — Level 3")).toHaveLength(2);
+  expect(screen.getByRole("heading", { name: "Equipped skills" }).nextElementSibling.textContent).toBe("Backstab — Level 3");
+  expect(screen.getByRole("heading", { name: "Equipped passives" }).nextElementSibling.textContent).toBe("Vitality Overflow");
+  expect(screen.getByRole("heading", { name: "Equipped Ultimate" }).nextElementSibling.textContent).toBe("Meteor — Level 2");
   expect(screen.getByText("Analyzer").closest("li").textContent).toBe("Analyzer");
   expect(loadPublicProfile).toHaveBeenCalledWith("public-id");
 

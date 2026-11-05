@@ -310,6 +310,7 @@ const searchText = (listing) => {
   return [
     item.name,
     isConsumableListing(item) ? "consumable" : isMaterialListing(item) ? "material" : isGemstoneListing(item) ? "gemstone" : "gear",
+    isGemstoneListing(item) && item.type === "skill" && "skill gem",
     isMaterialListing(item) && MATERIAL_TIERS[item.tier]?.label,
     isMaterialListing(item) && MATERIALS[item.key]?.description,
     isConsumableListing(item) && CONSUMABLES[item.key]?.description,

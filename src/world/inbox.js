@@ -2,7 +2,7 @@ import { get, onValue, push, ref, remove, set, update } from "firebase/database"
 import { db } from "../firebase";
 import { commitPlayerChange, getPlayer, setPlayer } from "../character/player";
 import { gainExp } from "../character/stats";
-import { addGemstone, addItem, createUniqueItem, generateRandomGemstone, generateRandomItem, GEAR_SLOT_TYPES, RARITY_NAMES, restrictItemSubStats } from "../items/items";
+import { addGemstone, addItem, createUniqueItem, generateRandomGemstone, generateRandomItem, GEAR_SLOT_TYPES, isValidGemstone, RARITY_NAMES, restrictItemSubStats } from "../items/items";
 import { UNIQUES } from "./dungeonData";
 import { CONSUMABLES, KEY_ITEMS, addConsumable, addKeyItem } from "../items/consumables";
 import { MATERIALS, addToMaterials } from "../items/materials";
@@ -65,12 +65,7 @@ export const normalizeAttachments = (a = {}) => ({
       count: Math.floor(Number(g.count)),
     })),
   titles: [...new Set(asList(a.titles).filter((id) => TITLES[id]))],
-  gemstoneItems: asList(a.gemstoneItems).filter((g) =>
-    g && typeof g.id === "string" && typeof g.name === "string" &&
-    ["ruby", "emerald", "sapphire"].includes(g.type) &&
-    typeof g.stat === "string" && Number.isFinite(Number(g.value)) &&
-    RARITY_NAMES.includes(g.rarity),
-  ),
+  gemstoneItems: asList(a.gemstoneItems).filter(isValidGemstone),
   // Exact gear pieces (e.g. marketplace purchases), delivered as-is.
   items: asList(a.items)
     .filter((i) => i && typeof i === "object" && i.name && i.slot)
@@ -324,6 +319,7 @@ export async function sendMessage({ to, subject, body, attachments }) {
     ...(n.gear.length ? { gear: n.gear.map((g) => ({ slot: g.slot, minRarity: g.minRarity || 0, ...(g.minTier ? { minTier: g.minTier } : {}), count: g.count, ...(g.holofoil !== undefined ? { holofoil: g.holofoil } : {}) })) } : {}),
     ...(n.uniques.length ? { uniques: n.uniques } : {}),
     ...(n.gemstones.length ? { gemstones: n.gemstones } : {}),
+    ...(n.gemstoneItems.length ? { gemstoneItems: n.gemstoneItems } : {}),
     ...(n.titles.length ? { titles: n.titles } : {}),
     ...(n.items.length ? { items: n.items } : {}),
   };

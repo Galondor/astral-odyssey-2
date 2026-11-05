@@ -13,6 +13,8 @@ import {
   defendRound,
   endCombat,
   getEnemy,
+  getEnemies,
+  selectCombatTarget,
   getMarrowWard,
   isPlayerDefending,
   getPlayerStatuses,
@@ -22,6 +24,7 @@ import {
   passRound,
   isPlayerStunned,
   getCombatActions,
+  isUltimateUsed,
   getCombatTutorial,
   getCombatConsumables,
 } from "../combat/combat";
@@ -68,13 +71,49 @@ const combatOptionDisabled = (type, key) => {
     if (error) return error;
   }
   if (type === "pass") return false;
+  if (type === "skill" && isUltimateUsed(key)) return `${SKILLS[key].name} has already been used this combat.`;
   return getActionAvailability(getCombatActions(), type, key).message || false;
 };
 const combatScreenData = () => ({
   enemy: getEnemy(), round: getCombatRound(), stats: getPlayer()?.stats,
+  enemies: getEnemies(),
   defending: isPlayerDefending(), playerStatuses: getPlayerStatuses(),
   marrowWard: getMarrowWard(), actions: getCombatActions(), tutorial: getCombatTutorial(),
 });
+
+const chooseAttackTarget = (type, skillKey) => {
+  const enemy = getEnemy();
+  if (!enemy) return { next: "menu" };
+  const execute = () => {
+    const enemy = getEnemy();
+    if (!enemy) return { next: "menu" };
+    const result = settleCombatAttempt(enemy, attackRound(type, skillKey));
+    if (result.used === false) return { reply: result.replies, keepLog: true };
+    return combatNavigation(result, { next: "combat", keepLog: true });
+  };
+  const skill = SKILLS[skillKey];
+  const targets = getEnemies().filter((foe) => foe.hp > 0);
+  if (targets.length <= 1 || skill?.area || skill?.type === "support") return execute();
+  const error = combatOptionDisabled(skillKey ? "skill" : type, skillKey);
+  if (error) return { reply: error, keepLog: true };
+  scenes.combatTargets.options = [
+    { label: "Back", keywords: ["back"], onSelect: () => ({ next: skillKey ? "combatSkills" : "combat", keepLog: true }) },
+    ...getEnemies().flatMap((foe, index) => foe.hp > 0 ? [{
+      label: `${index + 1}. ${foe.name} (${foe.hp}/${foe.maxHp} HP)`,
+      keywords: [String(index + 1), `target ${index + 1}`],
+      onSelect: () => {
+        const result = selectCombatTarget(index);
+        if (!result.ok) return { reply: result.message, keepLog: true };
+        return execute();
+      },
+    }] : []),
+  ];
+  return {
+    next: "combatTargets",
+    keepLog: true,
+    reply: `Choose a target for ${skill?.name || (type === "melee" ? "Melee Attack" : "Magic Attack")}.`,
+  };
+};
 
 // Static portal fare for a region, reduced by key items such as the Wayfinder's Compass.
 export const getPortalFare = (player, regionId) => {
@@ -624,11 +663,7 @@ export const scenes = {
             description: `Damage: ${s.attackMin} - ${s.attackMax}`,
           };
         },
-        onSelect: () => {
-          const enemy = getEnemy();
-          if (!enemy) return { next: "menu" };
-          return combatNavigation(settleCombatAttempt(enemy, attackRound("melee")));
-        },
+        onSelect: () => chooseAttackTarget("melee"),
       },
       {
         label: "Magic Attack",
@@ -642,11 +677,7 @@ export const scenes = {
             description: `Damage: ${s.magicAttackMin} - ${s.magicAttackMax}`,
           };
         },
-        onSelect: () => {
-          const enemy = getEnemy();
-          if (!enemy) return { next: "menu" };
-          return combatNavigation(settleCombatAttempt(enemy, attackRound("magic")));
-        },
+        onSelect: () => chooseAttackTarget("magic"),
       },
       {
         label: "Defend",
@@ -732,8 +763,15 @@ export const scenes = {
       if (o.label === "Withdraw") return { ...o, when: () => !!getEnemy()?.worldBossCycle };
       if (o.label === "Leave Colosseum")
         return { ...o, when: () => !!getEnemy()?.colosseum };
-      return { ...o, when: () => !isPlayerStunned() };
+      return { ...o, when: () => !isPlayerStunned() && (!o.when || o.when()) };
     }),
+  },
+  combatTargets: {
+    screen: "combat",
+    input: INPUT_MODES[0],
+    text: "Choose a target for your attack.",
+    screenData: combatScreenData,
+    options: [],
   },
   combatSkills: {
     screen: "combat",
@@ -760,13 +798,7 @@ export const scenes = {
               getSkillLevel(getPlayer(), key),
               actionCostLabel("skill", key, "solo", getCombatActions()),
             ),
-          onSelect: () => {
-            const enemy = getEnemy();
-            if (!enemy) return { next: "menu" };
-            const result = settleCombatAttempt(enemy, attackRound(null, key));
-            if (!result.used) return { reply: result.replies };
-            return combatNavigation(result, { next: "combat", keepLog: true });
-          },
+          onSelect: () => chooseAttackTarget(null, key),
         })),
       ];
     },

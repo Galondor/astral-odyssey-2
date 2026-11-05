@@ -219,6 +219,35 @@ test.each(["broadcast", "individual"])("admins can attach reputation to a %s mes
   })));
 });
 
+test.each(["broadcast", "individual"])("admins can choose exact regular and ultimate Skill Gems for a %s", async (mode) => {
+  getDirectory.mockResolvedValue([{ uid: "player-1", name: "Nova", level: 25 }]);
+  sendMessage.mockResolvedValue();
+  render(<AdminScreen />);
+  if (mode === "individual") {
+    fireEvent.click(screen.getByRole("tab", { name: "Individual Message" }));
+    fireEvent.change(screen.getByRole("combobox", { name: /player/i }), { target: { value: "Nova" } });
+    fireEvent.mouseDown(await screen.findByRole("option", { name: /Nova/ }));
+  }
+  fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "Skill Gems" } });
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Enjoy!" } });
+  fireEvent.change(screen.getByLabelText("Attachment type"), { target: { value: "skillGem" } });
+  const skillSelect = screen.getByRole("option", { name: "Unique - Meteor Gemstone" }).parentElement;
+  for (const key of ["meteor", "fireball", "mendingLight"]) {
+    fireEvent.change(skillSelect, { target: { value: key } });
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Attach" }));
+  }
+  fireEvent.click(screen.getByRole("button", { name: /send/i }));
+  await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+  const mail = sendMessage.mock.calls[0][0];
+  expect(mail.to).toBe(mode === "broadcast" ? "all" : "player-1");
+  expect(mail.attachments.gemstoneItems).toHaveLength(6);
+  expect(mail.attachments.gemstoneItems.map((gem) => gem.skill)).toEqual([
+    "meteor", "meteor", "fireball", "fireball", "mendingLight", "mendingLight",
+  ]);
+  expect(new Set(mail.attachments.gemstoneItems.map((gem) => gem.id)).size).toBe(6);
+});
+
 test("admins can attach Labyrinth Relic Fragments and the Unwritten Path unique", async () => {
   sendMessage.mockResolvedValue();
   render(<AdminScreen />);

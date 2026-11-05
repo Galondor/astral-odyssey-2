@@ -2,7 +2,7 @@ import { get, update } from "firebase/database";
 import { commitPlayerChange, getCharacterIdentity, getPlayer, setPlayer } from "../../character/player";
 import { auth } from "../../firebase";
 import { CONSUMABLES } from "../../items/consumables";
-import { generateRandomGemstone } from "../../items/items";
+import { createSkillGemstone, generateRandomGemstone } from "../../items/items";
 import { DEFAULT_FILTERS, buyListing, cancelListing, filterListings, listItem, sortListings } from "../../world/marketplace";
 
 jest.mock("../../firebase", () => ({ db: {}, auth: { currentUser: { uid: "seller" } } }));
@@ -45,6 +45,26 @@ test("selling a consumable removes exactly one and keeps gear untouched", async 
     "marketplace/listing": expect.objectContaining({ item: elixir, price: 101 }),
   });
 
+});
+
+test.each(["fireball", "mendingLight", "meteor"])("exact %s Skill Gems can be listed, cancelled and purchased", async (key) => {
+  const gem = { ...createSkillGemstone(key), kind: "gemstone" };
+  player.gemstones = [gem];
+  expect(await listItem(gem, 5000)).toMatchObject({ ok: true });
+  expect(player.gemstones).toEqual([]);
+  const stored = update.mock.calls[0][1]["marketplace/listing"];
+  expect(stored.item).toEqual(gem);
+  get.mockResolvedValue({ val: () => stored });
+  expect(await cancelListing({ id: "listing", ...stored })).toMatchObject({ ok: true });
+  expect(player.gemstones).toEqual([gem]);
+
+  auth.currentUser = { uid: "buyer" };
+  player.astra = 10000;
+  expect(await buyListing({ id: "listing", ...stored })).toMatchObject({ ok: true });
+  const mail = update.mock.calls.at(-1)[1]["inbox/buyer/market-listing"];
+  expect(mail.attachments).toEqual({ gemstoneItems: [gem] });
+  expect(filterListings([{ id: "listing", ...stored }], { ...DEFAULT_FILTERS, kind: "gemstone", query: gem.name }))
+    .toHaveLength(1);
 });
 
 test("new listings and purchase mail use the active character identity, not the account key", async () => {

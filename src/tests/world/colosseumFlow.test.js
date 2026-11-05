@@ -26,6 +26,7 @@ jest.mock("../../combat/combat", () => ({
   getCombatActions: jest.fn(),
   getCombatConsumables: jest.fn(),
   getEnemy: jest.fn(),
+  getEnemies: () => [],
   getMarrowWard: jest.fn(),
   getPlayerStatuses: jest.fn(),
   isPlayerDefending: jest.fn(),

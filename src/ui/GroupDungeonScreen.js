@@ -558,6 +558,10 @@ export const GroupRunActions = ({ navigationModal }) => {
       ];
     } else if (run.combat && me.downed) {
       prompt = "You have fallen. You'll be revived at the next checkpoint if your party clears the stage.";
+    } else if (run.combat && me.meteorCharge) {
+      prompt = stunned
+        ? "You are stunned and your Meteor channel will be interrupted at the start of this round."
+        : "Your Meteor will strike at the start of this round.";
     } else if (run.combat && menu.view === "enemy" && targets.length) {
       prompt = "Choose a target.";
       options = [back, ...targets.map((enemy) => ({
@@ -575,17 +579,24 @@ export const GroupRunActions = ({ navigationModal }) => {
       })];
     } else if (run.combat && menu.view === "skills") {
       prompt = "Choose a skill.";
-      const player = { class: me.cls, stats: me.stats, skills: me.skills };
+      const player = { class: me.cls, stats: me.stats, skills: me.skills, passives: me.passives || [], equippedPassives: me.passives || [] };
       options = [back, ...(me.equipped || []).filter((key) => SKILLS[key]).map((key) => {
         const skill = SKILLS[key];
         const cost = skillCost(player, key);
-        const tooltip = skillTooltip(key, me.skills[key] || 0, "Action: takes your only action this round", player);
+        const used = !!(skill.ultimate && me.usedUltimates?.[key]);
+        const tooltip = skillTooltip(
+          key,
+          me.skills[key] || 0,
+          `Action: takes your only action this round${used ? "; already used this combat" : ""}`,
+          player,
+        );
         return {
-          label: `${skill.name} (${cost} power)`,
+          label: `${skill.name} (${cost} power)${used ? " — Used this combat" : ""}`,
           tooltip: { ...tooltip, stats: tooltip.stats.map((stat) => stat.label === "Action cost" ? { ...stat, value: "Action" } : stat) },
-          disabled: me.stats.power < cost,
+          disabled: me.stats.power < cost || used,
           select: () => {
             const intent = { type: "skill", key };
+            if (skill.area) return send(intent);
             if (skill.type !== "support") return pickEnemy(intent);
             if (skill.target === "ally" && living.length > 1) return pickAlly(intent);
             return send({ ...intent, target: identity });

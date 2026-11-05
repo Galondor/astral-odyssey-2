@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { getPlayer, markInventoryItemViewed, savePlayerName, setPlayer } from "../../character/player";
 import { recalculateStats } from "../../character/stats";
 import { getEnemy } from "../../combat/combat";
-import { deleteOwnedItem } from "../../items/items";
+import { createSkillGemstone, deleteOwnedItem } from "../../items/items";
 import { SCREENS } from "../../ui/screens";
 
 jest.mock("../../firebase", () => ({ db: {} }));
@@ -44,6 +44,22 @@ const openPotion = () => {
   fireEvent.click(screen.getByRole("button", { name: /Health Potion x/ }));
   return screen.getByRole("dialog", { name: "Health Potion details" });
 };
+
+test("Skill Gems appear and filter in inventory without undefined stats or sorting errors", () => {
+  const gem = createSkillGemstone("meteor");
+  player.gemstones = [
+    { id: "ruby", name: "Ruby", type: "ruby", stat: "strength", value: 3, rarity: "Rare" },
+    gem,
+  ];
+  renderCharacter();
+  fireEvent.click(screen.getByRole("tab", { name: /Gemstones/ }));
+  expect(screen.getByText("Meteor Gemstone")).toBeTruthy();
+  expect(screen.getByText("Meteor skill level +1")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Sort gemstones"), { target: { value: "statAsc" } });
+  fireEvent.change(screen.getByLabelText("Filter gemstones by stat"), { target: { value: "skill" } });
+  expect(screen.queryByText("Ruby")).toBeNull();
+  expect(screen.getByText("Meteor Gemstone")).toBeTruthy();
+});
 
 test("cards open details without consuming; Use heals and updates the popup count", () => {
   player.stats.health = 1;

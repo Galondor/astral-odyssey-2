@@ -117,6 +117,28 @@ test("skills cost power, inflict statuses, and reject unequipped skills", () => 
   expect(match.fighters.alice.statuses.some((status) => status.id === "burn")).toBe(true);
 });
 
+test("a channeled Meteor strikes automatically when its caster's next Contest turn begins", () => {
+  let state = paired();
+  const bob = matchOf(state).fighters.bob.player;
+  bob.skills = { meteor: 1 };
+  bob.equippedSkills = ["meteor"];
+  bob.stats.power = 20;
+  state = command(state, "bob", "action", { type: "skill", key: "meteor" });
+  let match = matchOf(state);
+  expect(match.turn).toBe("alice");
+  expect(match.fighters.bob.combat.meteorCharge).toBeTruthy();
+  const health = match.fighters.alice.player.stats.health;
+
+  state = command(state, "alice", "action", { type: "pass" });
+  match = matchOf(state);
+
+  expect(match.turn).toBe("bob");
+  expect(match.fighters.bob.combat.meteorCharge).toBeNull();
+  expect(match.fighters.alice.player.stats.health).toBeLessThanOrEqual(health - 40);
+  expect(match.log.at(-1).replies.join("\n")).toContain("Meteor crashes down");
+  expect(match.fighters.bob.combat.actions).toMatchObject({ actionAvailable: false, quickAvailable: true });
+});
+
 test("Contest critical resistance mitigates player critical hits at the 50% cap", () => {
   let state = paired();
   const fighters = matchOf(state).fighters;

@@ -25,6 +25,7 @@ import {
   getSellPrice,
   getGemstoneValue,
   getGemstoneRemovalCost,
+  gemstoneEffectLabel,
   gemstoneTooltip,
   itemTooltip,
   removeGemstone,
@@ -76,15 +77,30 @@ import { statusLabel, statusTooltip } from "../combat/statuses";
 import { enemyAbilityTooltip, TIERS } from "../combat/enemies";
 import { CLASSES, classTooltip } from "../character/classes";
 import {
-  MAX_EQUIPPED,
   SKILLS,
+  ULTIMATE_UNLOCK_LEVEL,
+  equipPassive,
   equipSkill,
   getEquippedSkills,
   getSkillLevel,
+  getLearnedSkillLevel,
+  learnPassive,
   levelUpSkill,
+  maxRegularSkills,
+  skillPointCost,
   skillTooltip,
+  unequipPassive,
   unequipSkill,
 } from "../character/skills";
+import {
+  MAX_EQUIPPED_PASSIVES,
+  PASSIVES,
+  PASSIVE_ORDER,
+  PASSIVE_POINT_COST,
+  getEquippedPassives,
+  getLearnedPassives,
+  passiveTooltip,
+} from "../character/passives";
 import { getBaseStatPoints, getStatBreakdown } from "../character/stats";
 import CharacterSummary, { Bar, statTooltip } from "./CharacterSummary";
 import { TITLES, titleTooltip } from "../character/titles";
@@ -356,9 +372,9 @@ const CombatHealth = ({ label, value, max, color, marrowWard, wardLabel = "Marro
 
 const CombatScreen = ({ messages, data, player }) => {
   const mobile = useIsMobile();
-  const { enemy, round, stats, defending, playerStatuses = [], marrowWard, actions, tutorial } = data || {};
+  const { enemy, enemies = [], round, stats, defending, playerStatuses = [], marrowWard, actions, tutorial } = data || {};
   const analyzerUnlocked = getKeyItemEffect(player, "analyzer") > 0;
-  const tier = enemy ? TIERS[enemy.tier] : null;
+  const opponents = enemies.length ? enemies : [enemy];
   const chips = (list) => (
     <div className='status-chips'>
       {list.map((st) => (
@@ -376,78 +392,86 @@ const CombatScreen = ({ messages, data, player }) => {
         <p>Practice supplies only. Your original health, Power, and inventory are preserved.</p>
       </section>}
       <ActionSlots actions={actions} />
-      {enemy?.pending && <div className='combat-warning' role='status'>
-        Preparing: {enemy.pending.name}. {enemy.pending.warning || "Defend or prepare protection before ending your turn."}
-      </div>}
-      {enemy?.recovering && <div className='combat-warning' role='status'>
-        Recovering: {enemy.name} cannot act on its next turn.
-      </div>}
       {round != null && <div className='combat-round'>Round {round}</div>}
       <div className='combat-arena'>
-        <div className='combatant'>
-          <h3>
-            {enemy ? enemy.name : "No enemy"}
-            {enemy
-              ? ` Level ${enemy.level}${enemy.defending ? " (Defending)" : ""}${tier && enemy.tier !== "basic" ? ` [${enemy.tier}]` : ""}`
-              : ""}
-          </h3>
-          {enemy && (
-            <CombatHealth
-              label='HP'
-              value={enemy.hp}
-              max={enemy.maxHp}
-              color='#c0392b'
-              marrowWard={enemy.marrowWard}
-              wardLabel="Opponent's Marrow Ward"
-            />
-          )}
-          {enemy && chips(enemy.statuses || [])}
-          {analyzerUnlocked && enemy?.abilities?.length > 0 && (
-            <div className='enemy-abilities'>
-              Abilities:{" "}
-              {enemy.abilities.map((ability, index) => (
-                <Tooltip
-                  key={`${ability.name}-${index}`}
-                  content={enemyAbilityTooltip(ability)}
-                >
-                  <span className='tip-word' tabIndex={0}>
-                    {ability.name}
-                    {index < enemy.abilities.length - 1 ? " • " : ""}
-                  </span>
-                </Tooltip>
-              ))}
-            </div>
-          )}
-          {analyzerUnlocked && (
-            <div className='combatant-stats'>
-              <h4>
-                Attack
-                <br />
-                {enemy ? enemy.attack.join(" - ") : "-"}
-              </h4>
-              <h4>
-                Defense
-                <br />
-                {enemy ? enemy.defense : "-"}
-              </h4>
-              <h4>
-                Speed
-                <br />
-                {enemy ? enemy.speed : "-"}
-              </h4>
-              <h4>
-                Critical
-                <br />
-                {enemy ? `${enemy.critical * 100}%` : "-"}
-              </h4>
-              <h4>
-                Status Resistance
-                <br />
-                {enemy ? `${Math.round((enemy.statusResistance || 0) * 100)}%` : "-"}
-              </h4>
-            </div>
-          )}
-        </div>
+        <section className='combatant combat-enemy-column' aria-label='Encounter enemies' tabIndex={0}>
+          {enemies.length > 1 && <h3>Enemies ({enemies.filter((foe) => foe.hp > 0).length}/{enemies.length} remaining)</h3>}
+          {opponents.map((enemy, index) => {
+            const tier = enemy ? TIERS[enemy.tier] : null;
+            if (enemy?.hp <= 0) return null;
+            return <div key={index} className={`group-enemy solo-enemy-card tier-${enemy?.tier || "basic"}`}
+              aria-label={enemy ? `Enemy ${index + 1}: ${enemy.name}` : "No enemy"}>
+              <h3>
+                {enemy ? enemy.name : "No enemy"}
+                {enemy
+                  ? ` Level ${enemy.level}${enemy.defending ? " (Defending)" : ""}${tier && enemy.tier !== "basic" ? ` [${enemy.tier}]` : ""}`
+                  : ""}
+              </h3>
+              {enemy?.pending && !(enemy.hp <= 0) && <div className='combat-warning' role='status'>
+                Preparing: {enemy.pending.name}. {enemy.pending.warning || "Defend or prepare protection before ending your turn."}
+              </div>}
+              {enemy?.recovering && !(enemy.hp <= 0) && <div className='combat-warning' role='status'>
+                Recovering: {enemy.name} cannot act on its next turn.
+              </div>}
+              {enemy && (
+                <CombatHealth
+                  label='HP'
+                  value={enemy.hp}
+                  max={enemy.maxHp}
+                  color='#c0392b'
+                  marrowWard={enemy.marrowWard}
+                  wardLabel="Opponent's Marrow Ward"
+                />
+              )}
+              {enemy && chips(enemy.statuses || [])}
+              {analyzerUnlocked && enemy?.abilities?.length > 0 && (
+                <div className='enemy-abilities'>
+                  Abilities:{" "}
+                  {enemy.abilities.map((ability, index) => (
+                    <Tooltip
+                      key={`${ability.name}-${index}`}
+                      content={enemyAbilityTooltip(ability)}
+                    >
+                      <span className='tip-word' tabIndex={0}>
+                        {ability.name}
+                        {index < enemy.abilities.length - 1 ? " • " : ""}
+                      </span>
+                    </Tooltip>
+                  ))}
+                </div>
+              )}
+              {analyzerUnlocked && (
+                <div className='combatant-stats'>
+                  <h4>
+                    Attack
+                    <br />
+                    {enemy ? enemy.attack.join(" - ") : "-"}
+                  </h4>
+                  <h4>
+                    Defense
+                    <br />
+                    {enemy ? enemy.defense : "-"}
+                  </h4>
+                  <h4>
+                    Speed
+                    <br />
+                    {enemy ? enemy.speed : "-"}
+                  </h4>
+                  <h4>
+                    Critical
+                    <br />
+                    {enemy ? `${enemy.critical * 100}%` : "-"}
+                  </h4>
+                  <h4>
+                    Status Resistance
+                    <br />
+                    {enemy ? `${Math.round((enemy.statusResistance || 0) * 100)}%` : "-"}
+                  </h4>
+                </div>
+              )}
+            </div>;
+          })}
+        </section>
         <div className='combat-vs'>VS</div>
         <div className='combatant'>
           <h3>You{defending ? " (Defending)" : ""}</h3>
@@ -663,7 +687,7 @@ const ForgeScreen = ({ onChange }) => {
     !Object.values(player.equipment || {}).some((equipped) => equipped?.id === item.id));
   const selectedUpgradeItem = inventoryGear.find((item) => item.id === selectedUpgradeId);
   return (
-    <div className='workshop relic-forge'>
+    <div className={`workshop relic-forge ${tab === "upgrading" ? "relic-forge-upgrading" : ""}`}>
       <header className='relic-forge-header'>
         <div>
           <h3>{tab === "upgrading" ? "Gear Upgrading" : "Relic Forge"}</h3>
@@ -685,7 +709,7 @@ const ForgeScreen = ({ onChange }) => {
       {tab === "upgrading" && (
         <div className='relic-forge-content'>
           {!inventoryGear.length && <p className='recipe-note'>Unequip some gear or add gear to your inventory to upgrade it here.</p>}
-          <div className='relic-forge-substats'>
+          <div className='relic-forge-substats forge-upgrade-list' role='region' aria-label='Gear available to upgrade' tabIndex={0}>
             {inventoryGear.map((item) => {
               const slotLabel = SLOTS.find((entry) => entry.type === item.slot)?.label;
               const details = itemTooltip(item);
@@ -1518,7 +1542,7 @@ const GemstonePickerPopup = ({ gemstones, itemName, onPick, onClose, locked, mes
   }, []);
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   const matches = gemstones.filter((gemstone) => {
-    const searchText = `${gemstone.name} ${gemstone.rarity} ${STAT_LABELS[gemstone.stat] || gemstone.stat}`.toLowerCase();
+    const searchText = `${gemstone.name} ${gemstone.rarity} ${gemstoneEffectLabel(gemstone)}`.toLowerCase();
     return terms.every((term) => searchText.includes(term));
   });
   return (
@@ -1589,7 +1613,7 @@ const GemstonePickerPopup = ({ gemstones, itemName, onPick, onClose, locked, mes
                   onClick={() => onPick(gemstone.id)}
                 >
                   <strong style={{ color: RARITY_COLORS[gemstone.rarity] }}>{gemstone.name}</strong>
-                  <span>{STAT_LABELS[gemstone.stat] || gemstone.stat} +{gemstone.value}</span>
+                  <span>{gemstoneEffectLabel(gemstone)} +{gemstone.value}</span>
                   <span>{gemstone.rarity}</span>
                 </button>
               </Tooltip>
@@ -1684,9 +1708,9 @@ const Inventory = ({ player, onChange, locked }) => {
   const gemstoneTerms = gemstoneFilters.query.toLowerCase().split(/\s+/).filter(Boolean);
   const filteredGemstones = gemstones
     .filter((gemstone) => {
-      if (gemstoneFilters.stat && gemstone.stat !== gemstoneFilters.stat) return false;
+      if (gemstoneFilters.stat && (gemstone.stat || "skill") !== gemstoneFilters.stat) return false;
       if (gemstoneFilters.rarity && gemstone.rarity !== gemstoneFilters.rarity) return false;
-      const searchText = `${gemstone.name} ${gemstone.rarity} ${STAT_LABELS[gemstone.stat] || gemstone.stat}`.toLowerCase();
+      const searchText = `${gemstone.name} ${gemstone.rarity} ${gemstoneEffectLabel(gemstone)}`.toLowerCase();
       return gemstoneTerms.every((term) => searchText.includes(term));
     })
     .sort((a, b) => {
@@ -1694,7 +1718,7 @@ const Inventory = ({ player, onChange, locked }) => {
       const sorters = {
         nameAsc: () => a.name.localeCompare(b.name),
         rarityDesc: () => rarityRank(b) - rarityRank(a),
-        statAsc: () => (STAT_LABELS[a.stat] || a.stat).localeCompare(STAT_LABELS[b.stat] || b.stat),
+        statAsc: () => gemstoneEffectLabel(a).localeCompare(gemstoneEffectLabel(b)),
       };
       return (sorters[gemstoneFilters.sort]?.() || 0) || gemstones.indexOf(a) - gemstones.indexOf(b);
     });
@@ -2219,8 +2243,8 @@ const Inventory = ({ player, onChange, locked }) => {
                     onChange={(event) => setGemstoneFilters({ ...gemstoneFilters, stat: event.target.value })}
                   >
                     <option value=''>All stats</option>
-                    {[...new Set(gemstones.map((gemstone) => gemstone.stat))].sort().map((stat) => (
-                      <option key={stat} value={stat}>{STAT_LABELS[stat] || stat}</option>
+                    {[...new Set(gemstones.map((gemstone) => gemstone.stat || "skill"))].sort().map((stat) => (
+                      <option key={stat} value={stat}>{stat === "skill" ? "Skill levels" : STAT_LABELS[stat] || stat}</option>
                     ))}
                   </select>
                   <select
@@ -2278,7 +2302,7 @@ const Inventory = ({ player, onChange, locked }) => {
                           {gemstone.name}
                         </strong>
                         <span className='gemstone-item-stat'>
-                          {STAT_LABELS[gemstone.stat] || gemstone.stat} +{gemstone.value}
+                          {gemstoneEffectLabel(gemstone)} +{gemstone.value}
                         </span>
                         <span className='gemstone-item-hint'>
                           {gemstone.rarity}
@@ -2487,6 +2511,14 @@ const PROGRESSION_TABS = [
   { key: "points", label: "Stats" },
   { key: "skills", label: "Skills" },
   { key: "classes", label: "Classes" },
+  { key: "subclasses", label: "Subclasses" },
+];
+
+const SKILL_CATEGORIES = [
+  { key: "offensive", label: "Offensive" },
+  { key: "support", label: "Support" },
+  { key: "passive", label: "Passive" },
+  { key: "ultimate", label: "Ultimate" },
 ];
 
 const RespecButton = ({ player, inCombat, refundable, label, onClick }) => {
@@ -2558,15 +2590,95 @@ const StatsTab = ({ player, inCombat, onSpend, onRespec }) => {
   );
 };
 
+const PassiveList = ({ player, inCombat, act }) => {
+  const learned = getLearnedPassives(player);
+  const equipped = getEquippedPassives(player);
+  const skillPoints = player.skillPoints || 0;
+  return (
+    <div className='skill-list'>
+      {PASSIVE_ORDER.map((key) => {
+        const passive = PASSIVES[key];
+        const isLearned = learned.includes(key);
+        const isEquipped = equipped.includes(key);
+        const levelLocked = (player.level || 1) < passive.level;
+        return (
+          <Tooltip key={key} content={passiveTooltip(key)}>
+            <div className={`skill-card ${isEquipped ? "equipped" : ""}`}>
+              <strong>{passive.name}</strong>
+              <span className='skill-level'>
+                {isLearned ? "Learned" : levelLocked ? `Unlocks at level ${passive.level}` : "Not learned"}
+              </span>
+              <div className='skill-actions'>
+                {!isLearned && (
+                  <button
+                    type='button'
+                    className='buttons class-toggle'
+                    disabled={inCombat || levelLocked || skillPoints < PASSIVE_POINT_COST}
+                    onClick={() => act(learnPassive, key)}
+                  >
+                    Learn ({PASSIVE_POINT_COST} points)
+                  </button>
+                )}
+                {isEquipped ? (
+                  <button
+                    type='button'
+                    className='buttons class-toggle'
+                    disabled={inCombat}
+                    onClick={() => act(unequipPassive, key)}
+                  >
+                    Unequip
+                  </button>
+                ) : (
+                  <button
+                    type='button'
+                    className='buttons class-toggle'
+                    disabled={inCombat || !isLearned || equipped.length >= MAX_EQUIPPED_PASSIVES}
+                    onClick={() => act(equipPassive, key)}
+                  >
+                    Equip
+                  </button>
+                )}
+              </div>
+            </div>
+          </Tooltip>
+        );
+      })}
+    </div>
+  );
+};
+
 const SkillsTab = ({ player, inCombat, onChange }) => {
   const skillPoints = player.skillPoints || 0;
   const equipped = getEquippedSkills(player);
+  const regularEquipped = equipped.filter((key) => !SKILLS[key].ultimate);
+  const ultimateEquipped = equipped.filter((key) => SKILLS[key].ultimate);
+  const regularSlots = maxRegularSkills(player);
+  const [category, setCategory] = useState("offensive");
   const act = (fn, key) => {
     fn(key);
     onChange();
   };
+  const skills = Object.entries(SKILLS).filter(([, skill]) => {
+    if (category === "support") return skill.type === "support";
+    if (category === "ultimate") return skill.category === category;
+    return skill.type !== "support" && !["passive", "ultimate"].includes(skill.category);
+  });
   return (
     <>
+      <div className='inventory-tabs' role='tablist' aria-label='Skill categories'>
+        {SKILL_CATEGORIES.map((item) => (
+          <button
+            key={item.key}
+            type='button'
+            role='tab'
+            aria-selected={category === item.key}
+            className={`inventory-tab ${category === item.key ? "active" : ""}`}
+            onClick={() => setCategory(item.key)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
       <h3>
         Skill points:{" "}
         <span className={skillPoints ? "points-available" : ""}>
@@ -2574,23 +2686,34 @@ const SkillsTab = ({ player, inCombat, onChange }) => {
         </span>
       </h3>
       <div className='equip-empty'>
-        You earn a skill point every 3 levels. Equipped skills (
-        {equipped.length}/{MAX_EQUIPPED}) can be used in combat for power.
+        You earn a skill point every 3 levels. <br /> Equipped Skills ({regularEquipped.length}/{regularSlots})
+        {" "}Ultimate ({ultimateEquipped.length}/1) Passives ({getEquippedPassives(player).length}/{MAX_EQUIPPED_PASSIVES}).
       </div>
       <RespecButton
         player={player}
         inCombat={inCombat}
-        refundable={Object.values(player.skills || {}).reduce((sum, n) => sum + (n || 0), 0)}
+        refundable={Object.entries(player.skills || {}).reduce(
+          (sum, [key, level]) => sum + (level || 0) * skillPointCost(key),
+          0,
+        ) + getLearnedPassives(player).length * PASSIVE_POINT_COST}
         label='Reset skills'
         onClick={() => {
           respecSkills();
           onChange();
         }}
       />
+      {category === "passive" ? <PassiveList player={player} inCombat={inCombat} act={act} /> : (
       <div className='skill-list'>
-        {Object.entries(SKILLS).map(([key, s]) => {
+        {skills.length ? skills.map(([key, s]) => {
           const level = getSkillLevel(player, key);
+          const learnedLevel = getLearnedSkillLevel(player, key);
           const isEquipped = equipped.includes(key);
+          const ultimate = !!s.ultimate;
+          const pointCost = skillPointCost(key);
+          const canEquip = ultimate
+            ? !ultimateEquipped.length
+            : regularEquipped.length < regularSlots;
+          const levelLocked = ultimate && (player.level || 1) < ULTIMATE_UNLOCK_LEVEL;
           return (
             <Tooltip key={key} content={skillTooltip(key, level)}>
               <div className={`skill-card ${isEquipped ? "equipped" : ""}`}>
@@ -2603,11 +2726,11 @@ const SkillsTab = ({ player, inCombat, onChange }) => {
                     type='button'
                     className='buttons class-toggle'
                     disabled={
-                      inCombat || skillPoints < 1 || level >= s.maxLevel
+                      inCombat || levelLocked || skillPoints < pointCost || learnedLevel >= s.maxLevel
                     }
                     onClick={() => act(levelUpSkill, key)}
                   >
-                    {level > 0 ? "Level up" : "Learn"}
+                    {level > 0 ? `Level up (${pointCost} points)` : `Learn (${pointCost} points)`}
                   </button>
                   {isEquipped ? (
                     <button
@@ -2623,19 +2746,27 @@ const SkillsTab = ({ player, inCombat, onChange }) => {
                       type='button'
                       className='buttons class-toggle'
                       disabled={
-                        inCombat || level < 1 || equipped.length >= MAX_EQUIPPED
+                        inCombat || level < 1 || levelLocked || !canEquip
                       }
                       onClick={() => act(equipSkill, key)}
                     >
                       Equip
                     </button>
                   )}
+                  {ultimate && levelLocked && (
+                    <span className='skill-level'>Unlocks at level {ULTIMATE_UNLOCK_LEVEL}</span>
+                  )}
                 </div>
               </div>
             </Tooltip>
           );
-        })}
+        }) : (
+          <div className='equip-empty' role='status'>
+            No {category} skills are available yet.
+          </div>
+        )}
       </div>
+      )}
     </>
   );
 };
@@ -2718,6 +2849,11 @@ const ProgressionScreen = ({ player: initial, inCombat, onChange }) => {
         <SkillsTab player={player} inCombat={inCombat} onChange={refresh} />
       )}
       {tab === "classes" && <ClassesTab player={player} />}
+      {tab === "subclasses" && (
+        <div className='equip-empty' role='status'>
+          Subclass progression is coming soon.
+        </div>
+      )}
     </div>
   );
 };

@@ -26,6 +26,14 @@ test("legacy low-rarity gems are visible and placeholders have no socket row", (
   expect(renderToStaticMarkup(<ItemSockets item={{ ...item, twoHandedOf: "mainHand" }} />)).toBe("");
 });
 
+test("Skill Gems render as filled sockets rather than empty rings", () => {
+  const view = renderToStaticMarkup(<ItemSockets item={{
+    rarity: "Legendary", gemstones: [{ type: "skill", skill: "meteor", rarity: "Unique", value: 1 }],
+  }} />);
+  expect(view).toContain("#ff8000");
+  expect(view).toContain("<polygon");
+});
+
 test.each([["Common", 1], ["Rare", 2], ["Legendary", 3]])(
   "Holofoil %s cards display %s sockets",
   (rarity, count) => {

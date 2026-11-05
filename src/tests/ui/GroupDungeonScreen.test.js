@@ -201,6 +201,20 @@ test("shared quick skills are explicitly labeled Action in group combat", () => 
   }
 });
 
+test("area skills submit immediately without asking the player to pick one enemy", async () => {
+  const run = makeRun();
+  run.combat.players.a.skills = { whirlwind: 1 };
+  run.combat.players.a.equipped = ["whirlwind"];
+  status = baseStatus({ run, active: true, inRun: true, remainingMs: 60000, roundRemainingMs: 20000 });
+  render(<GroupRunActions />);
+
+  fireEvent.click(screen.getByRole("button", { name: "3. Skills" }));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: /Whirlwind/ })));
+
+  expect(submitIntent).toHaveBeenLastCalledWith({ type: "skill", key: "whirlwind" });
+  expect(screen.queryByText("Choose a target.")).toBeNull();
+});
+
 test("target buttons follow the living enemies, even when enemies share a name and health", () => {
   const run = makeRun();
   const first = run.combat.enemies.find((e) => !e.dead && !e.hidden);

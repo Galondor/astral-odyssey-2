@@ -1,8 +1,9 @@
-import { createUniqueItem, generateRandomSlotItem } from "../items/items";
+import { createUniqueItem, generateRandomSkillGemstone, generateRandomSlotItem, SKILL_GEM_DROP_CHANCE } from "../items/items";
 import { CONSUMABLES } from "../items/consumables";
 import { MATERIALS, addToMaterials } from "../items/materials";
 import { expForLevel, gainExp } from "../character/stats";
 import { updateRecords } from "../character/records";
+import { PASSIVE_TUNING } from "../character/passives";
 import {
   ENEMY_SPEED_MULTIPLIER,
   getEnemyCriticalChance,
@@ -271,11 +272,21 @@ function clearStage(run, now) {
     ]);
   }
   const fallen = Object.values(run.party).filter((m) => m.downed && !run.left[m.id]);
-  for (const m of Object.values(run.party))
-    if (!m.downed) m.stats.health = Math.min(m.stats.maxHealth, m.stats.health + Math.round(m.stats.maxHealth * STAGE_REST_HEAL));
+  const scavengers = [];
+  for (const m of Object.values(run.party)) {
+    if (m.downed) continue;
+    m.stats.health = Math.min(m.stats.maxHealth, m.stats.health + Math.round(m.stats.maxHealth * STAGE_REST_HEAL));
+    if (m.passives?.includes("scavenger")) {
+      const restore = PASSIVE_TUNING.scavenger.restore;
+      m.stats.health = Math.min(m.stats.maxHealth, m.stats.health + Math.round(m.stats.maxHealth * restore));
+      m.stats.power = Math.min(m.stats.maxPower, Math.min(m.stats.power, m.stats.maxPower) + Math.round(m.stats.maxPower * restore));
+      scavengers.push(m.name);
+    }
+  }
   refreshMembers(run.party, { revive: true, full: false });
   keepLeftDown(run);
   const lines = [`[gold]Stage ${run.stage + 1} cleared! Checkpoint reached.[/gold]`];
+  if (scavengers.length) lines.push(`Scavenger: ${scavengers.join(", ")} recover${scavengers.length === 1 ? "s" : ""} extra health and power.`);
   if (fallen.length) lines.push(`${fallen.map((m) => m.name).join(", ")} ${fallen.length === 1 ? "is" : "are"} revived at half health.`);
   return startStage(run, run.stage + 1, now, lines);
 }
@@ -285,6 +296,7 @@ export function allIntentsIn(run, intents) {
   if (run.status !== "active") return false;
   const waiting = activeMembers(run).filter((id) => run.puzzle || !run.party[id]?.downed);
   return waiting.every((id) => {
+    if (!run.puzzle && run.party[id]?.meteorCharge) return true;
     const intent = intents?.[id];
     return intent && intent.run === run.id && intent.round === run.round && intent.stage === run.stage;
   });
@@ -396,6 +408,11 @@ export function reconcileGroupRun(player, run, identity, { leaving = false } = {
       }
     }
     patch.inventory = inventory;
+    if (Math.random() < SKILL_GEM_DROP_CHANCE) {
+      const gemstone = generateRandomSkillGemstone();
+      patch.gemstones = [...(player.gemstones || []), gemstone];
+      lines.push(`You receive {{${gemstone.name}|gemstone:${gemstone.id}}}!`);
+    }
     updateRecords(player, patch, { increments: { groupDungeonsCleared: 1 } });
     const questKill = recordQuestKill(player.quests, { id: `group:${dungeon.id}`, tier: "boss", region: "GroupDungeon" });
     if (questKill.messages.length) {

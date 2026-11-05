@@ -39,10 +39,52 @@ function enemy(tier = "boss", dungeon = type, templateIndex = 0) {
     },
   };
   getDungeonOptions()[0].onSelect();
-  return startCombat.mock.calls.at(-1)[0];
+  const roster = startCombat.mock.calls.at(-1)[0];
+  return Array.isArray(roster) ? roster[0] : roster;
 }
 
 afterEach(() => jest.restoreAllMocks());
+
+test.each([
+  ["basic", 0.999, ["basic", "basic", "basic", "basic"]],
+  ["elite", 0.999, ["elite", "basic", "basic", "basic"]],
+  ["elite", 0.01, ["elite", "elite"]],
+  ["boss", 0.01, ["boss"]],
+])("dungeon %s encounter composition at roll %s", (tier, roll, expected) => {
+  jest.spyOn(Math, "random").mockReturnValue(roll);
+  enemy(tier);
+  const encounter = startCombat.mock.calls.at(-1)[0];
+  const roster = Array.isArray(encounter) ? encounter : [encounter];
+  expect(roster.map((foe) => foe.tier)).toEqual(expected);
+  roster.forEach((foe) => {
+    expect(foe.dungeon).toBe(true);
+    expect(foe.level).toBe(20);
+    expect([...type.basics, ...type.elites, ...type.bosses].some((template) => template.id === foe.id)).toBe(true);
+  });
+});
+
+test("a dungeon stage advances once, only after the full encounter is won", () => {
+  jest.spyOn(Math, "random").mockReturnValue(0.999);
+  enemy("basic");
+  const roster = startCombat.mock.calls.at(-1)[0];
+  const combat = jest.requireActual("../../combat/combat");
+  player.stats = {
+    health: 100000, maxHealth: 100000, power: 100, maxPower: 100,
+    speed: 100000, attackMin: 100000, attackMax: 100000, defense: 100000, exp: 0,
+  };
+  combat.startCombat(roster);
+  expect(combat.attackRound("melee").over).toBe(false);
+  expect(player.dungeon.index).toBe(0);
+  expect(player.astra).toBeUndefined();
+  for (let i = 1; i < roster.length; i++) {
+    combat.passRound();
+    combat.attackRound("melee");
+  }
+  expect(player.dungeon.index).toBe(1);
+  expect(player.records.basicEnemiesKilled).toBe(4);
+  expect(player.astra).toBe(520);
+  expect(combat.getEnemy()).toBeNull();
+});
 
 test.each(DUNGEON_TYPE_IDS)("all %s solo bosses receive lower stats without lower rewards", (typeId) => {
   const dungeon = DUNGEON_TYPES[typeId];
@@ -81,6 +123,7 @@ test.each([[0, true], [0.049999, true], [0.05, false], [0.999, false]])(
     const patch = {};
     const replies = [];
     boss.onDefeat(player, {}, patch, replies);
+    boss.onEncounterDefeat(player, {}, patch, replies);
     expect(NAME_ELIXIR_DROP_CHANCE).toBe(0.05);
     expect(patch.consumables?.elixirOfNameChanging ?? 2).toBe(drops ? 3 : 2);
     expect(replies.some((line) => line.includes("Elixir of Name Changing"))).toBe(drops);
@@ -92,6 +135,7 @@ test.each(["basic", "elite"])("%s enemies never drop the name elixir", (tier) =>
   jest.spyOn(Math, "random").mockReturnValue(0);
   const patch = {};
   foe.onDefeat(player, {}, patch, []);
+  foe.onEncounterDefeat(player, {}, patch, []);
   expect(patch.consumables?.elixirOfNameChanging ?? 2).toBe(2);
 });
 
@@ -140,6 +184,7 @@ test.each(["elite", "boss"])("dungeon %s rewards preserve certificates from comb
   jest.spyOn(Math, "random").mockReturnValue(0);
   const patch = { consumables: { ...player.consumables, itemCertificate: 3, healthPotion: 4 } };
   foe.onDefeat(player, {}, patch, []);
+  foe.onEncounterDefeat(player, {}, patch, []);
   expect(patch.consumables.itemCertificate).toBe(3);
   expect(patch.consumables.healthPotion).toBe(4);
   expect(patch.consumables.architectsRune).toBe(1);
@@ -269,6 +314,7 @@ test.each([12, 20, 50, 100])("boss completion at level %s adds only one essence 
   const patch = { materials: { [type.materials.boss]: 1, primal_essence: 7 } };
   const replies = [];
   boss.onDefeat(player, {}, patch, replies);
+  boss.onEncounterDefeat(player, {}, patch, replies);
   const completionAstra = Math.round(Math.round(level * 45) / 2);
   expect(patch.astra).toBe(completionAstra);
   expect(patch.materials).toEqual({ [type.materials.boss]: 1, primal_essence: 8 });

@@ -19,7 +19,8 @@ import {
 import { CONSUMABLES, getKeyItemEffect, isCombatConsumable, applyConsumable } from "../items/consumables";
 import { MAX_PLAYER_CHANCE } from "../character/stats";
 import { getEnemyStatusResistance } from "./enemies";
-import { SKILLS, applySupportSkill, skillMultiplier } from "../character/skills";
+import { SKILLS, applySupportSkill, computeSkillCost, getEquippedSkills, getSkillLevel, skillMultiplier } from "../character/skills";
+import { PASSIVE_TUNING as PT, getEquippedPassives } from "../character/passives";
 
 /*
  Group combat: up to 3 players against any number of enemies, resolved one round at a time.
@@ -86,7 +87,7 @@ export const isStunned = (m) => (m.statuses || []).some((st) => STATUSES[st.id]?
 // Combat-ready copy of a saved character, taken when the run starts. Health and power start full.
 export function createGroupMember(id, player) {
   const stats = { ...player.stats, health: player.stats.maxHealth, power: player.stats.maxPower };
-  const equipped = (player.equippedSkills || []).filter((key) => SKILLS[key] && (player.skills?.[key] || 0) > 0);
+  const equipped = getEquippedSkills(player);
   const consumables = {};
   for (const [key, count] of Object.entries(player.consumables || {}))
     if (isCombatConsumable(CONSUMABLES[key]) && count > 0) consumables[key] = count;
@@ -97,8 +98,13 @@ export function createGroupMember(id, player) {
     level: player.level || 1,
     stats,
     ab: getAbilityTotals(player),
-    skills: Object.fromEntries(equipped.map((key) => [key, player.skills[key]])),
+    skills: Object.fromEntries(equipped.map((key) => [key, getSkillLevel(player, key)])),
     equipped,
+    passives: getEquippedPassives(player),
+    hatred: 0,
+    bloodlust: 0,
+    inspired: false,
+    lastLightUsed: false,
     potionBonus: getKeyItemEffect(player, "potionBonus"),
     consumables,
     spent: {},
@@ -111,6 +117,8 @@ export function createGroupMember(id, player) {
     spellstrike: false,
     stunGrace: false,
     secondWindUsed: false,
+    meteorCharge: null,
+    usedUltimates: {},
     ward: 0,
     starKinds: [],
     starReady: false,
@@ -133,6 +141,8 @@ export function normalizeCombat(c) {
   for (const m of Object.values(c.players)) {
     m.statuses = m.statuses || [];
     m.kinds = m.kinds || [];
+    m.usedUltimates = m.usedUltimates || {};
+    m.passives = m.passives || [];
     m.starKinds = m.starKinds || [];
     m.skills = m.skills || {};
     m.equipped = m.equipped || [];
@@ -156,6 +166,8 @@ export function normalizeCombat(c) {
 // Resets members for a fresh attempt at a stage (start of a stage, or respawning at a checkpoint).
 export function refreshMembers(players, { revive = true, full = true } = {}) {
   for (const m of Object.values(players)) {
+    m.usedUltimates = {};
+    m.meteorCharge = null;
     if (m.downed && !revive) continue;
     if (full || m.downed) {
       m.stats.health = full ? m.stats.maxHealth : Math.max(1, Math.round(m.stats.maxHealth * 0.5));
@@ -167,6 +179,7 @@ export function refreshMembers(players, { revive = true, full = true } = {}) {
     m.guarding = null;
     m.stunGrace = false;
     m.secondWindUsed = false;
+    m.meteorCharge = null;
     m.combo = 0;
     m.kinds = [];
     m.spellstrike = false;
@@ -177,6 +190,11 @@ export function refreshMembers(players, { revive = true, full = true } = {}) {
     m.echoCount = 0;
     m.tideHits = 0;
     m.hunger = 0;
+    m.hatred = 0;
+    m.bloodlust = 0;
+    m.inspired = false;
+    m.lastLightUsed = false;
+    if (m.stats.power > m.stats.maxPower) m.stats.power = m.stats.maxPower;
     m.ward = m.ab?.uniqueEffects?.includes("marrowWard") ? Math.round(m.stats.maxHealth * 0.2) : 0;
   }
 }
@@ -315,9 +333,33 @@ function applyMemberDamage(c, m, amount, log, { shared = false } = {}) {
     m.stats.health = Math.min(m.stats.maxHealth, m.stats.health + Math.round(m.stats.maxHealth * wind));
     log.push(`[green]Second Wind![/green] ${m.name} recovers to ${m.stats.health} health.`);
   }
-  if (m.stats.health <= 0) knockDown(c, m, log);
+  if (m.stats.health <= 0) {
+    const savior = livingMembers(c).find((ally) => hasMemberPassive(ally, "lastLight") && !ally.lastLightUsed);
+    if (savior) {
+      savior.lastLightUsed = true;
+      m.stats.health = 1;
+      const barrier = Math.max(1, Math.round(m.stats.maxHealth * PT.lastLight.barrier));
+      const shield = m.statuses.find((st) => st.id === "barrier");
+      if (shield) shield.power += barrier;
+      else addStatus(m.statuses, "barrier", { power: barrier });
+      log.push(`[green]Last Light![/green] ${savior === m ? `${m.name} refuses` : `${savior.name} keeps ${m.name}`} from falling, ${savior === m ? "holding" : "leaving them"} 1 health behind a ${barrier} barrier.`);
+    } else knockDown(c, m, log);
+  }
   return amount;
 }
+
+const hasMemberPassive = (m, key) => !!m?.passives?.includes(key);
+const memberPowerCap = (m) =>
+  hasMemberPassive(m, "overcharge") ? Math.floor(m.stats.maxPower * PT.overcharge.cap) : m.stats.maxPower;
+const gainMemberPower = (m, amount) => {
+  const before = m.stats.power;
+  const cap = memberPowerCap(m);
+  if (before < cap) m.stats.power = Math.min(cap, before + amount);
+  return m.stats.power - before;
+};
+const unbreakableLimit = (m) =>
+  hasMemberPassive(m, "unbreakable") && m.stats.health < m.stats.maxHealth * PT.unbreakable.threshold
+    ? Math.max(1, Math.floor(m.stats.maxHealth * PT.unbreakable.cap)) : Infinity;
 
 // Barriers, Marrow Ward and Tempered Steel soak a hit before it lands.
 function soak(m, amount, log) {
@@ -348,6 +390,7 @@ function dieIfDone(c, e, log) {
 
 function damageEnemy(c, e, amount, log, env, source) {
   const before = e.hp;
+  const wasDead = e.dead;
   e.hp = Math.max(0, e.hp - amount);
   const dealt = before - e.hp;
   if (source) {
@@ -364,6 +407,11 @@ function damageEnemy(c, e, amount, log, env, source) {
   }
   checkPhases(c, e, log, env);
   dieIfDone(c, e, log);
+  if (source && !wasDead && e.dead && hasMemberPassive(source, "bloodlust") &&
+      (source.bloodlust || 0) < PT.bloodlust.maxStacks) {
+    source.bloodlust = (source.bloodlust || 0) + 1;
+    log.push(`Bloodlust: ${source.name} deals +${Math.round(source.bloodlust * PT.bloodlust.bonus * 100)}% damage for the rest of the fight.`);
+  }
   return dealt;
 }
 
@@ -438,13 +486,19 @@ function supportAction(c, actor, key, level, intent, log, echo = false) {
   else if (skill.target === "ally") targets = [findMember(c, intent.target) || actor];
   else targets = [actor];
   log.push(`${actor.name} uses ${skill.name}${skill.target === "ally" && targets[0] !== actor ? ` on ${targets[0].name}` : ""}.`);
-  const result = applySupportSkill(key, level, actor, targets);
+  const result = applySupportSkill(key, level, actor, targets, { passives: actor.passives });
   log.push(...result.lines);
   if (echo) {
-    const echoed = applySupportSkill(key, level, actor, targets, { echo: TEMPORAL_ECHO.power });
+    const echoed = applySupportSkill(key, level, actor, targets, { echo: TEMPORAL_ECHO.power, passives: actor.passives });
     log.push(echoed.lines.length ? `Chronal Loop: ${skill.name} echoes through time!` : "Chronal Loop: the echo finds nothing to repeat.", ...echoed.lines);
     result.healed += echoed.healed;
     result.threat += echoed.threat;
+  }
+  if (hasMemberPassive(actor, "inspiration")) {
+    const inspired = result.affected.filter((t) => !t.downed && !t.inspired);
+    for (const t of inspired) t.inspired = true;
+    if (inspired.length)
+      log.push(`Inspiration: ${inspired.map((t) => t.name).join(", ")} will deal ${Math.round(PT.inspiration.bonus * 100)}% more damage on their next attack.`);
   }
   actor.healingDone = (actor.healingDone || 0) + result.healed;
   const threat = Math.round(result.threat * SUPPORT_THREAT);
@@ -487,22 +541,63 @@ function applyItem(c, actor, intent, log) {
   for (const e of livingEnemies(c)) e.threat[actor.id] = (e.threat[actor.id] || 0) + threat;
 }
 
-function attackAction(c, actor, intent, log, env) {
+function attackAction(c, actor, intent, log, env, options = {}) {
   const skillKey = intent.type === "skill" ? intent.key : null;
   const skill = skillKey ? SKILLS[skillKey] : null;
   const level = skill ? actor.skills[skillKey] || 0 : 0;
   const s = actor.stats;
   const ab = actor.ab;
   const cls = actor.cls;
-  if (skill) {
-    const cost = cls === "Spellcaster" && skill.type === "magic" ? Math.max(1, skill.powerCost - 1) : skill.powerCost;
+  if (skill?.ultimate && !options.releasing && actor.usedUltimates?.[skillKey]) {
+    log.push(`${actor.name}'s ${skill.name} has already been used in this combat.`);
+    return;
+  }
+  if (skill?.area && !options.areaResolved) {
+    const targets = targetableEnemies(c).slice();
+    if (!targets.length) return;
+    const cost = computeSkillCost(skillKey, cls, actor.passives);
     if (level < 1 || !actor.equipped.includes(skillKey) || s.power < cost) {
       log.push(`${actor.name} can't use ${skill.name} and hesitates.`);
       return;
     }
+    const overcharged = hasMemberPassive(actor, "overcharge") && s.power > s.maxPower;
+    s.power -= cost;
+    const echo = advanceEcho(actor, ab);
+    const combo = actor.combo;
+    for (const enemy of targets) {
+      if (!enemy.dead)
+        attackAction(c, actor, { ...intent, target: enemy.uid }, log, env, {
+          areaResolved: true,
+          costPaid: true,
+          overcharged,
+          echo,
+        });
+    }
+    consumeAttackPassives(actor, log);
+    actor.combo = combo + 1;
+    return;
+  }
+  let overcharged = !!options.overcharged;
+  if (skill && !options.costPaid) {
+    const cost = computeSkillCost(skillKey, cls, actor.passives);
+    if (level < 1 || !actor.equipped.includes(skillKey) || s.power < cost) {
+      log.push(`${actor.name} can't use ${skill.name} and hesitates.`);
+      return;
+    }
+    overcharged = hasMemberPassive(actor, "overcharge") && s.power > s.maxPower;
     s.power -= cost;
   }
-  const echo = advanceEcho(actor, ab);
+  if (skill?.ultimate && !options.releasing) {
+    actor.usedUltimates = actor.usedUltimates || {};
+    actor.usedUltimates[skillKey] = true;
+  }
+  if (skill?.charge && !options.releasing) {
+    actor.meteorCharge = { skillKey, target: intent.target };
+    actor.combo = 0;
+    log.push(`${actor.name} begins channeling Meteor. It will strike at the start of next round unless the channel is interrupted.`);
+    return;
+  }
+  const echo = options.echo === undefined ? advanceEcho(actor, ab) : options.echo;
   if (skill?.type === "support") {
     supportAction(c, actor, skillKey, level, intent, log, echo);
     actor.combo += 1;
@@ -564,6 +659,8 @@ function attackAction(c, actor, intent, log, env) {
   if (glacial) bonus += 0.35;
   if (unwritten) bonus += 1;
   if (ab.uniqueEffects.includes("starEaterHunger")) bonus += Math.min(STAR_EATER.maxStacks, actor.hunger || 0) * STAR_EATER.bonus;
+  bonus += memberPassiveBonus(actor, enemy, overcharged);
+  if (!options.areaResolved) consumeAttackPassives(actor, log);
   hit *= bonus * outgoingMult(actor.statuses) * incomingMult(enemy.statuses);
   const ignore = Math.min(1, (skill?.ignoreDefense?.(level) || 0) + (ab.pierce || 0) + (unwritten ? 1 : 0));
   let dealt = Math.max(1, Math.round(hit - enemy.defense * (1 - ignore)));
@@ -594,8 +691,7 @@ function attackAction(c, actor, intent, log, env) {
     damageEnemy(c, enemy, burst, log, env, actor);
   }
   if (ab.lifesteal) healMember(actor, Math.max(1, Math.round(dealt * ab.lifesteal)), log, "Vampiric");
-  if (ab.surge && ctx.crit && s.power < s.maxPower)
-    s.power = Math.min(s.maxPower, s.power + Math.round((s.maxPower * ab.surge) / 2));
+  if (ab.surge && ctx.crit) gainMemberPower(actor, Math.round((s.maxPower * ab.surge) / 2));
   if (ctx.crit && ab.uniqueEffects.includes("orbitalFocus") && !enemy.dead) {
     const shard = Math.max(1, Math.round(dealt * 0.35));
     log.push(`Orbital Focus launches a shard for ${red(shard)} damage.`);
@@ -650,6 +746,33 @@ function attackAction(c, actor, intent, log, env) {
   actor.starKinds = [...starKinds];
   actor.combo += 1;
   if (cls === "Spellblade" && skill) actor.spellstrike = true;
+  if (!skill && hasMemberPassive(actor, "battleTrance")) {
+    const gained = gainMemberPower(actor, PT.battleTrance.power);
+    if (gained > 0) log.push(`Battle Trance: ${actor.name} recovers [blue]${gained}[/blue] power.`);
+  }
+}
+
+// Damage bonuses from the attacker's passives (additive with other damage bonuses).
+function memberPassiveBonus(actor, enemy, overcharged) {
+  let bonus = 0;
+  if (hasMemberPassive(actor, "apexPredator") && enemy.hp < enemy.maxHp * PT.apexPredator.threshold) bonus += PT.apexPredator.bonus;
+  if (hasMemberPassive(actor, "glassCannon")) bonus += PT.glassCannon.dealt;
+  if (hasMemberPassive(actor, "unbreakable")) bonus -= PT.unbreakable.penalty;
+  if (hasMemberPassive(actor, "bloodlust")) bonus += Math.min(PT.bloodlust.maxStacks, actor.bloodlust || 0) * PT.bloodlust.bonus;
+  if (overcharged) bonus += PT.overcharge.bonus;
+  if (actor.inspired) bonus += PT.inspiration.bonus;
+  if (hasMemberPassive(actor, "revenge") && actor.hatred > 0)
+    bonus += Math.min(PT.revenge.maxBonus, actor.hatred / Math.max(1, actor.stats.maxHealth));
+  return bonus;
+}
+
+// Inspiration and Revenge Hatred are spent by the attack that used them.
+function consumeAttackPassives(actor, log) {
+  actor.inspired = false;
+  if (actor.hatred > 0) {
+    if (hasMemberPassive(actor, "revenge")) log.push(`Revenge: ${actor.name}'s Hatred fuels the strike!`);
+    actor.hatred = 0;
+  }
 }
 
 function memberAct(c, actor, intent, log, env) {
@@ -658,10 +781,24 @@ function memberAct(c, actor, intent, log, env) {
   if (stun >= 0) {
     actor.statuses.splice(stun, 1);
     actor.stunGrace = true;
+    if (actor.meteorCharge) {
+      actor.meteorCharge = null;
+      log.push(`${actor.name}'s Meteor channel is interrupted by the stun!`);
+    }
     log.push(`${actor.name} is stunned and loses the turn!`);
     return;
   }
   actor.stunGrace = false;
+  if (actor.meteorCharge) {
+    const { skillKey, target } = actor.meteorCharge;
+    actor.meteorCharge = null;
+    log.push(`${actor.name}'s Meteor crashes down!`);
+    attackAction(c, actor, { type: "skill", key: skillKey, target }, log, env, {
+      costPaid: true,
+      releasing: true,
+    });
+    return;
+  }
   switch (intent?.type) {
     case "melee":
     case "magic":
@@ -748,7 +885,9 @@ function enemyStrike(c, e, target, ability, log, { scale = 1, telegraphed = fals
   dmg *= incomingMult(victim.statuses);
   dmg *= 1 - Math.min(DAMAGE_REDUCTION_CAP, victim.ab.damageReduction || 0);
   if (crit) dmg *= 1 - Math.min(0.5, Math.max(0, s.criticalResistance || 0));
-  dmg = Math.max(1, Math.round(dmg));
+  if (guardian && hasMemberPassive(guardian, "protect")) dmg *= 1 - PT.protect.reduction;
+  if (hasMemberPassive(victim, "glassCannon")) dmg *= 1 + PT.glassCannon.taken;
+  dmg = Math.min(Math.max(1, Math.round(dmg)), unbreakableLimit(victim));
   dmg = soak(victim, dmg, log);
   if (victim.ab.uniqueEffects.includes("temperedSteel")) {
     victim.temperedStrikes = (victim.temperedStrikes || 0) + 1;
@@ -763,6 +902,7 @@ function enemyStrike(c, e, target, ability, log, { scale = 1, telegraphed = fals
   victim.combo = 0;
   log.push(`${crit ? "Critical! " : ""}${The(e)}${used} hits ${victim.name} for ${red(dmg)} damage${blocked ? " (blocked)" : ""}.`);
   applyMemberDamage(c, victim, dmg, log);
+  if (dmg > 0 && !victim.downed && hasMemberPassive(victim, "revenge")) victim.hatred = (victim.hatred || 0) + dmg;
   if (!victim.downed && !e.dead) {
     if (victim.ab.uniqueEffects.includes("frozenResolve") && Math.random() < 0.1) inflictOnEnemy(c, e, "stun", {}, log);
     if (victim.ab.reflect && dmg > 0) {
@@ -958,7 +1098,8 @@ function tickMember(c, m, log) {
       const guardian = guardianOf(c, m);
       const amount = Math.round(m.stats.maxHealth * st.power);
       if (guardian) {
-        const taken = Math.max(1, Math.round(amount * 0.4 * (1 - Math.min(DAMAGE_REDUCTION_CAP, guardian.ab.damageReduction || 0))));
+        const protect = hasMemberPassive(guardian, "protect") ? 1 - PT.protect.reduction : 1;
+        const taken = Math.max(1, Math.round(amount * 0.4 * protect * (1 - Math.min(DAMAGE_REDUCTION_CAP, guardian.ab.damageReduction || 0))));
         log.push(`[gold]${guardian.name} shields ${m.name} from Doom and takes ${red(taken)} damage![/gold]`);
         applyMemberDamage(c, guardian, soak(guardian, taken, log), log);
       } else {
@@ -1055,7 +1196,7 @@ function endOfRound(c, log, env) {
   }
   resolveSplits(c, log);
   for (const m of livingMembers(c)) {
-    if (m.cls === "Spellcaster" && m.stats.power < m.stats.maxPower) m.stats.power += 1;
+    if (m.cls === "Spellcaster") gainMemberPower(m, 1);
     m.defending = false;
     m.guarding = null;
   }
@@ -1104,8 +1245,15 @@ export function resolveGroupRound(combat, intents, env) {
   c.openingLog = [];
   Object.defineProperty(c, "env", { value: env, enumerable: false, configurable: true });
   applyStances(c, intents || {}, log);
+  // Channeled Meteors strike at the very start of the round, before anyone else acts.
+  const released = new Set();
+  for (const m of livingMembers(c)) {
+    if (!m.meteorCharge) continue;
+    memberAct(c, m, null, log, env);
+    released.add(m);
+  }
   const actors = [
-    ...livingMembers(c).map((m) => ({ kind: "member", ref: m, speed: memberSpeed(m), order: 0 })),
+    ...livingMembers(c).filter((m) => !released.has(m)).map((m) => ({ kind: "member", ref: m, speed: memberSpeed(m), order: 0 })),
     ...livingEnemies(c).map((e) => ({ kind: "enemy", ref: e, speed: e.speed, order: 1 })),
   ].sort((a, b) => b.speed - a.speed || a.order - b.order);
   for (const actor of actors) {

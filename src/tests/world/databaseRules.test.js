@@ -3,6 +3,7 @@ import { CONSUMABLES } from "../../items/consumables";
 import databaseRules from "../../../database.rules.json";
 import { LEADERBOARD_REFRESH_MS } from "../../world/leaderboards";
 import { TITLES } from "../../character/titles";
+import { SKILLS } from "../../character/skills";
 
 jest.mock("../../character/player", () => ({ getPlayer: jest.fn(), setPlayer: jest.fn() }));
 jest.mock("../../firebase", () => ({ db: {}, auth: {} }));
@@ -28,6 +29,18 @@ test("marketplace rules accept exactly the current consumable catalog", () => {
   expect(pattern).not.toBeNull();
   const allowedKeys = pattern[1].replace(/^\^\(|\)\$$/g, "").split("|");
   expect(allowedKeys.sort()).toEqual(Object.keys(CONSUMABLES).sort());
+});
+
+test("marketplace Skill Gem rule catalogs match all active skills and their rarities", () => {
+  const validation = databaseRules.rules.marketplace.$listingId[".validate"];
+  const patterns = [...validation.matchAll(/child\('item\/skill'\)\.val\(\)\.matches\(\/(.+?)\/\)/g)];
+  expect(patterns).toHaveLength(2);
+  const keys = (pattern) => pattern[1].replace(/^\^\(|\)\$$/g, "").split("|").sort();
+  expect(keys(patterns[0])).toEqual(Object.keys(SKILLS).filter((key) => !SKILLS[key].ultimate).sort());
+  expect(keys(patterns[1])).toEqual(Object.keys(SKILLS).filter((key) => SKILLS[key].ultimate).sort());
+  const mailRule = databaseRules.rules.inbox.$uid.$msgId.attachments.$kind.$index[".validate"];
+  for (const field of ["type", "skill", "value", "stat"])
+    expect(mailRule).toContain(`newData.child('${field}').val() === root.child('marketplace')`);
 });
 
 test("player message rules allow only bug and feedback categories", () => {
@@ -75,6 +88,7 @@ const elixir = { kind: "consumable", key: "elixirOfNameChanging", name: "Elixir 
 const sword = { id: "sword", name: "Sword", slot: "weapon", rarity: "Rare", iLevel: 10 };
 const slimeGel = { kind: "material", key: "slime_gel", name: "Slime Gel", tier: "common", count: 3 };
 const ruby = { kind: "gemstone", id: "ruby-1", name: "Rare Ruby", type: "ruby", stat: "strength", value: 3, rarity: "Rare" };
+const meteorGem = { kind: "gemstone", id: "meteor-gem", name: "Meteor Gemstone", type: "skill", skill: "meteor", value: 1, rarity: "Unique" };
 const consumableItems = Object.entries(CONSUMABLES).map(([key, item]) => ({
   kind: "consumable", key, name: item.name,
 }));
@@ -333,6 +347,30 @@ rulesTests("Firebase name and consumable marketplace rules", () => {
   ])("rejects mismatched or extra purchase attachments: %j", async (attachments) => {
     expect((await request("PATCH", "", purchase(attachments), "buyer")).status).toBe(401);
     expect((await request("GET", "marketplace/test", undefined, "buyer")).body.item).toEqual(elixir);
+  });
+
+  test.each([
+    meteorGem,
+    { ...meteorGem, skill: "fireball", name: "Fireball Gemstone", rarity: "Legendary" },
+  ])("Skill Gems can be listed and mailed through a purchase: %j", async (gem) => {
+    expect((await request("PUT", "marketplace/test", listing(gem), "seller")).status).toBe(401);
+    await request("DELETE", "marketplace/test", undefined, "owner");
+    expect((await request("PUT", "marketplace/test", listing(gem), "seller")).status).toBe(200);
+    for (const altered of [
+      { ...gem, skill: "cleave" }, { ...gem, value: 9 }, { ...gem, type: "ruby" },
+    ]) {
+      expect((await request("PATCH", "", purchase({ gemstoneItems: [altered] }), "buyer")).status).toBe(401);
+    }
+    expect((await request("PATCH", "", purchase({ gemstoneItems: [gem] }), "buyer")).status).toBe(200);
+    expect((await request("GET", "inbox/buyer/market-test", undefined, "buyer")).body.attachments.gemstoneItems[0]).toEqual(gem);
+  });
+
+  test.each([
+    { ...meteorGem, rarity: "Legendary" }, { ...meteorGem, value: 5 },
+    { ...meteorGem, skill: "missing" },
+  ])("malformed Skill Gem listings are rejected: %j", async (gem) => {
+    await request("DELETE", "marketplace/test", undefined, "owner");
+    expect((await request("PUT", "marketplace/test", listing(gem), "seller")).status).toBe(401);
   });
 
   test("admins can mail the elixir, while ordinary players cannot send admin gifts", async () => {

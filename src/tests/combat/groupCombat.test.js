@@ -40,6 +40,138 @@ const heavy = { name: "Broadside", power: 2, telegraph: true, weight: 100, coold
 const heavyCombat = (overrides = {}, members = party("A")) =>
   createGroupCombat(members, { enemies: ["x"] }, () => dummy({ abilities: [heavy], ...overrides }));
 
+test.each([
+  ["whirlwind", "melee", 0.8],
+  ["chainLightning", "magic", 1],
+])("%s hits every living enemy and spends power once", (key, type, multiplier) => {
+  const hero = player("A", {
+    skills: { [key]: 1 },
+    equippedSkills: [key],
+  });
+  const combat = createGroupCombat(
+    { A: createGroupMember("A", hero) },
+    { enemies: ["x", "y"] },
+    (name) => dummy({ name }),
+  );
+  const [first, second] = combat.enemies;
+  const power = combat.players.A.stats.power;
+
+  resolveGroupRound(combat, { A: { type: "skill", key, target: first.uid } }, env());
+
+  expect(first.hp).toBe(10000 - 100 * multiplier);
+  expect(second.hp).toBe(10000 - 100 * multiplier);
+  expect(combat.players.A.stats.power).toBe(power - (type === "magic" ? 7 : 6));
+});
+
+test("Meteor charges for a turn, then automatically strikes its target harder if burning", () => {
+  const hero = player("A", {
+    skills: { meteor: 1 },
+    equippedSkills: ["meteor"],
+  });
+  const combat = createGroupCombat(
+    { A: createGroupMember("A", hero) },
+    { enemies: ["x"] },
+    () => dummy(),
+  );
+  const enemy = combat.enemies[0];
+  const power = combat.players.A.stats.power;
+
+  const charge = resolveGroupRound(
+    combat,
+    { A: { type: "skill", key: "meteor", target: enemy.uid } },
+    env(),
+  );
+  expect(enemy.hp).toBe(10000);
+  expect(charge.log.join("\n")).toContain("begins channeling Meteor");
+  expect(combat.players.A.meteorCharge).toEqual({ skillKey: "meteor", target: enemy.uid });
+  expect(combat.players.A.stats.power).toBe(power - 20);
+
+  enemy.statuses.push({ id: "burn", turns: 5, power: 0, stacks: 1 });
+  const strike = resolveGroupRound(combat, {}, env());
+  expect(strike.log.join("\n")).toContain("Meteor crashes down");
+  expect(strike.log.join("\n")).toContain("A uses Meteor");
+  expect(enemy.hp).toBe(9399);
+  expect(combat.players.A.meteorCharge).toBeNull();
+  expect(combat.players.A.stats.power).toBe(power - 20);
+  expect(combat.players.A.usedUltimates.meteor).toBe(true);
+});
+
+test("a charged Meteor strikes before faster allies at the start of the round", () => {
+  const combat = createGroupCombat(
+    {
+      A: createGroupMember("A", player("A", { skills: { meteor: 1 }, equippedSkills: ["meteor"] })),
+      B: createGroupMember("B", player("B", { stats: { ...player("B").stats, speed: 99 } })),
+    },
+    { enemies: ["x"] },
+    () => dummy(),
+  );
+  const enemy = combat.enemies[0];
+  resolveGroupRound(combat, { A: { type: "skill", key: "meteor", target: enemy.uid }, B: { type: "pass" } }, env());
+
+  const log = resolveGroupRound(combat, { B: { type: "melee", target: enemy.uid } }, env()).log;
+  const meteor = log.findIndex((line) => line.includes("Meteor crashes down"));
+  const ally = log.findIndex((line) => line.startsWith("B "));
+
+  expect(meteor).toBeGreaterThan(-1);
+  expect(ally).toBeGreaterThan(meteor);
+});
+
+test("stun interrupts a charged Meteor in group combat", () => {
+  const hero = player("A", {
+    skills: { meteor: 1 },
+    equippedSkills: ["meteor"],
+  });
+  const combat = createGroupCombat(
+    { A: createGroupMember("A", hero) },
+    { enemies: ["x"] },
+    () => dummy(),
+  );
+  const enemy = combat.enemies[0];
+  resolveGroupRound(combat, { A: { type: "skill", key: "meteor", target: enemy.uid } }, env());
+  combat.players.A.statuses.push({ id: "stun", turns: 1, stacks: 1 });
+
+  const result = resolveGroupRound(combat, {}, env());
+
+  expect(result.log.join("\n")).toContain("Meteor channel is interrupted");
+  expect(enemy.hp).toBe(10000);
+  expect(combat.players.A.meteorCharge).toBeNull();
+});
+
+test("an ultimate can only be used once in a group combat", () => {
+  const hero = player("A", {
+    skills: { dimensionalSlash: 1 },
+    equippedSkills: ["dimensionalSlash"],
+  });
+  const combat = createGroupCombat(
+    { A: createGroupMember("A", hero) },
+    { enemies: ["x"] },
+    () => dummy(),
+  );
+  const enemy = combat.enemies[0];
+  resolveGroupRound(combat, { A: { type: "skill", key: "dimensionalSlash", target: enemy.uid } }, env());
+  const hp = enemy.hp;
+  const rejected = resolveGroupRound(combat, { A: { type: "skill", key: "dimensionalSlash", target: enemy.uid } }, env());
+  expect(enemy.hp).toBe(hp);
+  expect(rejected.log.join("\n")).toContain("already been used in this combat");
+});
+
+test("Dimensional Slash ignores all enemy defense", () => {
+  const hero = player("A", {
+    skills: { dimensionalSlash: 3 },
+    equippedSkills: ["dimensionalSlash"],
+  });
+  const combat = createGroupCombat(
+    { A: createGroupMember("A", hero) },
+    { enemies: ["x"] },
+    () => dummy({ defense: 1000 }),
+  );
+  const enemy = combat.enemies[0];
+
+  resolveGroupRound(combat, { A: { type: "skill", key: "dimensionalSlash", target: enemy.uid } }, env());
+
+  expect(enemy.hp).toBe(9500);
+});
+
 test("telegraphs prepare, release without random criticals, spend a full recovery action, then act again", () => {
   const c = heavyCombat({ critical: 1 });
   const e = c.enemies[0];
@@ -466,4 +598,71 @@ test("Star-Eater's Hunger devours enemy buffs and feeds on kills", () => {
   resolveGroupRound(c, { A: { type: "melee", target: weak.uid } }, env());
   expect(weak.dead).toBe(true);
   expect(a.hunger).toBe(2);
+});
+
+const passiveMember = (name, passives, overrides = {}) =>
+  createGroupMember(name, player(name, { passives, equippedPassives: passives, ...overrides }));
+
+test("Bloodlust stacks on kills and boosts later damage", () => {
+  const combat = createGroupCombat(
+    { A: passiveMember("A", ["bloodlust"]) },
+    { enemies: ["x", "y"] },
+    (name) => dummy({ name, maxHp: name === "x" ? 50 : 10000 }),
+  );
+  const [first, second] = combat.enemies;
+  resolveGroupRound(combat, { A: { type: "melee", target: first.uid } }, env());
+  expect(combat.players.A.bloodlust).toBe(1);
+  resolveGroupRound(combat, { A: { type: "melee", target: second.uid } }, env());
+  expect(second.hp).toBe(10000 - 110);
+});
+
+test("Protect reduces damage taken by the guarded ally", () => {
+  const run = (passives) => {
+    const combat = createGroupCombat(
+      { A: passiveMember("A", passives), B: passiveMember("B", []) },
+      { enemies: ["x"] },
+      () => dummy({ attack: [200, 200] }),
+    );
+    combat.enemies[0].threat = { B: 100000 };
+    resolveGroupRound(combat, { A: { type: "guard", target: "B" }, B: { type: "pass" } }, env());
+    return combat.players.A.stats.health + combat.players.B.stats.health;
+  };
+  expect(run(["protect"])).toBeGreaterThan(run([]));
+});
+
+test("Vitality Overflow turns overhealing into a barrier", () => {
+  const combat = createGroupCombat(
+    { A: passiveMember("A", ["vitalityOverflow"]), B: passiveMember("B", []) },
+    { enemies: ["x"] },
+    () => dummy({ attack: [0, 0] }),
+  );
+  resolveGroupRound(combat, { A: { type: "skill", key: "mendingLight", target: "B" }, B: { type: "pass" } }, env());
+  expect(combat.players.B.statuses).toContainEqual(expect.objectContaining({ id: "barrier" }));
+});
+
+test("Inspiration empowers the next attack of a healed ally", () => {
+  const combat = createGroupCombat(
+    { A: passiveMember("A", ["inspiration"]), B: passiveMember("B", []) },
+    { enemies: ["x"] },
+    () => dummy({ attack: [0, 0] }),
+  );
+  const target = combat.enemies[0];
+  resolveGroupRound(combat, { A: { type: "skill", key: "mendingLight", target: "B" }, B: { type: "pass" } }, env());
+  expect(combat.players.B.inspired).toBe(true);
+  resolveGroupRound(combat, { A: { type: "pass" }, B: { type: "melee", target: target.uid } }, env());
+  expect(target.hp).toBe(10000 - 110);
+  expect(combat.players.B.inspired).toBe(false);
+});
+
+test("Last Light from an ally saves a member from a lethal hit once", () => {
+  const combat = createGroupCombat(
+    { A: passiveMember("A", ["lastLight"]), B: passiveMember("B", []) },
+    { enemies: ["x"] },
+    () => dummy({ attack: [5000, 5000] }),
+  );
+  combat.players.B.stats.health = 10;
+  combat.players.A.stats.health = 10;
+  resolveGroupRound(combat, { A: { type: "pass" }, B: { type: "pass" } }, env());
+  const saved = Object.values(combat.players).filter((m) => m.stats.health === 1);
+  expect(saved).toHaveLength(1);
 });

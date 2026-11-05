@@ -4,7 +4,8 @@ import { KEY_ITEMS } from "../items/consumables";
 import { RECIPES, getCraftedCount } from "../items/workshop";
 import { itemTooltip, RARITY_COLORS, SLOTS } from "../items/items";
 import { getHolofoilStyle } from "../items/holofoil";
-import { SKILLS } from "../character/skills";
+import { getEquippedSkills, getSkillLevel, SKILLS } from "../character/skills";
+import { getEquippedPassives, PASSIVES } from "../character/passives";
 import { getRegion, REGIONS } from "../world/events";
 import { getRepRank } from "../world/quests";
 import { loadPublicProfile, searchCharacters } from "../character/profiles";
@@ -20,6 +21,10 @@ function PublicCharacterProfile({ profile, onClose }) {
   const keyItems = (profile.keyItems || []).filter((key) => KEY_ITEMS[key]);
   const learnedSkills = Object.entries(profile.skills || {})
     .filter(([key, level]) => SKILLS[key] && level > 0);
+  const equippedSkills = getEquippedSkills(profile);
+  const regularSkills = equippedSkills.filter((key) => !SKILLS[key].ultimate);
+  const ultimateSkills = equippedSkills.filter((key) => SKILLS[key].ultimate);
+  const equippedPassives = getEquippedPassives(profile);
 
   return (
     <div className='public-profile-backdrop' onMouseDown={(event) => {
@@ -37,14 +42,44 @@ function PublicCharacterProfile({ profile, onClose }) {
           <div><dt>Unspent skill points</dt><dd>{profile.skillPoints || 0}</dd></div>
         </dl>
         <section className='public-profile-section'>
-          <h3>Skills</h3>
+          <h3>Learned skills</h3>
           {learnedSkills.length ? (
             <ul className='public-profile-list'>
-            {learnedSkills.map(([key, level]) => (
-              <li key={key}><strong>{SKILLS[key].name} — Level {level}</strong></li>
+            {learnedSkills.map(([key]) => (
+              <li key={key}><strong>{SKILLS[key].name} — Level {getSkillLevel(profile, key)}</strong></li>
             ))}
             </ul>
           ) : <p>No skills learned yet.</p>}
+        </section>
+        <section className='public-profile-section'>
+          <h3>Equipped skills</h3>
+          {regularSkills.length ? (
+            <ul className='public-profile-list'>
+              {regularSkills.map((key) => (
+                <li key={key}><strong>{SKILLS[key].name} — Level {getSkillLevel(profile, key)}</strong></li>
+              ))}
+            </ul>
+          ) : <p>No skills equipped.</p>}
+        </section>
+        <section className='public-profile-section'>
+          <h3>Equipped passives</h3>
+          {equippedPassives.length ? (
+            <ul className='public-profile-list'>
+              {equippedPassives.map((key) => (
+                <li key={key}><strong>{PASSIVES[key].name}</strong></li>
+              ))}
+            </ul>
+          ) : <p>No passives equipped.</p>}
+        </section>
+        <section className='public-profile-section'>
+          <h3>Equipped Ultimate</h3>
+          {ultimateSkills.length ? (
+            <ul className='public-profile-list'>
+              {ultimateSkills.map((key) => (
+                <li key={key}><strong>{SKILLS[key].name} — Level {getSkillLevel(profile, key)}</strong></li>
+              ))}
+            </ul>
+          ) : <p>No Ultimate equipped.</p>}
         </section>
         <section className='public-profile-section'>
           <h3>Equipped gear</h3>

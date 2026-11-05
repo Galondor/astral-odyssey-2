@@ -53,6 +53,7 @@ const combatPlayer = (player) => {
     name: player.name, level: player.level, class: player.class,
     stats: player.stats, equipment: player.equipment || {},
     skills: player.skills || {}, equippedSkills: player.equippedSkills || [],
+    passives: player.passives || [], equippedPassives: player.equippedPassives || [],
     consumables: player.consumables || {}, keyItems: player.keyItems || [],
   }));
   snapshot.stats.health = snapshot.stats.maxHealth;
@@ -110,28 +111,39 @@ export const reduceContest = (current, actor, accountId, command, timestamp) => 
     } else if (command.type === "action") {
       if (match.turn !== actor) throw new Error("Wait for your opponent's turn.");
       if (timestamp >= match.deadline) throw new Error("Your turn has expired.");
-      const opponent = actor === match.host ? match.guest : match.host;
-      const before = match.fighters[actor];
-      const { attacker, defender, replies, turnEnded } = playContestAction(before, match.fighters[opponent], command.action);
-      match.fighters[actor] = attacker;
-      match.fighters[opponent] = defender;
-      for (const [key, count] of Object.entries(before.player.consumables || {})) {
-        const spent = count - (attacker.player.consumables?.[key] || 0);
-        if (spent > 0) {
-          entry.spent ||= {};
-          entry.spent[key] = (entry.spent[key] || 0) + spent;
+      let current = actor;
+      let action = command.action;
+      // A channeled Meteor strikes automatically as soon as its caster's next turn begins.
+      while (action && !match.winner) {
+        const opponent = current === match.host ? match.guest : match.host;
+        const before = match.fighters[current];
+        const { attacker, defender, replies, turnEnded } = playContestAction(before, match.fighters[opponent], action);
+        match.fighters[current] = attacker;
+        match.fighters[opponent] = defender;
+        const ownEntry = state.entries[current];
+        for (const [key, count] of Object.entries(before.player.consumables || {})) {
+          const spent = count - (attacker.player.consumables?.[key] || 0);
+          if (spent > 0 && ownEntry) {
+            ownEntry.spent ||= {};
+            ownEntry.spent[key] = (ownEntry.spent[key] || 0) + spent;
+          }
         }
-      }
-      match.log = [...(match.log || []), {
-        actor: attacker.player.name,
-        replies,
-      }].slice(-30);
-      if (defender.player.stats.health <= 0) completeMatch(state, match, actor, "kill");
-      else if (attacker.player.stats.health <= 0) completeMatch(state, match, opponent, "kill");
-      else if (turnEnded === true) {
-        match.turn = opponent;
-        match.turnCount += 1;
-        match.deadline = timestamp + CONTEST_TURN_MS;
+        match.log = [...(match.log || []), {
+          actor: attacker.player.name,
+          replies,
+        }].slice(-30);
+        action = null;
+        if (defender.player.stats.health <= 0) completeMatch(state, match, current, "kill");
+        else if (attacker.player.stats.health <= 0) completeMatch(state, match, opponent, "kill");
+        else if (turnEnded === true) {
+          match.turn = opponent;
+          match.turnCount += 1;
+          match.deadline = timestamp + CONTEST_TURN_MS;
+          if (defender.combat?.meteorCharge) {
+            current = opponent;
+            action = { type: "magic" };
+          }
+        }
       }
     } else throw new Error("Unknown Contest command.");
     match.revision += 1;

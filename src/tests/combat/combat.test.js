@@ -1,5 +1,6 @@
 import { getPlayer, setPlayer } from "../../character/player";
-import { attackRound as takeAttack, passRound, consumeItemRound, getCombatRound, getEnemy, getMarrowWard, getPlayerStatuses, startCombat as beginCombat } from "../../combat/combat";
+import { createSkillGemstone } from "../../items/items";
+import { attackRound as takeAttack, passRound, consumeItemRound, getCombatActions, getCombatRound, getEnemy, getMarrowWard, getPlayerStatuses, isUltimateUsed, startCombat as beginCombat } from "../../combat/combat";
 
 // These regression cases exercise a completed attack turn; Quick Action cases have their own suite.
 const attackRound = (...args) => {
@@ -51,6 +52,54 @@ beforeEach(() => {
 });
 
 afterEach(() => jest.restoreAllMocks());
+
+test.each([
+  [{ tier: "boss", dungeon: true, level: 10 }, 0.009999, true],
+  [{ tier: "boss", dungeon: true, level: 10 }, 0.01, false],
+  [{ tier: "boss", dungeon: true, labyrinth: true, level: 25 }, 0.009999, true],
+  [{ tier: "boss", region: "Forest", level: 50 }, 0.009999, true],
+  [{ tier: "boss", region: "Forest", level: 49 }, 0.009999, false],
+  [{ tier: "elite", dungeon: true, level: 100 }, 0.009999, false],
+  [{ tier: "basic", region: "Forest", level: 100 }, 0.009999, false],
+  [{ tier: "boss", colosseum: true, level: 100 }, 0.009999, false],
+])("boss reward eligibility and the exact 1%% threshold are enforced (%j, %s)", (foe, roll, drops) => {
+  const owned = { id: "owned", name: "Ruby", type: "ruby", stat: "strength", value: 1, rarity: "Common" };
+  getPlayer.mockReturnValue({
+    ...player, name: "Hero", level: 50, equipment: {}, gemstones: [owned],
+    stats: { ...player.stats, exp: 0, expToLevel: 1000000 },
+  });
+  startCombat({
+    name: "Boss", maxHp: 1, attack: [0, 0], defense: 0, speed: 1,
+    critical: 0, abilities: [], exp: 0, astra: 0, ...foe,
+  });
+  jest.spyOn(Math, "random").mockReturnValue(roll);
+  expect(takeAttack("melee").over).toBe(true);
+  const patch = setPlayer.mock.calls.at(-1)[0];
+  const gems = patch.gemstones || [owned];
+  expect(gems.filter((gem) => gem.type === "skill")).toHaveLength(drops ? 1 : 0);
+  expect(gems[0]).toEqual(owned);
+  if (!foe.colosseum) expect(gems.filter((gem) => gem.type !== "skill")).toHaveLength(2);
+});
+
+test.each([
+  ["fireball", "magic", 5, 2, 280],
+  ["cleave", "melee", 5, 2, 260],
+  ["meteor", "magic", 3, 5, 1450],
+])("%s uses gem-overcapped levels during real combat", (key, mode, baseLevel, count, damage) => {
+  const gems = Array.from({ length: count }, () => createSkillGemstone(key));
+  const equipment = Object.fromEntries(gems.map((gem, index) => [`slot${index}`, { gemstones: [gem] }]));
+  getPlayer.mockReturnValue({
+    ...player, equipment, skills: { [key]: baseLevel }, equippedSkills: [key],
+    stats: {
+      ...player.stats, power: 100, maxPower: 100, attackMin: 100, attackMax: 100,
+      magicAttackMin: 100, magicAttackMax: 100,
+    },
+  });
+  startCombat({ name: "Target", maxHp: 10000, defense: 0, speed: 1, critical: 0, abilities: [] });
+  jest.spyOn(Math, "random").mockReturnValue(0.5);
+  expect(takeAttack(mode, key).used).toBe(true);
+  expect(getEnemy().hp).toBe(10000 - damage);
+});
 
 test("cleansing removes combat debuffs and spends one item and the Quick Action", () => {
   getPlayer.mockReturnValue({ ...player, consumables: { cleansingPotion: 2 } });
@@ -162,6 +211,49 @@ test("combat rounds start at one and advance after each completed player turn", 
   attackRound("melee");
 
   expect(getCombatRound()).toBe(2);
+});
+
+test("Meteor spends a full turn charging and strikes automatically when the next turn begins", () => {
+  const hero = {
+    ...player,
+    skills: { meteor: 1 },
+    equippedSkills: ["meteor"],
+    stats: { ...player.stats, power: 20, maxPower: 20, magicAttackMin: 100, magicAttackMax: 100 },
+  };
+  getPlayer.mockReturnValue(hero);
+  startCombat({ name: "Meteor Target", maxHp: 10000, defense: 0, speed: 1, critical: 0 });
+  jest.spyOn(Math, "random").mockReturnValue(0.5);
+
+  const result = takeAttack("magic", "meteor");
+  const log = result.replies.join("\n");
+
+  expect(log).toContain("begin channeling Meteor");
+  expect(log).toContain("Meteor crashes down");
+  expect(log).toContain("You use Meteor on");
+  expect(log.indexOf("begin channeling")).toBeLessThan(log.indexOf("Meteor crashes down"));
+  expect(getEnemy().hp).toBe(9600);
+  expect(getCombatRound()).toBe(2);
+  expect(result.turnEnded).toBe(false);
+  expect(getCombatActions()).toMatchObject({ actionAvailable: false, quickAvailable: true });
+  expect(isUltimateUsed("meteor")).toBe(true);
+  expect(takeAttack("magic", "meteor").used).toBe(false);
+});
+
+test("stun cancels a charged Meteor instead of releasing it", () => {
+  const hero = {
+    ...player,
+    skills: { meteor: 1 },
+    equippedSkills: ["meteor"],
+    stats: { ...player.stats, power: 20, maxPower: 20, magicAttackMin: 100, magicAttackMax: 100 },
+  };
+  getPlayer.mockReturnValue(hero);
+  startCombat({ name: "Meteor Target", maxHp: 10000, defense: 0, speed: 1, critical: 0, abilities: [{ name: "Daze", weight: 10000, power: 0, status: { id: "stun", turns: 1 } }] });
+  jest.spyOn(Math, "random").mockReturnValue(0.5);
+
+  const interrupted = takeAttack("magic", "meteor");
+
+  expect(interrupted.replies.join("\n")).toContain("stun interrupts your Meteor channel");
+  expect(getEnemy().hp).toBe(10000);
 });
 
 test("victories record enemy tier kills and the highest single hit", () => {
@@ -663,6 +755,41 @@ test.each(["basic", "elite", "boss"])("any defeated %s enemy can drop a Prismati
   expect(setPlayer.mock.calls.at(-1)[0].consumables.prismaticAlloy).toBe(3);
   expect(setPlayer.mock.calls.at(-1)[0].consumables.runeOfUnpredictability).toBe(1);
   expect(replies.some((line) => line.includes("Prismatic Alloy"))).toBe(true);
+});
+
+test.each([
+  ["basic", 12],
+  ["elite", 12],
+])("gear dropped by a %s enemy is capped at its level", (tier, enemyLevel) => {
+  getPlayer.mockReturnValue({
+    ...player, level: 50, inventory: [], equipment: {},
+  });
+  startCombat({
+    name: "Target", level: enemyLevel, maxHp: 1, defense: 0, speed: 1,
+    tier, dropChance: 1,
+  });
+  jest.spyOn(Math, "random").mockReturnValue(0);
+
+  expect(attackRound("melee").over).toBe(true);
+
+  const droppedItem = setPlayer.mock.calls.at(-1)[0].inventory[0];
+  expect(droppedItem.iLevel).toBeLessThanOrEqual(enemyLevel);
+});
+
+test("boss gear drops are not capped at the boss level", () => {
+  getPlayer.mockReturnValue({
+    ...player, level: 50, inventory: [], equipment: {},
+  });
+  startCombat({
+    name: "Target", level: 12, maxHp: 1, defense: 0, speed: 1,
+    tier: "boss", dropChance: 1,
+  });
+  jest.spyOn(Math, "random").mockReturnValue(0);
+
+  expect(attackRound("melee").over).toBe(true);
+
+  const droppedItem = setPlayer.mock.calls.at(-1)[0].inventory[0];
+  expect(droppedItem.iLevel).toBe(50);
 });
 
 test("Prismatic Alloy drop chance excludes the exact 0.5% threshold", () => {

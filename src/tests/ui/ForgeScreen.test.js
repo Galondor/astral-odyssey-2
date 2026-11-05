@@ -92,6 +92,7 @@ test("Upgrading only shows inventory gear and refreshes costs and upgrade counts
   render(<ForgeScreen onChange={onChange} />);
   fireEvent.click(screen.getByRole("tab", { name: "Upgrading" }));
   expect(screen.getByRole("tab", { name: "Upgrading" }).getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("region", { name: "Gear available to upgrade" }).tabIndex).toBe(0);
   expect(screen.getByText("Bag Sword")).toBeTruthy();
   expect(screen.queryByText("Iron Sword")).toBeNull();
   expect(screen.queryByText("Placeholder")).toBeNull();

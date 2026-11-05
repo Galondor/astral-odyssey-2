@@ -100,7 +100,8 @@ export const getGroupStatus = () => {
   const intentsIn = {};
   if (run) for (const id of run.members) {
     const intent = intents[id];
-    intentsIn[id] = !!intent && intent.run === run.id && intent.round === run.round && intent.stage === run.stage;
+    intentsIn[id] = (!run.puzzle && !!run.party?.[id]?.meteorCharge) ||
+      (!!intent && intent.run === run.id && intent.round === run.round && intent.stage === run.stage);
   }
   const active = run?.status === "active";
   const dungeon = party ? getGroupDungeon(party.dungeon) : null;
@@ -380,6 +381,7 @@ const combatSnapshot = (player) => clone({
   name: player.name, level: player.level || 1, class: player.class || null,
   stats: player.stats, equipment: player.equipment || {},
   skills: player.skills || {}, equippedSkills: player.equippedSkills || [],
+  passives: player.passives || [], equippedPassives: player.equippedPassives || [],
   consumables: player.consumables || {}, keyItems: player.keyItems || [],
 });
 

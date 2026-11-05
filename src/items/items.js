@@ -1,12 +1,13 @@
 import { getInventoryItemKey, getPlayer, setPlayer } from "../character/player";
 import { getBaseStats, recalculateStats } from "../character/stats";
 import { getEnemy } from "../combat/combat";
+import { SKILLS } from "../character/skills";
 import { ABILITIES, UNIQUE_ABILITIES, findAbility } from "../combat/abilities";
 import { getItemGearScore } from "./gearScore";
 import { isFavorite } from "./favorites";
 import { getHolofoilStyle, isHolofoilColors, rollHolofoil, validateHolofoil } from "./holofoil";
 import { RARITY_COLORS } from "./rarities";
-import { getItemBaseSocketCount, getItemGemstones, getItemSocketCount, rollItemSocketCount } from "./sockets";
+import { getItemBaseSocketCount, getItemGemstones, getItemSocketCount, isSkillGemstone, rollItemSocketCount } from "./sockets";
 export { RARITY_COLORS } from "./rarities";
 
 /*
@@ -709,8 +710,9 @@ const generateItem = (
   const minTier = quality.minTier || 0;
 
   // 80% chance to match the player's level; otherwise roll 1-5 levels higher
-  const iLevel =
+  const rolledILevel =
     quality.iLevel ?? (Math.random() < 0.8 ? level : level + randInt(5));
+  const iLevel = Math.min(rolledILevel, quality.maxILevel ?? rolledILevel);
   const rarity = quality.rarity
     ? RARITIES.find((candidate) => candidate.name === quality.rarity)
     : rollRarity(minRarity, quality.weights);
@@ -1143,8 +1145,8 @@ export const createCustomItem = ({
   });
 };
 
-export const generateRandomSlotItem = (minRarity = 0, minTier = 0) =>
-  generateItem(pick(Object.keys(SLOT_CONFIG)), minRarity, { minTier });
+export const generateRandomSlotItem = (minRarity = 0, minTier = 0, quality = {}) =>
+  generateItem(pick(Object.keys(SLOT_CONFIG)), minRarity, { minTier, ...quality });
 
 export const generateRandomGemstone = (minRarity = 0) => {
   const [type, gemstone] = pick(Object.entries(GEMSTONES));
@@ -1159,17 +1161,57 @@ export const generateRandomGemstone = (minRarity = 0) => {
   };
 };
 
+export const SKILL_GEM_DROP_CHANCE = 0.01;
+export const SKILL_GEM_UNIQUE_CHANCE = 0.1;
+export const SKILL_GEM_REGION_MIN_LEVEL = 50;
+
+export const createSkillGemstone = (key) => {
+  const skill = SKILLS[key];
+  if (!Object.prototype.hasOwnProperty.call(SKILLS, key)) throw new Error("Unknown Skill Gem skill.");
+  return {
+    id: newId(),
+    name: `${skill.name} Gemstone`,
+    type: "skill",
+    skill: key,
+    value: 1,
+    rarity: skill.ultimate ? "Unique" : "Legendary",
+  };
+};
+
+export const generateRandomSkillGemstone = () => {
+  const ultimate = Math.random() < SKILL_GEM_UNIQUE_CHANCE;
+  const pool = Object.keys(SKILLS).filter((key) => !!SKILLS[key].ultimate === ultimate);
+  return createSkillGemstone(pick(pool));
+};
+
+export const canDropSkillGemstone = (enemy) =>
+  !enemy?.colosseum && !enemy?.worldBossCycle && enemy?.tier === "boss" &&
+  (enemy.dungeon || (enemy.region && enemy.level >= SKILL_GEM_REGION_MIN_LEVEL));
+
+export const isValidGemstone = (gemstone) =>
+  !!gemstone && typeof gemstone.id === "string" && typeof gemstone.name === "string" &&
+  (isSkillGemstone(gemstone)
+    ? Object.prototype.hasOwnProperty.call(SKILLS, gemstone.skill) && gemstone.value === 1 &&
+      gemstone.rarity === (SKILLS[gemstone.skill].ultimate ? "Unique" : "Legendary")
+    : !!GEMSTONES[gemstone.type] && typeof gemstone.stat === "string" &&
+      Number.isFinite(Number(gemstone.value)) && RARITY_NAMES.includes(gemstone.rarity));
+
+export const gemstoneEffectLabel = (gemstone) => isSkillGemstone(gemstone)
+  ? `${SKILLS[gemstone.skill]?.name || gemstone.skill} skill level`
+  : STAT_LABELS[gemstone.stat] || gemstone.stat;
+
 export const gemstoneTooltip = (gemstone) => {
   if (!gemstone) return null;
   return {
     title: gemstone.name,
     titleColor: RARITY_COLORS[gemstone.rarity],
-    subtitle: `${gemstone.rarity} Gemstone`,
-    description:
-      "Socket into a gear piece to increase its core stat. Can be safely removed for an astra cost.",
+    subtitle: `${gemstone.rarity} ${isSkillGemstone(gemstone) ? "Skill " : ""}Gemstone`,
+    description: isSkillGemstone(gemstone)
+      ? "Socket into equipped gear to grant +1 level to this already-learned skill, beyond its normal cap. Stacks with other Skill Gems. Can be safely removed for an astra cost."
+      : "Socket into a gear piece to increase its core stat. Can be safely removed for an astra cost.",
     stats: [
       {
-        label: STAT_LABELS[gemstone.stat] || gemstone.stat,
+        label: gemstoneEffectLabel(gemstone),
         value: formatValue(gemstone.stat, gemstone.value),
         color: "#7bd88f",
       },
@@ -1191,7 +1233,9 @@ export const itemTooltip = (item, extra) => {
   const stats = [];
   for (const gemstone of getItemGemstones(item)) {
     stats.push({
-      label: `${GEMSTONES[gemstone.type]?.name || gemstone.name.replace(/^(Common|Uncommon|Rare|Epic|Legendary)\s+/, "")} (${STAT_LABELS[gemstone.stat] || gemstone.stat})`,
+      label: isSkillGemstone(gemstone)
+        ? gemstoneEffectLabel(gemstone)
+        : `${GEMSTONES[gemstone.type]?.name || gemstone.name.replace(/^(Common|Uncommon|Rare|Epic|Legendary)\s+/, "")} (${gemstoneEffectLabel(gemstone)})`,
       value: formatValue(gemstone.stat, gemstone.value),
       color: "#7bd88f",
     });
@@ -1275,7 +1319,8 @@ const sumStats = (items) => {
   const out = {};
   for (const it of items) {
     for (const gemstone of getItemGemstones(it))
-      out[gemstone.stat] = (out[gemstone.stat] || 0) + gemstone.value;
+      if (!isSkillGemstone(gemstone))
+        out[gemstone.stat] = (out[gemstone.stat] || 0) + gemstone.value;
     if (it.mainStat)
       out[it.mainStat.stat] = (out[it.mainStat.stat] || 0) + it.mainStat.value;
     for (const [k, v] of Object.entries(it.subStats || {}))
@@ -1371,7 +1416,7 @@ export const addItem = (item) => {
 };
 
 export const addGemstone = (gemstone) => {
-  if (!gemstone?.id || !GEMSTONES[gemstone.type]) return;
+  if (!isValidGemstone(gemstone)) return;
   const player = getPlayer();
   setPlayer({ gemstones: [...(player?.gemstones || []), gemstone] });
 };
@@ -1381,7 +1426,9 @@ const GEMSTONE_VALUES = Object.fromEntries(
 );
 
 export const getGemstoneValue = (gemstone) =>
-  GEMSTONE_VALUES[gemstone?.rarity] ?? null;
+  (isSkillGemstone(gemstone)
+    ? { Legendary: 2500, Unique: 5000 }[gemstone.rarity]
+    : GEMSTONE_VALUES[gemstone?.rarity]) ?? null;
 
 export function sellGemstone(index) {
   const player = getPlayer();
@@ -1407,7 +1454,9 @@ const GEMSTONE_RARITY_COSTS = Object.fromEntries(
 );
 
 export const getGemstoneRemovalCost = (gemstone) =>
-  GEMSTONE_RARITY_COSTS[gemstone?.rarity] || null;
+  (isSkillGemstone(gemstone)
+    ? { Legendary: 1500, Unique: 3000 }[gemstone.rarity]
+    : GEMSTONE_RARITY_COSTS[gemstone?.rarity]) || null;
 
 const getGemstoneTarget = (player, target) => {
   if (target?.kind === "inventory") {

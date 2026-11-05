@@ -328,6 +328,13 @@ describe("group dungeon runs", () => {
     expect(allIntentsIn(run, { a: base, b: base })).toBe(true);
   });
 
+  test("a member channeling Meteor does not need to submit a turn", () => {
+    const run = createGroupRun({ id: "r1", dungeonId: "tidewrack", members: ["a", "b"], snapshots: snapshots(), now: 0, actor: "a" });
+    const base = { run: "r1", round: 1, stage: 0, type: "defend" };
+    run.party.b.meteorCharge = { skillKey: "meteor", target: null };
+    expect(allIntentsIn(run, { a: base })).toBe(true);
+  });
+
   test("a wipe respawns the party at the checkpoint and costs 2 minutes", () => {
     const run = createGroupRun({ id: "r1", dungeonId: "tidewrack", members: ["a", "b"], snapshots: snapshots(), now: 0, actor: "a" });
     for (const m of Object.values(run.party)) m.stats.health = 1;
@@ -392,6 +399,27 @@ describe("group dungeon runs", () => {
     expect(claim.patch.records.groupDungeonsCleared).toBe(1);
     expect(claim.patch.groupDungeonClaims.r1).toBe(10);
     expect(reconcileGroupRun({ ...players.a, ...claim.patch }, run, "a")).toBeNull();
+  });
+
+  test.each([[0.009999, true], [0.01, false]])("Skill Gems use the exact 1%% group boss threshold (%s)", (roll, drops) => {
+    const players = snapshots();
+    const run = createGroupRun({ id: "skill-gem-clear", dungeonId: "tidewrack", members: ["a"], snapshots: players, now: 0, actor: "a" });
+    run.status = "cleared";
+    run.stagesCleared = 4;
+    run.endedAt = 10;
+    const random = jest.spyOn(Math, "random").mockReturnValue(roll);
+    try {
+      const claim = reconcileGroupRun(players.a, run, "a");
+      expect(claim.patch.gemstones?.length || 0).toBe(drops ? 1 : 0);
+      if (drops) expect(claim.patch.gemstones[0]).toMatchObject({ type: "skill", value: 1 });
+      expect(reconcileGroupRun({ ...players.a, ...claim.patch }, run, "a")).toBeNull();
+      run.status = "failed";
+      expect(reconcileGroupRun(players.a, run, "a").patch.gemstones).toBeUndefined();
+      run.status = "cleared";
+      expect(reconcileGroupRun(players.a, run, "a", { leaving: true }).patch.gemstones).toBeUndefined();
+    } finally {
+      random.mockRestore();
+    }
   });
 
   test.each([[0.299999, true], [0.3, false]])("all rune clear rewards use the exact 30%% threshold (roll=%s)", (roll, drops) => {

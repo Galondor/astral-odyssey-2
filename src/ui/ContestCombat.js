@@ -97,8 +97,10 @@ export default function ContestCombat({ onLeave, navigationModal }) {
   const actionOption = (label, type, key, tooltip) => {
     const available = type === "pass" ? { ok: true } : getActionAvailability(actions, type, key);
     const powerCost = type === "skill" ? skillCost(fighter.player, key) : null;
+    const ultimateUsed = type === "skill" && SKILLS[key]?.ultimate && fighter?.combat?.usedUltimates?.[key];
     const reason = stunned && type !== "pass" ? "Stunned: End Turn to recover." :
       !available.ok ? available.message :
+        ultimateUsed ? `${SKILLS[key].name} has already been used this combat.` :
         powerCost != null && fighter.player.stats.power < powerCost ? `You need ${powerCost} Power.` : "";
     const cost = type === "skill" ? `${powerCost} Power` :
       type === "pass" || type === "consume" ? "" : costLabel(type, key);

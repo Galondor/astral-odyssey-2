@@ -56,6 +56,8 @@ test("weekly Labyrinth generation creates five connected, progressively scaled f
 });
 
 let player;
+afterEach(() => jest.restoreAllMocks());
+
 beforeEach(() => {
   jest.clearAllMocks();
   player = {
@@ -67,6 +69,29 @@ beforeEach(() => {
   setPlayer.mockImplementation((patch) => {
     player = { ...player, ...patch };
   });
+});
+
+test.each([
+  ["basic", 0.999, ["basic", "basic", "basic", "basic"]],
+  ["elite", 0.999, ["elite", "basic", "basic", "basic"]],
+  ["elite", 0.01, ["elite", "elite"]],
+  ["boss", 0.01, ["boss"]],
+])("Labyrinth %s encounter composition at roll %s", (tier, roll, expected) => {
+  const state = createLabyrinth(player);
+  state.active = true;
+  const tile = state.floors[0].tiles[1 * 9 + 2];
+  Object.assign(tile, { type: tier === "boss" ? "boss" : "enemy", tier, enemyId: "maze_stalker" });
+  player.labyrinth = state;
+  jest.spyOn(Math, "random").mockReturnValue(roll);
+  moveInLabyrinth(2, 1);
+  const encounter = startCombat.mock.calls[0][0];
+  const roster = Array.isArray(encounter) ? encounter : [encounter];
+  expect(roster.map((foe) => foe.tier)).toEqual(expected);
+  expect(roster.every((foe) => foe.labyrinth && foe.level === state.floors[0].level)).toBe(true);
+  const patch = {};
+  const replies = [];
+  roster.forEach((foe) => foe.onDefeat(player, player.stats, patch, replies));
+  expect(patch.materials.relicFragments).toBe(roster.reduce((sum, foe) => sum + (foe.tier === "boss" ? 14 : foe.tier === "elite" ? 7 : 4), 0));
 });
 
 test("each Labyrinth move costs two stamina and refuses moves below the cost", () => {
@@ -138,13 +163,18 @@ test("Labyrinth combat callbacks persist the full results for the expedition foo
   player.labyrinth = state;
 
   expect(moveInLabyrinth(2, 1)).toMatchObject({ ok: true, encounter: "combat" });
-  const enemy = startCombat.mock.calls[0][0];
+  const encounter = startCombat.mock.calls[0][0];
+  const roster = Array.isArray(encounter) ? encounter : [encounter];
+  const enemy = roster[0];
   const replies = ["The Maze Stalker falls!", "Materials gained: Maze-Etched Fang."];
   const patch = {};
-  enemy.onDefeat(player, player.stats, patch, replies);
+  roster.forEach((foe) => foe.onDefeat(player, player.stats, patch, replies));
+  expect(patch.labyrinth.floors[0].tiles[1 * 9 + 2].resolved).toBe(false);
+  enemy.onEncounterDefeat(player, player.stats, patch, replies);
 
   expect(patch.labyrinth.lastCombatResults).toEqual(replies);
   expect(patch.labyrinth.floors[0].tiles[1 * 9 + 2].resolved).toBe(true);
+  expect(patch.materials.relicFragments).toBe(4 * roster.length);
 });
 
 test("the final boss guarantees one and drops no more than two Unwritten Crown Fragments", () => {

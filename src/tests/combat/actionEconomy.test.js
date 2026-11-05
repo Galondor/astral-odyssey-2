@@ -21,6 +21,8 @@ test("Action cannot use Quick slot and repeated skills are rejected", () => {
 test("group consumables and Quick-classified skills still cost the whole Action", () => {
   expect(getActionCost("consume", "healthPotion", "group")).toBe("action");
   expect(getActionCost("skill", "renewal", "group")).toBe("action");
+  expect(getActionCost("skill", "offhandStrike", "group")).toBe("action");
+  expect(getActionCost("skill", "offhandStrike")).toBe("quick");
   expect(getActionCost("skill", "provoke")).toBe("quick");
   expect(getActionCost("skill", "fireball")).toBe("action");
 });

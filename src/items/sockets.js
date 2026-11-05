@@ -2,6 +2,8 @@ import { isHolofoilColors } from "./holofoil";
 
 export const MAX_ITEM_SOCKETS = 3;
 
+export const isSkillGemstone = (gemstone) => gemstone?.type === "skill";
+
 export const getItemGemstones = (item) => {
   if (!item || item.twoHandedOf) return [];
   return Array.isArray(item.gemstones)

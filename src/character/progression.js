@@ -1,6 +1,8 @@
 import { getPlayer, setPlayer } from "./player";
 import { getEnemy } from "../combat/combat";
 import { getBaseStatPoints, recalculateStats } from "./stats";
+import { skillPointCost } from "./skills";
+import { PASSIVE_POINT_COST, getLearnedPassives } from "./passives";
 
 export const CORE_STAT_KEYS = ["strength", "dexterity", "intelligence"];
 
@@ -47,10 +49,16 @@ export function respecSkills() {
   const p = getPlayer();
   if (!p) return { ok: false };
   if (getEnemy()) return { ok: false, reason: "combat" };
-  const refund = Object.values(p.skills || {}).reduce((sum, n) => sum + (n || 0), 0);
+  const refund = Object.entries(p.skills || {}).reduce(
+    (sum, [key, level]) => sum + (level || 0) * skillPointCost(key),
+    0,
+  ) + getLearnedPassives(p).length * PASSIVE_POINT_COST;
   if (!refund) return { ok: false, reason: "nothing" };
   const cost = getRespecCost(p);
   if ((p.astra || 0) < cost) return { ok: false, reason: "astra", cost };
-  setPlayer({ skills: {}, equippedSkills: [], skillPoints: (p.skillPoints || 0) + refund, astra: p.astra - cost });
+  setPlayer({
+    skills: {}, equippedSkills: [], passives: [], equippedPassives: [],
+    skillPoints: (p.skillPoints || 0) + refund, astra: p.astra - cost,
+  });
   return { ok: true, refund, cost };
 }

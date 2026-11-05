@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { getPlayer } from "../character/player";
-import { RARITY_COLORS, STAT_LABELS, canEquip, formatValue, gemstoneTooltip, getEquipLevel, itemComparisonTooltip, itemTooltip } from "../items/items";
+import { RARITY_COLORS, STAT_LABELS, canEquip, formatValue, gemstoneEffectLabel, gemstoneTooltip, getEquipLevel, itemComparisonTooltip, itemTooltip } from "../items/items";
 import { getItemGearScore } from "../items/gearScore";
 import { isFavorite } from "../items/favorites";
 import { getHolofoilStyle } from "../items/holofoil";
@@ -46,7 +46,7 @@ const itemKindLabel = (item) => isConsumableListing(item)
   : isMaterialListing(item)
     ? `${MATERIAL_TIERS[item.tier]?.label || "Material"} Material`
     : isGemstoneListing(item)
-      ? `${item.rarity} Gemstone`
+      ? `${item.rarity} ${item.type === "skill" ? "Skill " : ""}Gemstone`
       : `${item.rarity} ${slotLabel(item)}`;
 
 // Card body shared by every tab: name, rarity/slot, level, main stat, ability, then a tab-specific footer.
@@ -69,7 +69,7 @@ const ItemCard = ({ item, tooltip, selected, dimmed, favorite, onClick, children
       </span>
       {item.kind === "material" && <span className='market-card-sub'>{item.count} available</span>}
       {item.kind === "gemstone" && <span className='market-card-stat'>
-        {formatValue(item.stat, item.value)} {STAT_LABELS[item.stat] || item.stat}
+        {formatValue(item.stat, item.value)} {gemstoneEffectLabel(item)}
       </span>}
       {item.kind !== "consumable" && item.kind !== "material" && item.kind !== "gemstone" && <span className='market-card-sub'>
         iLvl {item.iLevel || 1} • Equip {getEquipLevel(item)} • GS {getItemGearScore(item)}

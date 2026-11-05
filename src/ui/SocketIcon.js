@@ -6,6 +6,7 @@ const GEM_COLORS = {
   ruby: { fill: "#e5484d", light: "#ff9a9e" },
   emerald: { fill: "#46a758", light: "#9be0a8" },
   sapphire: { fill: "#3e8ef0", light: "#9ec9ff" },
+  skill: { fill: "#ff8000", light: "#ffd479" },
 };
 
 const STAT_GEM_TYPES = {

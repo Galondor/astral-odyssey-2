@@ -13,6 +13,30 @@ jest.mock("../../ui/BugReportScreen", () => () => null);
 
 const CombatScreen = SCREENS.combat.component;
 
+test("multi-enemy combat displays one scrollable column with living enemies and incoming threats", () => {
+  const enemies = [
+    { name: "Leader", tier: "elite", hp: 100, maxHp: 100, level: 20, statuses: [] },
+    { name: "Ally", tier: "basic", hp: 40, maxHp: 80, pending: { name: "Heavy Slash" }, statuses: [] },
+    { name: "Fallen", tier: "basic", hp: 0, maxHp: 80, statuses: [] },
+  ];
+  const { rerender } = render(<CombatScreen messages={[]} player={{}} data={{ enemy: enemies[0], enemies }} />);
+  const column = screen.getByRole("region", { name: "Encounter enemies" });
+  expect(column).toHaveClass("combat-enemy-column");
+  expect(column).toHaveAttribute("tabindex", "0");
+  const roster = within(column);
+  expect(roster.getByText("Enemies (2/3 remaining)")).toBeInTheDocument();
+  expect(roster.getByLabelText("Enemy 1: Leader")).toHaveClass("group-enemy", "tier-elite");
+  expect(screen.getAllByRole("heading", { name: /Leader/ })).toHaveLength(1);
+  expect(roster.getByLabelText("Enemy 2: Ally")).toHaveTextContent("40/80");
+  expect(roster.queryByLabelText("Enemy 3: Fallen")).not.toBeInTheDocument();
+  expect(roster.getByRole("status")).toHaveTextContent("Heavy Slash");
+  enemies[0].hp = 0;
+  rerender(<CombatScreen messages={[]} player={{}} data={{ enemy: enemies[1], enemies }} />);
+  expect(roster.queryByLabelText("Enemy 1: Leader")).not.toBeInTheDocument();
+  expect(roster.getByLabelText("Enemy 2: Ally")).toBeInTheDocument();
+  expect(roster.getByText("Enemies (1/3 remaining)")).toBeInTheDocument();
+});
+
 test("combat shows interactive training instructions, remaining slots, and public heavy warnings", () => {
   render(<CombatScreen messages={[]} player={{}} data={{
     actions: { actionAvailable: false, quickAvailable: true },

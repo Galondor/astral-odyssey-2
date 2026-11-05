@@ -2,7 +2,7 @@ import { get, onValue, set, update } from "firebase/database";
 import { commitPlayerChange, getPlayer, setPlayer } from "../../character/player";
 import { administerPlayerTimer, claimMessage, describeAttachments, getMessages, hasAttachments, normalizeAttachments, sendMessage, startInbox } from "../../world/inbox";
 import { UNIQUES } from "../../world/dungeonData";
-import { createCustomItem } from "../../items/items";
+import { createCustomItem, createSkillGemstone } from "../../items/items";
 
 jest.mock("../../firebase", () => ({ db: {} }));
 jest.mock("../../character/player", () => ({
@@ -46,6 +46,27 @@ test("claim flags and granted rewards are submitted in the same player commit", 
   });
 
   expect(commitPlayerChange).toHaveBeenCalledTimes(1);
+});
+
+test("exact Skill Gem attachments are sent and claimed without rerolling", async () => {
+  const gems = ["fireball", "mendingLight", "meteor"].map(createSkillGemstone);
+  const attachments = { gemstoneItems: gems };
+  expect(normalizeAttachments(attachments).gemstoneItems).toEqual(gems);
+  expect(normalizeAttachments({ gemstoneItems: [{ ...gems[0], skill: "missing" }] }).gemstoneItems).toEqual([]);
+  expect(describeAttachments(attachments)).toEqual([
+    "Legendary Fireball Gemstone", "Legendary Mending Light Gemstone", "Unique Meteor Gemstone",
+  ]);
+  await sendMessage({ to: "alice", subject: "Skill Gems", body: "Enjoy!", attachments });
+  expect(set).toHaveBeenCalledWith("inbox/alice/sent", expect.objectContaining({ attachments }));
+  stop();
+  onValue.mockImplementation((path, callback) => {
+    callback({ val: () => path === "inbox/alice" ? { gems: { subject: "Gems", attachments } } : {} });
+    return () => {};
+  });
+  stop = startInbox("alice", () => {});
+  expect((await claimMessage("gems")).ok).toBe(true);
+  expect(player.gemstones).toEqual(gems);
+  expect(writes["inboxState/alice/gems/claimed"]).toBe(true);
 });
 
 test("reputation attachments are normalized, described, sent, and claimed", async () => {

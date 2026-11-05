@@ -1,6 +1,6 @@
 import { getClassForStats } from "./classes";
 import { getItemGearScore } from "../items/gearScore";
-import { getItemGemstones } from "../items/sockets";
+import { getItemGemstones, isSkillGemstone } from "../items/sockets";
 
 /*
  Central stat calculation. Every derived stat is computed here from:
@@ -37,7 +37,8 @@ const getGearSources = (equipment = {}) => {
   for (const item of Object.values(equipment)) {
     if (!item) continue;
     for (const gemstone of getItemGemstones(item))
-      add(gemstone.stat, `${item.name} (${gemstone.name})`, gemstone.value);
+      if (!isSkillGemstone(gemstone))
+        add(gemstone.stat, `${item.name} (${gemstone.name})`, gemstone.value);
     if (item.mainStat) add(item.mainStat.stat, item.name, item.mainStat.value);
     for (const [k, v] of Object.entries(item.subStats || {})) add(k, item.name, v);
   }

@@ -376,6 +376,10 @@ input[type='checkbox']:disabled {
 .combat-tutorial h3 { margin: 0 0 6px; }
 .combat-tutorial p { margin: 6px 0; }
 .combatant { flex: 1; max-width: 300px; }
+.combat-enemy-column { display: flex; flex-direction: column; gap: 8px; min-height: 0; max-height: 360px; max-height: min(360px, 45dvh); overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; text-align: left; }
+.combat-enemy-column > * { flex-shrink: 0; }
+.solo-enemy-card { min-width: 0; }
+.solo-enemy-card .combatant-stats { flex-wrap: wrap; gap: 8px; }
 .combat-vs { font-weight: bold; color: #c0392b; font-size: 22px; }
 .combatant-stats { margin-top: 8px; display: flex; flex-direction: row; gap: 16px; justify-content: space-between; }
 .combatant h4 { margin: 0 0 8px; font-size: 16px; }
@@ -976,6 +980,10 @@ input[type='checkbox']:disabled {
   .labyrinth-tile.current { animation: none; }
 }
 .relic-forge { display: flex; flex-direction: column; gap: 12px; }
+.relic-forge-upgrading { min-height: 0; overflow: hidden; }
+.relic-forge-upgrading > .relic-forge-content { flex: 1 1 0; min-height: 0; overflow: hidden; }
+.relic-forge-upgrading .forge-upgrade-list { flex: 1 1 0; min-height: 0; align-content: start; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
+.relic-forge-upgrading .recipe-note { flex: 0 0 auto; }
 .relic-forge-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .relic-forge-header h3 { margin: 0 0 4px; text-align: left; }
 .relic-forge-header p { margin: 0; color: #aaaed0; font-size: 13px; text-align: left; }
@@ -1248,7 +1256,7 @@ input[type='checkbox']:disabled {
 
 .quick-guide-dialog {
   box-sizing: border-box;
-  width: min(560px, calc(100vw - 32px));
+  width: min(860px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
   overflow-y: auto;
   padding: clamp(18px, 4vw, 28px);
@@ -2001,6 +2009,7 @@ input[type='checkbox']:disabled {
   .mobile-game-content .game-screen { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; height: auto; margin-bottom: 0; }
   .mobile-game-content .panel, .mobile-game-content .log, .mobile-game-content .screen-split,
   .mobile-game-content .workshop, .mobile-game-content .character-main, .mobile-game-content .inventory-panel { flex: none; overflow-y: visible; height: auto; max-height: none; }
+  .mobile-game-content .workshop.relic-forge-upgrading { flex: 1 1 0; min-height: 0; overflow: hidden; }
   .mobile-game-content .game-controls { position: relative; flex: 0 0 auto; justify-content: flex-start; z-index: 5; min-height: 0; max-height: 45%; overflow-y: auto; overscroll-behavior-y: contain; margin-top: 0; padding: 8px; background: var(--surface); }
   .mobile-game-content .game-controls > * { flex-shrink: 0; }
   .mobile-game-content .input-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0; }

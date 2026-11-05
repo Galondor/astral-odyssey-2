@@ -22,6 +22,7 @@ jest.mock("../../character/player", () => ({
 jest.mock("../../combat/combat", () => ({
   collapse: jest.fn(),
   getEnemy: jest.fn(),
+  getEnemies: () => [],
   startCombat: jest.fn(),
   takeOpeningReplies: jest.fn(),
 }));
@@ -37,6 +38,26 @@ beforeEach(() => {
 });
 
 afterEach(() => jest.restoreAllMocks());
+
+test.each([
+  ["enemyEncounter", "basic", 0.999, ["basic", "basic", "basic", "basic"]],
+  ["eliteEncounter", "elite", 0.999, ["elite", "basic", "basic", "basic"]],
+  ["eliteEncounter", "elite", 0.01, ["elite", "elite"]],
+  ["bossEncounter", "boss", 0.01, ["boss"]],
+])("%s uses shared encounter rules at roll %s", (eventId, tier, roll, expected) => {
+  const player = { level: 30, stats: { gearScore: 4500 } };
+  const leader = { name: "Leader", tier };
+  getRandomEnemy.mockImplementation((allyTier) => ({ name: "Ally", tier: allyTier }));
+  getRandomEnemy.mockReturnValueOnce(leader);
+  getEnemy.mockReturnValue(leader);
+  jest.spyOn(Math, "random").mockReturnValue(roll);
+  travelEvents.find(({ id }) => id === eventId).run({ player, region: "Darkwood" })
+    .options.find(({ label }) => label === "Fight").onSelect();
+  const encounter = startCombat.mock.calls[0][0];
+  const roster = Array.isArray(encounter) ? encounter : [encounter];
+  expect(roster.map((foe) => foe.tier)).toEqual(expected);
+  expect(getRandomEnemy.mock.calls.every((args) => args[1] === "Darkwood" && args[2] === 30 && args[3] === 4500)).toBe(true);
+});
 
 test("a failed flee returns to the menu if the enemy's opening turn ends combat", () => {
   const enemy = { name: "Ambusher" };

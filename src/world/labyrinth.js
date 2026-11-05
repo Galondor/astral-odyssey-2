@@ -3,6 +3,7 @@ import { updateRecords } from "../character/records";
 import { gainExp } from "../character/stats";
 import { getEffectiveLevel, getEnemyCriticalChance, getEnemyStatusResistance } from "../combat/enemies";
 import { applyDeathPenalties, startCombat } from "../combat/combat";
+import { rollEncounter } from "../combat/encounters";
 import { createUniqueItem } from "../items/items";
 import { addToMaterials } from "../items/materials";
 import { UNIQUES } from "./dungeonData";
@@ -313,7 +314,13 @@ function makeEnemy(player, state, floor, tile) {
     labyrinth: true,
     statusResistance: getEnemyStatusResistance(tier, "labyrinth", (floor.number - 1) / (LABYRINTH_FLOOR_COUNT - 1)),
     onDefeat: (p, stats, patch, replies) => {
-      resolveLabyrinthFight(p, stats, patch, replies, state, floor.number - 1, tile, fragmentReward);
+      const nextState = clone(patch.labyrinth || p.labyrinth || state);
+      const awarded = awardFragments(nextState, p, patch, fragmentReward);
+      patch.labyrinth = nextState;
+      replies.push(`The labyrinth yields ${awarded} Relic Fragments.`);
+    },
+    onEncounterDefeat: (p, stats, patch, replies) => {
+      resolveLabyrinthFight(p, stats, patch, replies, state, floor.number - 1, tile);
       const resultState = clone(patch.labyrinth || state);
       resultState.lastCombatResults = [...replies];
       patch.labyrinth = resultState;
@@ -361,15 +368,13 @@ function grantFinalRewards(player, patch, replies, state, floor) {
   }
 }
 
-function resolveLabyrinthFight(player, stats, patch, replies, originalState, floorIndex, tile, fragmentReward) {
+function resolveLabyrinthFight(player, stats, patch, replies, originalState, floorIndex, tile) {
   const state = clone(patch.labyrinth || player.labyrinth || originalState);
   const floor = state.floors[floorIndex];
   const target = floor.tiles[tile.y * MAP_SIZE + tile.x];
   if (target.resolved) return;
   target.resolved = true;
   state.pendingEncounter = null;
-  awardFragments(state, player, patch, fragmentReward);
-  replies.push(`The labyrinth yields ${fragmentReward} Relic Fragments.`);
   if (target.tier === "boss") {
     grantFinalRewards(player, patch, replies, state, floor);
   }
@@ -459,7 +464,11 @@ export function moveInLabyrinth(x, y) {
       patch.labyrinth = state;
       persist(patch);
       const enemy = makeEnemy(player, state, floor, tile);
-      startCombat(enemy);
+      const roster = rollEncounter(enemy, (tier) => {
+        const definition = LABYRINTH_ENEMIES[Math.floor(Math.random() * LABYRINTH_ENEMIES.length)];
+        return makeEnemy(player, state, floor, { ...tile, tier, enemyId: definition.id });
+      });
+      startCombat(roster.length === 1 ? enemy : roster);
       return { ok: true, encounter: "combat", enemy };
     }
     tile.resolved = true;

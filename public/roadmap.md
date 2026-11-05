@@ -6,10 +6,10 @@ Planned future updates and content will be listed here.
 - [ ] NPC Characters
 - [ ] Long-term Quest System
 - [X] Combat Rework
-- [ ] Passive & Ultimate Skills
+- [X] Passive & Ultimate Skills
 - [ ] Material Crafting
 - [ ] Subclass System
-- [ ] More Gemstones
+- [X] More Gemstones
 - [ ] Mythic Items
 - [ ] Raids
 - [ ] Boss Rush

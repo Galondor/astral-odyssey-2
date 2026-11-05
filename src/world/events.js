@@ -5,6 +5,7 @@ import {
   takeOpeningReplies,
 } from "../combat/combat";
 import { getRandomEnemy, hasEnemy } from "../combat/enemies";
+import { rollEncounter } from "../combat/encounters";
 import { TUTORIAL_ENEMY } from "../combat/tutorial";
 import { addConsumable, getKeyItemEffect } from "../items/consumables";
 import { MATERIALS, addMaterial, getMaterials, spendMaterials } from "../items/materials";
@@ -90,7 +91,10 @@ const leave = (label, n, reply) => choice(label, n, () => ({ reply, next: "menu"
 function startFight(tier, { player, region }, { enemyId, enemyFirst } = {}) {
   const enemy = getRandomEnemy(tier, region, playerLevel(player), player.stats?.gearScore || 0, enemyId);
   if (!enemy) return { reply: "There are no enemies in this region.", next: "menu" };
-  startCombat(enemy, { enemyFirst });
+  const enemies = rollEncounter(enemy, (allyTier) =>
+    getRandomEnemy(allyTier, region, playerLevel(player), player.stats?.gearScore || 0),
+  );
+  startCombat(enemies.length === 1 ? enemy : enemies, { enemyFirst });
   if (!getEnemy()) return { reply: takeOpeningReplies(), next: "menu" };
   return { next: "combat" };
 }

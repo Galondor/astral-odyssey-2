@@ -12,6 +12,7 @@ import { CONSUMABLES, RUNE_OF_ASCENSION_DROP_CHANCE } from "../items/consumables
 import { MATERIALS, addToMaterials } from "../items/materials";
 import { expForLevel } from "../character/stats";
 import { getEffectiveLevel, getEnemyCriticalChance, getEnemyStatusResistance } from "../combat/enemies";
+import { rollEncounter } from "../combat/encounters";
 import { DUNGEON_TYPES, DUNGEON_TYPE_IDS, TRAP_COUNTERS, UNIQUES, UNIQUE_DROP_CHANCE } from "./dungeonData";
 import { isLabyrinthActive } from "./labyrinth";
 import { isInGroupDungeon } from "./groupState";
@@ -19,7 +20,7 @@ import { isInGroupDungeon } from "./groupState";
 /*
  Solo dungeons.
  Every 30 minutes the board offers 3 new dungeons rated near the player's level (minimum 12). A dungeon is a fixed chain:
-   Puzzle/Challenge -> 3 Basic enemies -> Puzzle/Challenge -> Elite -> Puzzle/Challenge -> Boss
+   Puzzle/Challenge -> 3 Basic encounters -> Puzzle/Challenge -> Elite encounter -> Puzzle/Challenge -> Boss
  Entering locks the player out of town and travel. They have 5 minutes; dying or running out of time ends the run.
  The saved run lives in player.dungeon, the board in player.dungeonBoard:
    run   = { offerId, type, level, name, steps, index, startedAt, deadline, pz }
@@ -312,7 +313,8 @@ const buildEnemy = (run, step) => {
     statusResistance: getEnemyStatusResistance(step.tier, "dungeon", (level - 12) / 100),
     materialAmount: 1,
     dungeon: true,
-    onDefeat: (p, s, patch, replies) => onFightWon(p, s, patch, replies, template),
+    onDefeat: (p, s, patch, replies) => awardFightDrops(p, patch, replies, step.tier),
+    onEncounterDefeat: (p, s, patch, replies) => onFightWon(p, s, patch, replies, template),
     onPlayerDefeat: (p, s, patch, replies) => {
       applyDeathPenalties(p, s, replies, patch);
       patch.dungeon = null;
@@ -323,23 +325,26 @@ const buildEnemy = (run, step) => {
   };
 };
 
-// Runs when a dungeon enemy dies. `patch` is applied to the player right after.
-function onFightWon(p, s, patch, replies, template) {
-  const run = p.dungeon;
-  if (!run) return;
-  const step = currentStep(run);
+function awardFightDrops(p, patch, replies, tier) {
   for (const [key, chances] of [
     ["architectsRune", ARCHITECTS_RUNE_DROP_CHANCE],
     ["runeOfAscension", RUNE_OF_ASCENSION_DROP_CHANCE],
   ]) {
-    const chance = chances[step?.tier];
+    const chance = chances[tier];
     if (chance && Math.random() < chance) {
       const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
       consumables[key] = (consumables[key] || 0) + 1;
       patch.consumables = consumables;
-      replies.push(`The ${step.tier} drops {{${CONSUMABLES[key].name}|consumable:${key}}}!`);
+      replies.push(`The ${tier} drops {{${CONSUMABLES[key].name}|consumable:${key}}}!`);
     }
   }
+}
+
+// Advance the stage only after every enemy's rewards have been collected.
+function onFightWon(p, s, patch, replies, template) {
+  const run = p.dungeon;
+  if (!run) return;
+  const step = currentStep(run);
   if (step?.tier !== "boss") {
     patch.dungeon = prepareStep({ ...run, index: run.index + 1 });
     return;
@@ -866,7 +871,13 @@ export function getDungeonOptions() {
       opt("Engage", () => {
         const fresh = getRun();
         if (!fresh) return { next: "menu" };
-        startCombat(buildEnemy(fresh, currentStep(fresh)));
+        const leader = buildEnemy(fresh, currentStep(fresh));
+        const roster = rollEncounter(leader, (tier) => {
+          const type = DUNGEON_TYPES[fresh.type];
+          const template = pick(tier === "elite" ? type.elites : type.basics);
+          return buildEnemy(fresh, { tier, tpl: template.id });
+        });
+        startCombat(roster.length === 1 ? leader : roster);
         if (!getEnemy()) return { reply: takeOpeningReplies(), next: "menu" };
         return { next: "combat" };
       }),

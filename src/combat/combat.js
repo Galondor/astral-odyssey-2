@@ -1,5 +1,5 @@
 import { getPlayer as getSavedPlayer, setPlayer as setSavedPlayer } from "../character/player";
-import { generateRandomGemstone, generateRandomSlotItem } from "../items/items";
+import { canDropSkillGemstone, generateRandomGemstone, generateRandomSkillGemstone, generateRandomSlotItem, SKILL_GEM_DROP_CHANCE } from "../items/items";
 import {
   applyConsumable,
   CONSUMABLES,
@@ -44,6 +44,8 @@ import { MATERIALS, addToMaterials } from "../items/materials";
 import { recordQuestKill } from "../world/quests";
 import { freshActions, getActionAvailability } from "./actionEconomy";
 import { TUTORIAL_STEPS, tutorialActionError } from "./tutorial";
+import { PASSIVE_TUNING as PT, getEquippedPassives } from "../character/passives";
+import { GROUP_REWARD_BONUS } from "./encounters";
 
 const BASE_DROP_CHANCE = 0.25;
 
@@ -63,6 +65,7 @@ const FORTUNES_SPARK_CHANCE = 0.25;
 
 // Simple turn-based combat state, shown by the "combat" game screen.
 let enemy = null;
+let enemies = [];
 let playerDefending = false;
 let playerStatuses = [];
 let fight = null;
@@ -73,12 +76,25 @@ const setPlayer = (patch) => {
   if (contestContext) Object.assign(contestContext.player, patch);
   else setSavedPlayer(patch);
 };
+const passiveOn = (key, state = fight) => !!state?.passives?.includes(key);
+// Overcharge lets combat power generation overfill to 150% of max.
+const powerCap = (s, state = fight) =>
+  passiveOn("overcharge", state) ? Math.floor(s.maxPower * PT.overcharge.cap) : s.maxPower;
+const gainPower = (s, amount) => {
+  const cap = powerCap(s);
+  if (s.power < cap) s.power = Math.min(cap, s.power + amount);
+};
+// Quick Reflexes keeps flagging new turns until the first skill is used.
+const newActions = () => ({ ...freshActions(), ...(fight?.quickReflexesReady ? { quickSkill: true } : {}) });
 
 const restoreSavedCombat = () => {
   if (enemy || contestContext) return;
   const saved = getSavedPlayer()?.combatState;
   if (!saved) return;
-  enemy = { statuses: [], cooldowns: {}, phasesDone: [], abilities: [], phases: [], ...saved.enemy };
+  enemies = (saved.enemies || [saved.enemy]).map((foe) => ({
+    statuses: [], cooldowns: {}, phasesDone: [], abilities: [], phases: [], ...foe,
+  }));
+  enemy = enemies[saved.targetIndex || 0];
   fight = restoreFight({ ...saved.fight, ab: getAbilityTotals(getSavedPlayer()) });
   playerStatuses = saved.playerStatuses || [];
   playerDefending = !!saved.playerDefending;
@@ -86,6 +102,22 @@ const restoreSavedCombat = () => {
 export const getEnemy = () => {
   restoreSavedCombat();
   return enemy;
+};
+export const getEnemies = () => {
+  restoreSavedCombat();
+  return enemies;
+};
+export const selectCombatTarget = (index) => {
+  restoreSavedCombat();
+  if (!Number.isInteger(index) || !enemies[index] || enemies[index].hp <= 0)
+    return { ok: false, message: "Choose a living enemy to target." };
+  enemy = enemies[index];
+  saveCombatState();
+  return { ok: true };
+};
+const encounterWon = () => contestContext ? enemy.hp <= 0 : enemies.every((foe) => foe.hp <= 0);
+const selectLivingTarget = () => {
+  if (enemy?.hp <= 0) enemy = enemies.find((foe) => foe.hp > 0) || enemy;
 };
 export const getCombatActions = () => fight?.actions || freshActions();
 export const getCombatTutorial = () => fight?.tutorial
@@ -107,9 +139,15 @@ export const endCombat = ({ preserveSaved = false } = {}) => {
     });
   }
   enemy = null;
+  enemies = [];
   playerDefending = false;
   playerStatuses = [];
   fight = null;
+  // Overcharged power drains back to max once the fight ends.
+  if (!contestContext && !preserveSaved) {
+    const stats = getSavedPlayer()?.stats;
+    if (stats && stats.power > stats.maxPower) setSavedPlayer({ stats: { ...stats, power: stats.maxPower } });
+  }
 };
 
 // Messages from any enemy turn that happened before the player could act (consumed once).
@@ -125,31 +163,43 @@ const damageNumber = (amount, calculation, critical = false) =>
   `[red]{{${amount}|${critical ? "damage-critical" : "damage"}:${calculation.map(encodeURIComponent).join("~")}}}[/red]`;
 
 // Enemy template fields: see enemies.js. Anything missing falls back to the defaults below.
-export const startCombat = (template, { enemyFirst = false } = {}) => {
-  enemy = {
-    level: template.level || 1,
-    attack: [1, 5],
-    defense: 2,
-    speed: 3,
-    critical: 0.05,
-    astra: 0,
-    exp: 0,
-    abilities: [],
-    phases: [],
-    ...template,
-    statusResistance: template.statusResistance ?? getEnemyStatusResistance(
-      template.tier,
-      template.worldBossCycle ? "worldBoss" : template.labyrinth ? "labyrinth" : template.dungeon ? "dungeon" : template.colosseum ? "colosseum" : "travel",
-    ),
-    hp: template.maxHp,
-    defending: false,
-    statuses: [],
-    cooldowns: {},
-    phasesDone: [],
-    stunGrace: false,
-    ...(template.worldBossCycle ? { worldBossDamageDealt: 0 } : {}),
-  };
-  enemy.speed = Math.round(enemy.speed * ENEMY_SPEED_MULTIPLIER);
+const prepareEnemy = (template) => ({
+  level: template.level || 1,
+  attack: [1, 5],
+  defense: 2,
+  speed: 3,
+  critical: 0.05,
+  astra: 0,
+  exp: 0,
+  abilities: [],
+  phases: [],
+  ...template,
+  statusResistance: template.statusResistance ?? getEnemyStatusResistance(
+    template.tier,
+    template.worldBossCycle ? "worldBoss" : template.labyrinth ? "labyrinth" : template.dungeon ? "dungeon" : template.colosseum ? "colosseum" : "travel",
+  ),
+  hp: template.maxHp,
+  defending: false,
+  statuses: [],
+  cooldowns: {},
+  phasesDone: [],
+  stunGrace: false,
+  ...(template.worldBossCycle ? { worldBossDamageDealt: 0 } : {}),
+});
+
+export const startCombat = (templates, { enemyFirst = false } = {}) => {
+  const roster = Array.isArray(templates) ? templates : [templates];
+  if (!roster.length || roster.some((foe) => !foe))
+    throw new Error("Combat requires at least one enemy.");
+  if (roster.length > 1 && roster.some((foe) => foe.tier === "boss"))
+    throw new Error("Boss encounters must be one-on-one.");
+  const template = roster[0];
+  enemies = roster.map((foe) => {
+    const prepared = prepareEnemy(foe);
+    prepared.speed = Math.round(prepared.speed * ENEMY_SPEED_MULTIPLIER);
+    return prepared;
+  });
+  enemy = enemies[0];
   playerDefending = false;
   playerStatuses = [];
   openingReplies = [];
@@ -158,11 +208,18 @@ export const startCombat = (template, { enemyFirst = false } = {}) => {
 
   const p = getPlayer();
   const ab = getAbilityTotals(p);
+  const passives = getEquippedPassives(p);
   fight = {
     ab,
     cls: p.class,
     round: 1,
-    actions: freshActions(),
+    actions: { ...freshActions(), ...(passives.includes("quickReflexes") ? { quickSkill: true } : {}) },
+    usedUltimates: {},
+    passives,
+    quickReflexesReady: passives.includes("quickReflexes"),
+    hatred: 0,
+    inspired: false,
+    lastLightUsed: false,
     ...(template.tutorial ? { tutorial: { step: 0, originalStats: { ...p.stats } } } : {}),
     secondWindUsed: false,
     combo: 0,
@@ -196,16 +253,28 @@ export const startCombat = (template, { enemyFirst = false } = {}) => {
   const speed = Math.round(
     (p.stats?.speed || 0) * (1 + (fight.ab.speedMult || 0)),
   );
-  if (enemyFirst || enemy.speed > speed) {
+  const target = enemy;
+  const s = { ...p.stats };
+  let outcome = null;
+  for (const foe of enemies) {
+    if (!enemyFirst && foe.speed <= speed) continue;
+    enemy = foe;
     openingReplies.push(
       enemyFirst
         ? `The ${enemy.name} catches you and acts first!`
         : `The ${enemy.name} is faster and acts first!`,
     );
-    const s = { ...p.stats };
-    const outcome = enemyTurn(s, openingReplies);
-    settle(outcome, p, s, openingReplies, {});
-  } else {
+    const result = enemyTurn(s, openingReplies);
+    if (result === "collapse") {
+      outcome = result;
+      break;
+    }
+  }
+  enemy = target;
+  selectLivingTarget();
+  if (encounterWon()) outcome = "victory";
+  if (openingReplies.length) settle(outcome, p, s, openingReplies, {});
+  else {
     openingReplies.push("You are faster and act first!");
   }
   if (!contestContext) saveCombatState();
@@ -220,7 +289,8 @@ function combatSnapshot() {
   // Scripted dungeon/world encounters own their restart and callback lifecycle.
   if (!enemy || contestContext || enemy.dungeon || enemy.labyrinth || enemy.colosseum || enemy.worldBossCycle) return null;
   return {
-    enemy, fight: serializeFight(fight), playerStatuses, playerDefending,
+    enemy, enemies, targetIndex: enemies.indexOf(enemy),
+    fight: serializeFight(fight), playerStatuses, playerDefending,
   };
 }
 
@@ -286,6 +356,12 @@ function dealEnemyDamage(amount) {
       enemy.hp = Math.min(enemy.maxHp, enemy.hp + Math.round(enemy.maxHp * wind));
       contestContext.reactions.push(`${enemy.name}'s Second Wind restores health!`);
     }
+    if (enemy.hp <= 0 && passiveOn("lastLight", defender.combat) && !defender.combat.lastLightUsed) {
+      defender.combat.lastLightUsed = true;
+      enemy.hp = 1;
+      addLastLightBarrier(enemy.statuses, enemy.maxHp);
+      contestContext.reactions.push(`Last Light! ${enemy.name} refuses to fall.`);
+    }
   }
   fight.mostDamageDealt = Math.max(fight.mostDamageDealt, before - enemy.hp);
   if (enemy.worldBossCycle)
@@ -316,6 +392,21 @@ function damagePlayer(s, amount, replies) {
       `[green]Second Wind![/green] You recover to ${s.health} health.`,
     );
   }
+  if (s.health <= 0 && passiveOn("lastLight") && !fight.lastLightUsed) {
+    fight.lastLightUsed = true;
+    s.health = 1;
+    const barrier = addLastLightBarrier(playerStatuses, s.maxHealth);
+    replies.push(`[green]Last Light![/green] You cling to 1 health behind a ${barrier} barrier.`);
+  }
+}
+
+// Last Light's barrier: adds to any existing barrier. Returns the amount added.
+function addLastLightBarrier(statuses, maxHealth) {
+  const amount = Math.max(1, Math.round(maxHealth * PT.lastLight.barrier));
+  const shield = statuses.find((st) => st.id === "barrier");
+  if (shield) shield.power += amount;
+  else addStatus(statuses, "barrier", { power: amount });
+  return amount;
 }
 
 function hurtEnemy(amount, replies, source, calculation) {
@@ -351,22 +442,29 @@ const tickStatuses = (list, maxHp, apply, percentDamageImmune = false) => {
 // End of round: damage/healing over time for both sides, then durations tick down.
 // Returns "victory", "collapse" or null.
 function endOfRound(s, replies) {
-  enemy.statuses = tickStatuses(
-    enemy.statuses,
-    enemy.maxHp,
-    (amount, label, calculation) => {
-      if (amount < 0) {
-        healEnemy(-amount, replies);
-        return;
-      }
-      dealEnemyDamage(amount);
-      replies.push(
-        `The ${enemy.name} takes ${damageNumber(amount, calculation)} ${label} damage.`,
-      );
-    },
-    !!enemy.worldBossCycle,
-  );
-  if (enemy.hp <= 0) return "victory";
+  const target = enemy;
+  for (const foe of enemies) {
+    if (foe.hp <= 0) continue;
+    enemy = foe;
+    enemy.statuses = tickStatuses(
+      enemy.statuses,
+      enemy.maxHp,
+      (amount, label, calculation) => {
+        if (amount < 0) {
+          healEnemy(-amount, replies);
+          return;
+        }
+        dealEnemyDamage(amount);
+        replies.push(
+          `The ${foe.name} takes ${damageNumber(amount, calculation)} ${label} damage.`,
+        );
+      },
+      !!enemy.worldBossCycle,
+    );
+  }
+  enemy = target;
+  selectLivingTarget();
+  if (encounterWon()) return "victory";
 
   playerStatuses = tickStatuses(
     playerStatuses,
@@ -383,7 +481,7 @@ function endOfRound(s, replies) {
     },
   );
 
-  if (fight.cls === "Spellcaster" && s.power < s.maxPower) s.power += 1;
+  if (fight.cls === "Spellcaster") gainPower(s, 1);
   return s.health <= 0 ? "collapse" : null;
 }
 
@@ -416,6 +514,11 @@ const chooseEnemyAction = (wasDefending) => {
 };
 
 // One enemy strike against the player. Returns the damage dealt, or 0 if it was evaded/parried.
+// Unbreakable: below 35% health (checked before the hit), a single hit can't exceed 25% of max health.
+const unbreakableLimit = (state, stats) =>
+  passiveOn("unbreakable", state) && stats.health < stats.maxHealth * PT.unbreakable.threshold
+    ? Math.max(1, Math.floor(stats.maxHealth * PT.unbreakable.cap)) : Infinity;
+
 function enemyStrike(s, replies, ability) {
   const used = ability ? `uses ${ability.name}` : null;
   if (Math.random() < Math.min(MAX_PLAYER_CHANCE, s.evasion || 0)) {
@@ -492,9 +595,18 @@ function enemyStrike(s, replies, ability) {
     dmg *= 1 - resistance;
     calculation.push(`Critical Resistance: ×${1 - resistance} = ${dmg}.`);
   }
+  if (passiveOn("glassCannon")) {
+    dmg *= 1 + PT.glassCannon.taken;
+    calculation.push(`Glass Cannon: ×${1 + PT.glassCannon.taken} = ${dmg}.`);
+  }
   const beforeRounding = dmg;
   dmg = Math.max(1, Math.round(dmg));
   calculation.push(`Final rounding: ${beforeRounding} → ${dmg} (minimum 1).`);
+  const unbreakableCap = unbreakableLimit(fight, s);
+  if (dmg > unbreakableCap) {
+    dmg = unbreakableCap;
+    calculation.push(`Unbreakable: capped at ${unbreakableCap}.`);
+  }
 
   if (fight.ab.uniqueEffects.includes("marrowWard") && fight.ward > 0) {
     const absorbed = Math.min(fight.ward, dmg);
@@ -524,6 +636,7 @@ function enemyStrike(s, replies, ability) {
     }
   }
   damagePlayer(s, dmg, replies);
+  if (dmg > 0 && passiveOn("revenge")) fight.hatred = (fight.hatred || 0) + dmg;
   fight.combo = 0;
   replies.push(
     used
@@ -691,7 +804,19 @@ export function applyDeathPenalties(p, s, replies, patch) {
   );
 }
 
+function scavenge(s, replies) {
+  if (!passiveOn("scavenger")) return;
+  const health = Math.min(s.maxHealth - s.health, Math.round(s.maxHealth * PT.scavenger.restore));
+  const power = Math.min(Math.max(0, s.maxPower - s.power), Math.round(s.maxPower * PT.scavenger.restore));
+  s.health += Math.max(0, health);
+  s.power += power;
+  if (health > 0 || power > 0)
+    replies.push(`Scavenger: you recover ${Math.max(0, health)} health and ${power} power.`);
+}
+
 function winCombat(p, s, replies, patch) {
+  s.power = Math.min(s.power, s.maxPower);
+  scavenge(s, replies);
   if (enemy.worldBossCycle) {
     replies.push(`The ${enemy.name} falls! Its contribution is recorded for the world.`);
     enemy.onDefeat?.(p, s, patch, replies);
@@ -699,6 +824,26 @@ function winCombat(p, s, replies, patch) {
     endCombat();
     return;
   }
+  const leader = enemies[0];
+  const multiplier = 1 + GROUP_REWARD_BONUS * (enemies.length - 1);
+  if (enemies.length > 1)
+    replies.push(`Encounter cleared! ${enemies.length} enemies defeated; +${Math.round((multiplier - 1) * 100)}% exp and astra.`);
+  let totalExp = 0;
+  for (const foe of enemies) {
+    enemy = foe;
+    totalExp += awardEnemyRewards({ ...p, ...patch }, s, replies, patch, multiplier);
+  }
+  const leveled = gainExp({ ...p, ...patch, stats: s }, totalExp);
+  Object.assign(patch, leveled.patch);
+  replies.push(...leveled.messages);
+  for (const foe of enemies)
+    foe.onDefeat?.({ ...p, ...patch }, patch.stats, patch, replies);
+  leader.onEncounterDefeat?.({ ...p, ...patch }, patch.stats, patch, replies);
+  setPlayer(patch);
+  endCombat();
+}
+
+function awardEnemyRewards(p, s, replies, patch, rewardMultiplier) {
   const plunderBonus = fight.ab.uniqueEffects.includes("plunder")
     ? Math.min(
         0.3,
@@ -709,18 +854,15 @@ function winCombat(p, s, replies, patch) {
         ).size * 0.1,
       )
     : 0;
-  const astraMultiplier = 1 + (fight.ab.astraBonus || 0) + plunderBonus;
+  const astraMultiplier = (1 + (fight.ab.astraBonus || 0) + plunderBonus) * rewardMultiplier;
   const astra = enemy.colosseum
     ? Math.floor(enemy.astra * astraMultiplier * 0.5)
     : Math.round(enemy.astra * astraMultiplier);
-  const exp = enemy.colosseum ? Math.floor(enemy.exp / 2) : enemy.exp;
+  const exp = enemy.colosseum ? Math.floor(enemy.exp / 2) : Math.round(enemy.exp * rewardMultiplier);
   patch.astra = (p.astra || 0) + astra;
   replies.push(
     `The ${enemy.name} falls! You gain ${exp} exp and ${astra} {{astra|astra}}.`,
   );
-  const leveled = gainExp({ ...p, stats: s }, exp);
-  Object.assign(patch, leveled.patch);
-  replies.push(...leveled.messages);
 
   if (!enemy.colosseum) {
     const questKill = recordQuestKill(p.quests, enemy);
@@ -747,7 +889,11 @@ function winCombat(p, s, replies, patch) {
 
   if (!enemy.colosseum) {
     if (Math.random() < (enemy.dropChance ?? BASE_DROP_CHANCE) + luckBonus) {
-      const item = generateRandomSlotItem(enemy.minRarity || 0);
+      const item = generateRandomSlotItem(
+        enemy.minRarity || 0,
+        0,
+        enemy.tier === "boss" ? {} : { maxILevel: enemy.level },
+      );
       if (item) {
         patch.inventory = [...(p.inventory || []), item];
         replies.push(
@@ -779,6 +925,11 @@ function winCombat(p, s, replies, patch) {
       patch.gemstones = [...(p.gemstones || []), gemstone];
       replies.push(`The ${enemy.name} dropped a {{${gemstone.name}|gemstone:${gemstone.id}}}!`);
     }
+    if (canDropSkillGemstone(enemy) && Math.random() < SKILL_GEM_DROP_CHANCE) {
+      const gemstone = generateRandomSkillGemstone();
+      patch.gemstones = [...(patch.gemstones || p.gemstones || []), gemstone];
+      replies.push(`The ${enemy.name} dropped a {{${gemstone.name}|gemstone:${gemstone.id}}}!`);
+    }
     const certificateChance = ITEM_CERTIFICATE_DROP_CHANCE[enemy.dungeon ? "dungeon" : "overworld"][enemy.tier];
     if (certificateChance && Math.random() < certificateChance) {
       const consumables = { ...(patch.consumables ?? p.consumables ?? {}) };
@@ -787,9 +938,7 @@ function winCombat(p, s, replies, patch) {
       replies.push(`The ${enemy.name} dropped an {{Item Certificate|consumable:itemCertificate}}!`);
     }
   }
-  enemy.onDefeat?.(p, patch.stats || s, patch, replies);
-  setPlayer(patch);
-  endCombat();
+  return exp;
 }
 
 // Applies a round outcome and saves. Returns { replies, over }.
@@ -806,8 +955,12 @@ function settle(outcome, p, s, replies, patch) {
     return { replies, over: true, outcome, turnEnded: true };
   }
   const increments = {};
-  if (outcome === "victory" && ["basic", "elite", "boss"].includes(enemy.tier))
-    increments[`${enemy.tier}EnemiesKilled`] = 1;
+  if (outcome === "victory")
+    for (const foe of enemies)
+      if (["basic", "elite", "boss"].includes(foe.tier)) {
+        const key = `${foe.tier}EnemiesKilled`;
+        increments[key] = (increments[key] || 0) + 1;
+      }
   updateRecords(p, patch, {
     increments,
     maxima: {
@@ -827,6 +980,7 @@ function settle(outcome, p, s, replies, patch) {
     setPlayer({ ...patch, stats: s });
     return { replies, over: true, outcome };
   }
+  selectLivingTarget();
   setPlayer({ ...patch, stats: s, combatState: combatSnapshot() });
   return { replies, over: false, outcome: null };
 }
@@ -841,16 +995,28 @@ function finishRound(p, s, replies, patch) {
         replies.push(`You take ${amount} ${label} damage.`);
       }
     });
-    if (fight.cls === "Spellcaster" && s.power < s.maxPower) s.power += 1;
+    if (fight.cls === "Spellcaster") gainPower(s, 1);
     fight.round += 1;
-    fight.actions = freshActions();
+    fight.actions = newActions();
     return { ...settle(s.health <= 0 ? "collapse" : enemy.hp <= 0 ? "victory" : null, p, s, replies, patch), turnEnded: true };
   }
-  const outcome = enemyTurn(s, replies) || endOfRound(s, replies);
+  const target = enemy;
+  let outcome = null;
+  for (const foe of enemies) {
+    if (foe.hp <= 0) continue;
+    enemy = foe;
+    if (enemyTurn(s, replies) === "collapse") {
+      outcome = "collapse";
+      break;
+    }
+  }
+  enemy = target;
+  selectLivingTarget();
+  outcome = outcome || (encounterWon() ? "victory" : endOfRound(s, replies));
   playerDefending = false;
   if (!outcome) {
     fight.round += 1;
-    fight.actions = freshActions();
+    fight.actions = newActions();
   }
   const result = settle(outcome, p, s, replies, patch);
   if (!result.over) {
@@ -865,6 +1031,15 @@ function finishRound(p, s, replies, patch) {
 
 function actionError(type, key) {
   if (!enemy || !fight) return "There is nothing to fight.";
+  if (fight.meteorCharge && !(type === "skill" && key === "meteor"))
+    return "Meteor is ready to strike and must be released now.";
+  if (
+    type === "skill" &&
+    SKILLS[key]?.ultimate &&
+    fight.usedUltimates?.[key] &&
+    !(fight.meteorCharge?.skillKey === key)
+  )
+    return `${SKILLS[key].name} has already been used in this combat.`;
   if (fight.tutorial) {
     const error = tutorialActionError(fight.tutorial.step, type, key);
     if (error) return error;
@@ -874,14 +1049,27 @@ function actionError(type, key) {
 
 const rejectedAction = (message) => ({ replies: [message], over: false, used: false, turnEnded: false });
 
-function completeAction(type, key, p, s, replies, patch = {}) {
+export const isUltimateUsed = (key) => !!(SKILLS[key]?.ultimate && fight?.usedUltimates?.[key]);
+
+// A channeled Meteor strikes as soon as the player's next turn begins (Contest handles this at turn handoff).
+function releaseChargedMeteor(result) {
+  if (result.over || !fight?.meteorCharge || contestContext) return result;
+  const strike = attackRound();
+  return { ...strike, replies: [...result.replies, ...strike.replies], used: true };
+}
+
+function completeAction(type, key, p, s, replies, patch = {}, forceEndTurn = false) {
   const { slot } = getActionAvailability(fight.actions, type, key);
   fight.actions[slot] = false;
   if (type === "skill") fight.actions.usedSkills.push(key);
+  if (type === "skill" && fight.quickReflexesReady && !SKILLS[key]?.ultimate) {
+    fight.quickReflexesReady = false;
+    fight.actions.quickSkill = false;
+  }
   if (fight.tutorial) fight.tutorial.step += 1;
-  if (s.health <= 0 || enemy.hp <= 0)
+  if (s.health <= 0 || encounterWon())
     return { ...settle(s.health <= 0 ? "collapse" : "victory", p, s, replies, patch), turnEnded: true };
-  if (!fight.actions.actionAvailable && !fight.actions.quickAvailable)
+  if (forceEndTurn || (!fight.actions.actionAvailable && !fight.actions.quickAvailable))
     return finishRound(p, s, replies, patch);
   return { ...settle(null, p, s, replies, patch), turnEnded: false };
 }
@@ -904,7 +1092,12 @@ function loseTurnToStun(replies) {
 // Runs one round of attacking, optionally with an equipped skill. Returns { replies, over, used } and updates the saved player.
 // used is false (and no turn passes) if the skill can't be used.
 export function attackRound(type, skillKey) {
-  if ((skillKey && !SKILLS[skillKey]) || (!skillKey && !["melee", "magic"].includes(type)))
+  const releasingMeteor = !!fight?.meteorCharge;
+  if (releasingMeteor) {
+    skillKey = "meteor";
+    type = "magic";
+  }
+  if (!releasingMeteor && ((skillKey && !SKILLS[skillKey]) || (!skillKey && !["melee", "magic"].includes(type))))
     return rejectedAction("Choose an available attack or equipped skill.");
   const actionType = skillKey ? "skill" : type;
   const error = actionError(actionType, skillKey);
@@ -913,7 +1106,7 @@ export function attackRound(type, skillKey) {
   const s = { ...p.stats };
   const replies = [];
   const skill = skillKey ? SKILLS[skillKey] : null;
-  const level = skill ? getSkillLevel(p, skillKey) : 0;
+  const level = skill ? (releasingMeteor ? fight.meteorCharge.level : getSkillLevel(p, skillKey)) : 0;
   let cost = 0;
   if (skill) {
     if (level < 1 || !(p.equippedSkills || []).includes(skillKey))
@@ -922,7 +1115,7 @@ export function attackRound(type, skillKey) {
         over: false,
         used: false,
       };
-    cost = skillCost(p, skillKey);
+    cost = releasingMeteor ? 0 : skillCost(p, skillKey);
     if (s.power < cost)
       return {
         replies: [`You need ${cost} power to use ${skill.name}.`],
@@ -931,8 +1124,17 @@ export function attackRound(type, skillKey) {
       };
     type = skill.type;
   }
-  if (loseTurnToStun(replies))
+  if (loseTurnToStun(replies)) {
+    if (releasingMeteor) {
+      fight.meteorCharge = null;
+      replies.push("The stun interrupts your Meteor channel!");
+    }
     return { ...finishRound(p, s, replies, {}), used: true };
+  }
+  if (releasingMeteor) {
+    fight.meteorCharge = null;
+    replies.push("Your Meteor crashes down!");
+  }
   if (fight.tutorial) {
     const final = fight.tutorial.step === TUTORIAL_STEPS.length - 1;
     const dealt = final ? enemy.hp : Math.min(25, enemy.hp - 1);
@@ -940,17 +1142,32 @@ export function attackRound(type, skillKey) {
     replies.push(`Your training strike deals ${dealt} damage.`);
     return { ...completeAction(type, null, p, s, replies), used: true };
   }
+  const overcharged = !!skill && passiveOn("overcharge") && s.power > s.maxPower;
   s.power -= cost;
+  if (skill?.ultimate && !releasingMeteor) {
+    fight.usedUltimates = fight.usedUltimates || {};
+    fight.usedUltimates[skillKey] = true;
+  }
+  if (skill?.charge && !releasingMeteor) {
+    fight.meteorCharge = { skillKey, level };
+    replies.push("You begin channeling Meteor. It will strike at the start of your next turn unless the channel is interrupted.");
+    return releaseChargedMeteor({ ...completeAction(actionType, skillKey, p, s, replies, {}, true), used: true });
+  }
   const echo = advanceEcho(fight, fight.ab);
 
   // Outside group combat, support skills always target the caster.
   if (skill?.type === "support") {
     const self = { name: "You", stats: s, statuses: playerStatuses };
     replies.push(`You use ${skill.name}.`);
-    replies.push(...applySupportSkill(skillKey, level, self, [self]).lines);
+    const support = applySupportSkill(skillKey, level, self, [self], { passives: fight.passives });
+    replies.push(...support.lines);
     if (echo) {
-      const echoed = applySupportSkill(skillKey, level, self, [self], { echo: TEMPORAL_ECHO.power }).lines;
+      const echoed = applySupportSkill(skillKey, level, self, [self], { echo: TEMPORAL_ECHO.power, passives: fight.passives }).lines;
       replies.push(echoed.length ? `Chronal Loop: ${skill.name} echoes through time!` : "Chronal Loop: the echo finds nothing to repeat.", ...echoed);
+    }
+    if (passiveOn("inspiration") && support.affected.length && !fight.inspired) {
+      fight.inspired = true;
+      replies.push("Inspiration: your next attack deals 10% more damage.");
     }
     playerStatuses = self.statuses;
     fight.combo += 1;
@@ -958,9 +1175,48 @@ export function attackRound(type, skillKey) {
       fight.spellstrike = true;
       replies.push("Your weapon crackles with energy!");
     }
-    return { ...completeAction(actionType, skillKey, p, s, replies), used: true };
+    return { ...completeAction(actionType, skillKey, p, s, replies, {}, !!skill?.ultimate), used: true };
   }
 
+  const { ab, cls } = fight;
+  const target = enemy;
+  const targets = skill?.area && !contestContext
+    ? [target, ...enemies.filter((foe) => foe !== target && foe.hp > 0)]
+    : [target];
+  const inspired = fight.inspired;
+  const hatred = fight.hatred;
+  for (const foe of targets) {
+    enemy = foe;
+    strikeTarget({ s, replies, skill, skillKey, level, type, overcharged, echo, inspired, hatred });
+    if (s.health <= 0) break;
+  }
+  enemy = target;
+  if (inspired) fight.inspired = false;
+  if (passiveOn("revenge") && hatred > 0) fight.hatred = 0;
+  if (ab.uniqueEffects.includes("starCharted")) {
+    fight.starKinds.add(skill ? "skill" : type);
+    if (fight.starKinds.size >= 3) {
+      fight.starReady = true;
+      replies.push("A constellation takes shape around your next strike.");
+    }
+  }
+  fight.combo += 1;
+  if (cls === "Spellblade" && skill) {
+    fight.spellstrike = true;
+    replies.push("Your weapon crackles with energy!");
+  }
+  if (!skill && passiveOn("battleTrance")) {
+    const before = s.power;
+    gainPower(s, PT.battleTrance.power);
+    if (s.power > before) replies.push(`Battle Trance: you recover ${s.power - before} power.`);
+  }
+
+  if (encounterWon())
+    return { ...settle("victory", p, s, replies, {}), used: true, turnEnded: true };
+  return { ...completeAction(actionType, skillKey, p, s, replies), used: true };
+}
+
+function strikeTarget({ s, replies, skill, skillKey, level, type, overcharged, echo, inspired, hatred }) {
   const { ab, cls } = fight;
   const speedAdvantage =
     Math.round(s.speed * (1 + (ab.speedMult || 0))) - enemy.speed;
@@ -984,7 +1240,6 @@ export function attackRound(type, skillKey) {
     log: (text) => replies.push(text),
   };
 
-  const starCategory = skill ? "skill" : type;
   const constellationReady =
     ab.uniqueEffects.includes("starCharted") && fight.starReady;
   if (constellationReady) {
@@ -1060,6 +1315,22 @@ export function attackRound(type, skillKey) {
   if (hunger) {
     bonus += hunger;
     calculation.push(`Star-Eater's Hunger: +${Math.round(hunger * 100)}%.`);
+  }
+  const passiveBonuses = [
+    passiveOn("apexPredator") && enemy.hp < enemy.maxHp * PT.apexPredator.threshold && ["Apex Predator", PT.apexPredator.bonus],
+    passiveOn("glassCannon") && ["Glass Cannon", PT.glassCannon.dealt],
+    passiveOn("unbreakable") && ["Unbreakable", -PT.unbreakable.penalty],
+    overcharged && ["Overcharge", PT.overcharge.bonus],
+    inspired && ["Inspiration", PT.inspiration.bonus],
+    passiveOn("revenge") && hatred > 0 &&
+      ["Revenge", Math.min(PT.revenge.maxBonus, hatred / Math.max(1, s.maxHealth))],
+  ].filter(Boolean);
+  for (const [name, value] of passiveBonuses) {
+    bonus += value;
+    calculation.push(`${name}: ${value >= 0 ? "+" : ""}${Math.round(value * 100)}%.`);
+  }
+  if (passiveOn("revenge") && hatred > 0) {
+    replies.push("Revenge: your Hatred fuels the strike!");
   }
   const outgoing = outgoingMult(playerStatuses);
   const incoming = incomingMult(enemy.statuses);
@@ -1160,11 +1431,8 @@ export function attackRound(type, skillKey) {
       replies,
       "Vampiric",
     );
-  if (ab.surge && ctx.crit && dealt > 0 && s.power < s.maxPower) {
-    s.power = Math.min(
-      s.maxPower,
-      s.power + Math.round((s.maxPower * ab.surge) / 2),
-    );
+  if (ab.surge && ctx.crit && dealt > 0 && s.power < powerCap(s)) {
+    gainPower(s, Math.round((s.maxPower * ab.surge) / 2));
     replies.push("Arcane Surge: you recover power!");
   }
   if (ctx.crit && dealt > 0 && ab.uniqueEffects.includes("orbitalFocus")) {
@@ -1229,22 +1497,6 @@ export function attackRound(type, skillKey) {
         replies,
       );
   }
-  if (ab.uniqueEffects.includes("starCharted")) {
-    fight.starKinds.add(starCategory);
-    if (fight.starKinds.size >= 3) {
-      fight.starReady = true;
-      replies.push("A constellation takes shape around your next strike.");
-    }
-  }
-  fight.combo += 1;
-  if (cls === "Spellblade" && skill) {
-    fight.spellstrike = true;
-    replies.push("Your weapon crackles with energy!");
-  }
-
-  if (enemy.hp <= 0)
-    return { ...settle("victory", p, s, replies, {}), used: true, turnEnded: true };
-  return { ...completeAction(actionType, skillKey, p, s, replies), used: true };
 }
 
 // Skipping your turn: a stun is used up, otherwise you simply wait while the enemy acts.
@@ -1315,12 +1567,12 @@ const restoreFight = (state) => ({
 
 // Reuse PvE actions without touching the local character or an existing PvE fight.
 const withContestContext = (context, work) => {
-  const previous = { enemy, playerDefending, playerStatuses, fight, openingReplies, contestContext };
+  const previous = { enemy, enemies, playerDefending, playerStatuses, fight, openingReplies, contestContext };
   contestContext = context;
   try {
     return work();
   } finally {
-    ({ enemy, playerDefending, playerStatuses, fight, openingReplies, contestContext } = previous);
+    ({ enemy, enemies, playerDefending, playerStatuses, fight, openingReplies, contestContext } = previous);
   }
 };
 
@@ -1349,6 +1601,8 @@ function defendContestStrike(amount, s, replies) {
   }
   state.combo = 0;
   amount = Math.max(1, Math.round(amount * (1 - Math.min(DAMAGE_REDUCTION_CAP, state.ab.damageReduction || 0))));
+  if (passiveOn("glassCannon", state)) amount = Math.max(1, Math.round(amount * (1 + PT.glassCannon.taken)));
+  amount = Math.min(amount, unbreakableLimit(state, { health: enemy.hp, maxHealth: enemy.maxHp }));
   if (state.ward > 0) {
     const absorbed = Math.min(state.ward, amount);
     state.ward -= absorbed;
@@ -1377,6 +1631,7 @@ function defendContestStrike(amount, s, replies) {
     damagePlayer(s, Math.max(1, Math.round(roll(stats.attackMin, stats.attackMax) * BULWARK_COUNTER - s.defense)), replies);
   if (state.ab.uniqueEffects.includes("frozenResolve") && Math.random() < 0.1)
     inflictOnPlayer("stun", {}, replies);
+  if (amount > 0 && passiveOn("revenge", state)) state.hatred = (state.hatred || 0) + amount;
   return amount;
 }
 

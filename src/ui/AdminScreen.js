@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CONSUMABLES, KEY_ITEMS } from "../items/consumables";
-import { CONDITION_NAMES, createCustomItem, GEAR_SLOT_TYPES, getCustomSubStatTiers, getSubStatPool, MAIN_STAT_NAMES, RARITY_COLORS, RARITY_NAMES, STAT_LABELS, STAT_TIERS } from "../items/items";
+import { CONDITION_NAMES, createCustomItem, createSkillGemstone, GEAR_SLOT_TYPES, getCustomSubStatTiers, getSubStatPool, MAIN_STAT_NAMES, RARITY_COLORS, RARITY_NAMES, STAT_LABELS, STAT_TIERS } from "../items/items";
+import { SKILLS } from "../character/skills";
 import { ABILITIES, UNIQUE_ABILITIES } from "../combat/abilities";
 import { MATERIALS } from "../items/materials";
 import { isHolofoilColors } from "../items/holofoil";
@@ -30,12 +31,14 @@ const KINDS = {
   custom: { label: "Custom gear" },
   unique: { label: "Unique item", options: Object.entries(UNIQUES).map(([k, v]) => [k, v.name]) },
   gemstone: { label: "Random gemstone" },
+  skillGem: { label: "Exact Skill Gemstone", options: Object.entries(SKILLS).map(([key, skill]) =>
+    [key, `${skill.ultimate ? "Unique" : "Legendary"} - ${skill.name} Gemstone`]) },
   title: { label: "Title", options: Object.entries(TITLES).map(([id, title]) => [id, `${title.rarity} — ${title.name} (${title.criteria})`]) },
 };
 
 // Collapses the picked rows into the attachments shape stored on a message.
 const buildAttachments = (rows) => {
-  const out = { astra: 0, exp: 0, rep: 0, materials: {}, consumables: {}, keyItems: {}, gear: [], uniques: [], gemstones: [], titles: [], items: [] };
+  const out = { astra: 0, exp: 0, rep: 0, materials: {}, consumables: {}, keyItems: {}, gear: [], uniques: [], gemstones: [], gemstoneItems: [], titles: [], items: [] };
   for (const r of rows) {
     const foil = r.holofoil ? { holofoil: r.holofoil } : {};
     if (r.kind === "astra") out.astra += r.amount;
@@ -48,6 +51,7 @@ const buildAttachments = (rows) => {
     else if (r.kind === "unique") out.uniques.push({ id: r.key, count: r.amount, ...foil });
     else if (r.kind === "title") out.titles.push(r.key);
     else if (r.kind === "custom") out.items.push(...r.items);
+    else if (r.kind === "skillGem") out.gemstoneItems.push(...r.gemstones);
     else out.gemstones.push({ minRarity: r.minRarity, count: r.amount });
   }
   return out;
@@ -123,6 +127,18 @@ const AdminScreen = () => {
   const isGear = kind === "gear" || kind === "unique";
 
   const addRow = () => {
+    if (kind === "skillGem") {
+      const count = Number(amount);
+      if (!Number.isSafeInteger(count) || count < 1) {
+        setNote("Quantity must be a positive whole number.");
+        return;
+      }
+      setRows((rows) => [...rows, {
+        kind, gemstones: Array.from({ length: count }, () => createSkillGemstone(selectedKey)),
+      }]);
+      setNote("");
+      return;
+    }
     let holofoil;
     if ((isGear || kind === "custom") && forceHolofoil) {
       const colors = [color1.trim(), color2.trim()];
