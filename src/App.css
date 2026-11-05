@@ -1017,6 +1017,120 @@ input[type='checkbox']:disabled {
   .relic-forge-substats { grid-template-columns: 1fr; }
   .relic-forge-footer { align-items: stretch; flex-direction: column; }
 }
+
+/* Material Crafting */
+.material-crafting { display: flex; flex-direction: column; gap: 12px; text-align: left; }
+.crafting-profession { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid #383b61; border-radius: 12px; background: radial-gradient(circle at 0% 0%, rgba(123, 131, 255, 0.16), transparent 50%), linear-gradient(145deg, #1b1c34, #10111d); }
+.crafting-profession-info { display: flex; flex: 1; flex-direction: column; gap: 6px; min-width: 220px; }
+.crafting-profession-info strong { color: #ecebff; font-size: 15px; }
+.crafting-tool-chip { padding: 5px 12px; border: 1px dashed #454878; border-radius: 999px; color: #8a8cab; font-size: 12px; white-space: nowrap; }
+.crafting-tool-chip.equipped { border-style: solid; border-color: rgba(255, 212, 121, 0.5); background: rgba(255, 212, 121, 0.08); color: #ffd479; }
+.profession-level-ring.small { width: 48px; height: 48px; box-shadow: none; }
+.profession-level-ring.small > span { width: 40px; height: 40px; font-size: 16px; }
+.crafting-layout { display: grid; grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1fr) minmax(240px, 1.1fr); gap: 12px; align-items: start; }
+.crafting-blueprints, .crafting-bench, .crafting-preview { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid #383b61; border-radius: 7px; background: rgba(8, 9, 18, 0.28); min-width: 0; }
+.crafting-blueprints h4, .crafting-bench h4, .crafting-preview h4, .crafting-preview-section h4 { margin: 0; color: #dedfff; }
+.crafting-blueprint-list { display: flex; flex-direction: column; gap: 5px; max-height: 420px; overflow-y: auto; scrollbar-gutter: stable; }
+.crafting-blueprint { display: flex; flex-direction: column; gap: 2px; padding: 7px 9px; border: 1px solid #303253; border-radius: 6px; background: #141527; color: #e7e7ff; text-align: left; cursor: pointer; }
+.crafting-blueprint:hover:not(:disabled), .crafting-blueprint.active { border-color: #7b83ff; background: #1e2042; }
+.crafting-blueprint:disabled { opacity: 0.5; cursor: not-allowed; }
+.crafting-blueprint.unique strong, .crafting-unique { color: #ff2a2a; }
+.crafting-blueprint.tool strong { color: #ffd479; }
+.crafting-slot { display: flex; flex-direction: column; gap: 3px; padding: 9px 10px; border: 1px dashed #4b4f86; border-radius: 6px; background: #141527; color: #e7e7ff; text-align: left; cursor: pointer; }
+.crafting-slot.base { border-style: solid; border-color: #7b83ff; }
+.crafting-slot:hover:not(.locked) { background: #1e2042; }
+.crafting-slot.locked { opacity: 0.5; cursor: default; }
+.crafting-slot-label { color: #aaaed0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.crafting-requires ul, .crafting-preview-section ul, .crafting-book-entry ul { margin: 4px 0 0; padding-left: 18px; }
+.crafting-preview-section { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.crafting-odds-row { display: grid; grid-template-columns: 80px 1fr auto; align-items: center; gap: 8px; font-size: 13px; }
+.crafting-odds-row.compact { grid-template-columns: 80px auto; }
+.crafting-odds-bar { height: 6px; border-radius: 3px; background: #262842; overflow: hidden; }
+.crafting-odds-bar > span { display: block; height: 100%; }
+.crafting-stats { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; margin: 6px 0 0; font-size: 13px; }
+.crafting-stats dt { color: #aaaed0; }
+.crafting-stats dd { margin: 0; color: #ecebff; text-align: right; }
+.crafting-craft { align-self: stretch; }
+.crafting-muted { color: #9a9dc0; font-size: 12px; }
+.crafting-unknown { color: #8a8cab; font-style: italic; }
+.crafting-inactive { color: #8a8cab; text-decoration: line-through; }
+.crafting-warning { color: #ff6b6b; }
+.crafting-tags { color: #81d6a0; font-size: 12px; }
+.crafting-discovery { color: #81d6a0; }
+.crafting-result { margin-top: 8px; font-size: 13px; }
+.crafting-dialog { width: min(640px, 100%); display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.crafting-dialog h3 { margin: 0; }
+.crafting-book-list, .crafting-picker-list { display: flex; flex-direction: column; gap: 6px; max-height: 55vh; overflow-y: auto; scrollbar-gutter: stable; }
+.crafting-book-entry { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border: 1px solid #303253; border-radius: 6px; background: #141527; font-size: 13px; }
+.crafting-book-entry header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; }
+.crafting-book-entry p { margin: 0; color: #c7c8e6; }
+.crafting-book-entry.locked { opacity: 0.6; }
+.crafting-book-entry.harmful { border-color: #6b2a35; }
+.crafting-picker-option { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid #303253; border-radius: 6px; background: #141527; color: #e7e7ff; text-align: left; cursor: pointer; }
+.crafting-picker-option:hover:not(:disabled) { border-color: #7b83ff; }
+.crafting-picker-option:disabled { opacity: 0.5; cursor: not-allowed; }
+.profession-progress { display: flex; flex-direction: column; gap: 14px; padding: 4px 0; text-align: left; color: #ecebff; }
+.profession-progress h3, .profession-progress h4, .profession-progress p { margin: 0; }
+.profession-progress *, .crafting-profession-info * { text-align: left; }
+.profession-progress .profession-stat *, .profession-level-ring * { text-align: center; }
+.profession-chip { display: inline-flex; align-items: center; padding: 2px 9px; border: 1px solid #383b61; border-radius: 999px; background: #141527; color: #aaaed0; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap; }
+.profession-hero { display: flex; align-items: center; gap: 18px; padding: 16px 18px; border: 1px solid #383b61; border-radius: 12px; background: radial-gradient(circle at 0% 0%, rgba(123, 131, 255, 0.18), transparent 55%), linear-gradient(145deg, #1b1c34, #10111d); }
+.profession-level-ring { --profession-progress: 0%; flex: 0 0 auto; display: grid; place-items: center; width: 74px; height: 74px; border-radius: 50%; background: conic-gradient(#7b83ff var(--profession-progress), #262842 0); box-shadow: 0 0 18px rgba(123, 131, 255, 0.25); }
+.profession-level-ring > span { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 62px; height: 62px; border-radius: 50%; background: #121322; color: #ecebff; font-size: 24px; font-weight: 700; line-height: 1; }
+.profession-level-ring small { margin-bottom: 2px; color: #8a8cab; font-size: 9px; font-weight: 600; letter-spacing: 0.14em; }
+.profession-hero-body { display: flex; flex: 1; flex-direction: column; gap: 6px; min-width: 0; }
+.profession-hero-title { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.profession-hero-title h3 { font-size: 18px; color: #ecebff; }
+.profession-hero-body p { color: #9a9dc0; font-size: 13px; line-height: 1.4; }
+.profession-exp { display: flex; align-items: center; gap: 10px; }
+.profession-exp-bar { flex: 1; height: 6px; border-radius: 999px; background: #262842; overflow: hidden; }
+.profession-exp-bar > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #5a62e6, #9aa1ff); transition: width 0.3s ease; }
+.profession-exp-label { color: #aaaed0; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.profession-exp-label em { color: #7b83ff; font-style: normal; }
+.profession-next { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 9px 14px; border: 1px solid rgba(123, 131, 255, 0.45); border-left: 3px solid #7b83ff; border-radius: 8px; background: rgba(123, 131, 255, 0.08); font-size: 13px; }
+.profession-next-label { color: #9aa1ff; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.profession-next-items { display: flex; flex-wrap: wrap; gap: 4px 14px; color: #ecebff; font-weight: 600; }
+.profession-track { position: relative; height: 26px; margin: 0 8px; }
+.profession-track-line { position: absolute; top: 7px; left: 0; right: 0; height: 3px; border-radius: 999px; background: #262842; }
+.profession-track-line > span { display: block; height: 100%; border-radius: inherit; background: #7b83ff; }
+.profession-track-dot { position: absolute; top: 4px; width: 9px; height: 9px; margin-left: -4.5px; border: 1px solid #454878; border-radius: 50%; background: #141527; }
+.profession-track-dot.reached { border-color: #7b83ff; background: #7b83ff; }
+.profession-track-dot.next { border-color: #ecebff; background: #141527; box-shadow: 0 0 0 3px rgba(123, 131, 255, 0.35); }
+.profession-track-end { position: absolute; top: 15px; color: #6f7299; font-size: 10px; font-variant-numeric: tabular-nums; }
+.profession-track-end.start { left: 0; transform: translateX(-50%); }
+.profession-track-end.end { right: 0; transform: translateX(50%); }
+.profession-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.profession-stat { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid #2c2e4f; border-radius: 9px; background: #141527; }
+.profession-stat span { color: #8a8cab; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+.profession-stat strong { color: #ecebff; font-size: 17px; font-variant-numeric: tabular-nums; }
+.profession-stat.mythic strong { color: #ff9be1; }
+.profession-unlock-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; align-items: start; }
+.profession-unlock-group { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid #2c2e4f; border-radius: 10px; background: rgba(20, 21, 39, 0.7); min-width: 0; }
+.profession-unlock-group.compact { grid-column: 1 / -1; }
+.profession-unlock-group header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.profession-unlock-group h4 { color: #dedfff; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; }
+.profession-unlock-group ul { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.profession-unlock-group.compact ul { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); max-height: 220px; overflow-y: auto; scrollbar-gutter: stable; }
+.profession-unlock { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 6px; font-size: 13px; }
+.profession-unlock.unlocked { color: #c7c8e6; }
+.profession-unlock.locked { color: #6f7299; }
+.profession-unlock.locked .crafting-unique { color: #9a4a4a; }
+.profession-unlock.next { background: rgba(123, 131, 255, 0.12); color: #ecebff; box-shadow: inset 0 0 0 1px rgba(123, 131, 255, 0.4); }
+.profession-unlock-level { flex: 0 0 auto; display: inline-grid; place-items: center; min-width: 28px; height: 20px; padding: 0 4px; border-radius: 5px; background: #1e2042; color: #aaaed0; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; box-sizing: border-box; }
+.profession-unlock.unlocked .profession-unlock-level { background: rgba(129, 214, 160, 0.15); color: #81d6a0; }
+.profession-unlock.next .profession-unlock-level { background: #7b83ff; color: #0d0e1a; }
+.profession-unlock-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.profession-unlock-text > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profession-unlock-text small { color: #8a8cab; font-size: 11px; line-height: 1.35; }
+.profession-unlock.locked .profession-unlock-text small { color: #5f6288; }
+@media (max-width: 600px) {
+  .profession-hero { flex-direction: column; align-items: flex-start; padding: 14px; }
+  .profession-exp { flex-direction: column; align-items: stretch; gap: 4px; }
+}
+@media (max-width: 1000px) {
+  .crafting-layout { grid-template-columns: 1fr; }
+  .crafting-blueprint-list { max-height: 220px; }
+}
 .labyrinth-tile.checkpoint { color: #bfc0ff; }
 .labyrinth-tile.exit, .labyrinth-tile.boss { color: #f0c873; }
 .labyrinth-tile.trap { color: #ed7474; }

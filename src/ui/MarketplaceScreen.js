@@ -6,6 +6,8 @@ import { isFavorite } from "../items/favorites";
 import { getHolofoilStyle } from "../items/holofoil";
 import { consumableTooltip, getConsumables } from "../items/consumables";
 import { getMaterials, materialTooltip, MATERIAL_TIERS } from "../items/materials";
+import { isToolItem } from "../items/craftingStats";
+import { getToolProfessionLabel } from "../character/professions";
 import {
   DEFAULT_FILTERS,
   MARKET_RARITIES,
@@ -72,7 +74,9 @@ const ItemCard = ({ item, tooltip, selected, dimmed, favorite, onClick, children
         {formatValue(item.stat, item.value)} {gemstoneEffectLabel(item)}
       </span>}
       {item.kind !== "consumable" && item.kind !== "material" && item.kind !== "gemstone" && <span className='market-card-sub'>
-        iLvl {item.iLevel || 1} • Equip {getEquipLevel(item)} • GS {getItemGearScore(item)}
+        iLvl {item.iLevel || 1} • {isToolItem(item)
+          ? `Requires ${getToolProfessionLabel(item.slot)} ${getEquipLevel(item)}`
+          : `Equip ${getEquipLevel(item)} • GS ${getItemGearScore(item)}`}
       </span>}
       {item.mainStat?.stat && (
         <span className='market-card-stat'>
@@ -353,7 +357,7 @@ const MarketplaceScreen = ({ onChange, inCombat }) => {
                       <span className='market-card-seller'>{own ? "Your listing" : <PlayerName name={l.sellerName} activeTitle={l.sellerTitle} />}</span>
                       <span style={{ color: own || affordable ? "#7bd88f" : "#ff6b6b" }}>{l.price.toLocaleString()} astra</span>
                     </span>
-                    {l.item.kind !== "consumable" && l.item.kind !== "material" && l.item.kind !== "gemstone" && !canEquip(l.item, player.level || 1) && <span className='market-card-warn'>Requires level {getEquipLevel(l.item)}</span>}
+                    {l.item.kind !== "consumable" && l.item.kind !== "material" && l.item.kind !== "gemstone" && !canEquip(l.item, player.level || 1, player) && <span className='market-card-warn'>{isToolItem(l.item) ? `Requires ${getToolProfessionLabel(l.item.slot)} ${getEquipLevel(l.item)}` : `Requires level ${getEquipLevel(l.item)}`}</span>}
                   </ItemCard>
                 );
               })}

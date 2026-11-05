@@ -7,10 +7,10 @@ Planned future updates and content will be listed here.
 - [ ] Long-term Quest System
 - [X] Combat Rework
 - [X] Passive & Ultimate Skills
-- [ ] Material Crafting
+- [X] Material Crafting
 - [ ] Subclass System
 - [X] More Gemstones
-- [ ] Mythic Items
+- [X] Mythic Items
 - [ ] Raids
 - [ ] Boss Rush
 - TBD...

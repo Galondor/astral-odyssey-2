@@ -182,6 +182,54 @@ test("a rejected claim is reported rather than announcing rewards", async () => 
   warn.mockRestore();
 });
 
+test("admins can mail, and players can claim, tools, crafted Uniques, Mythic gear, and new materials", async () => {
+  const attachments = {
+    materials: { warsteel_ingot: 4, primordial_spark: 1, calipers_ii: 2, binding_resin: 1 },
+    tools: [
+      { slot: "hammer", minRarity: 2, iLevel: 40, count: 1, holofoil: true },
+      { slot: "precisionTools", minRarity: 0, iLevel: 0, count: 1 },
+      { slot: "weapon", count: 1 },
+    ],
+    uniques: [{ id: "sovereignsSignet", count: 1 }],
+    gear: [{ slot: "boots", minRarity: 6, count: 1 }],
+  };
+  const normalized = normalizeAttachments(attachments);
+  expect(normalized.tools).toEqual([
+    { slot: "hammer", minRarity: 2, iLevel: 40, count: 1, holofoil: true },
+    { slot: "precisionTools", minRarity: 0, iLevel: 0, count: 1 },
+  ]);
+  expect(describeAttachments(attachments)).toEqual(expect.arrayContaining([
+    "4× Warsteel Ingot",
+    "1× Holofoil Rare+ Blacksmith's Hammer (item level 40)",
+    "1× Common+ Precision Tools (profession level)",
+    "1× Unique: Sovereign's Signet",
+    "1× random Mythic+ boots",
+  ]));
+  await sendMessage({ to: "alice", subject: "Crafting", body: "Enjoy!", attachments });
+  const sent = set.mock.calls.at(-1)[1].attachments;
+  expect(sent.tools).toEqual(normalized.tools);
+  expect(sent.uniques).toEqual([{ id: "sovereignsSignet", count: 1 }]);
+
+  player = { ...player, level: 70, professions: { jewelry: { level: 12 } } };
+  stop();
+  onValue.mockImplementation((path, callback) => {
+    callback({ val: () => path === "inbox/alice" ? { crafting: { subject: "Crafting", attachments: sent } } : {} });
+    return () => {};
+  });
+  stop = startInbox("alice", () => {});
+  expect(await claimMessage("crafting")).toMatchObject({ ok: true });
+  expect(player.materials).toEqual({ warsteel_ingot: 4, primordial_spark: 1, calipers_ii: 2, binding_resin: 1 });
+  const hammer = player.inventory.find((item) => item.slot === "hammer");
+  const tools = player.inventory.find((item) => item.slot === "precisionTools");
+  expect(hammer).toMatchObject({ iLevel: 40, socketCount: 0, holofoilBonusVersion: 1 });
+  expect(["Rare", "Epic", "Legendary"]).toContain(hammer.rarity);
+  expect(tools.iLevel).toBe(12);
+  expect(player.inventory.find((item) => item.unique === "sovereignsSignet")).toMatchObject({ rarity: "Unique", ability: { name: "Sovereign's Due" } });
+  const mythic = player.inventory.find((item) => item.rarity === "Mythic");
+  expect(mythic).toMatchObject({ slot: "boots", iLevel: 70 });
+  expect(mythic.mythicSubStat.tier).toBe(7);
+});
+
 test("marketplace material stacks and exact gemstones can be claimed", async () => {
   const ruby = { id: "ruby-1", name: "Ruby", type: "ruby", stat: "strength", value: 3, rarity: "Rare" };
   expect(normalizeAttachments({ gemstoneItems: [ruby] }).gemstoneItems).toEqual([ruby]);

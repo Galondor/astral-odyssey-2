@@ -6,6 +6,9 @@ import { ABILITIES, UNIQUE_ABILITIES } from "../combat/abilities";
 import { MATERIALS } from "../items/materials";
 import { isHolofoilColors } from "../items/holofoil";
 import { UNIQUES } from "../world/dungeonData";
+import { CRAFTED_UNIQUES } from "../items/craftingUniques";
+import { TOOL_NAMES, TOOL_RARITIES } from "../items/tools";
+import { TOOL_MAX_ITEM_LEVEL } from "../items/craftingStats";
 import {
   administerPlayerTimer,
   deleteBroadcast,
@@ -29,7 +32,8 @@ const KINDS = {
   keyItem: { label: "Key item", options: Object.entries(KEY_ITEMS).map(([k, v]) => [k, v.name]) },
   gear: { label: "Random gear", options: GEAR_SLOT_TYPES.map((s) => [s, s]) },
   custom: { label: "Custom gear" },
-  unique: { label: "Unique item", options: Object.entries(UNIQUES).map(([k, v]) => [k, v.name]) },
+  unique: { label: "Unique item", options: Object.entries({ ...UNIQUES, ...CRAFTED_UNIQUES }).map(([k, v]) => [k, `${v.name}${CRAFTED_UNIQUES[k] ? " (crafted)" : ""}`]) },
+  tool: { label: "Crafting tool", options: Object.entries(TOOL_NAMES) },
   gemstone: { label: "Random gemstone" },
   skillGem: { label: "Exact Skill Gemstone", options: Object.entries(SKILLS).map(([key, skill]) =>
     [key, `${skill.ultimate ? "Unique" : "Legendary"} - ${skill.name} Gemstone`]) },
@@ -38,7 +42,7 @@ const KINDS = {
 
 // Collapses the picked rows into the attachments shape stored on a message.
 const buildAttachments = (rows) => {
-  const out = { astra: 0, exp: 0, rep: 0, materials: {}, consumables: {}, keyItems: {}, gear: [], uniques: [], gemstones: [], gemstoneItems: [], titles: [], items: [] };
+  const out = { astra: 0, exp: 0, rep: 0, materials: {}, consumables: {}, keyItems: {}, gear: [], uniques: [], tools: [], gemstones: [], gemstoneItems: [], titles: [], items: [] };
   for (const r of rows) {
     const foil = r.holofoil ? { holofoil: r.holofoil } : {};
     if (r.kind === "astra") out.astra += r.amount;
@@ -49,6 +53,7 @@ const buildAttachments = (rows) => {
     else if (r.kind === "keyItem") out.keyItems[r.key] = true;
     else if (r.kind === "gear") out.gear.push({ slot: r.key, minRarity: r.minRarity, count: r.amount, ...foil });
     else if (r.kind === "unique") out.uniques.push({ id: r.key, count: r.amount, ...foil });
+    else if (r.kind === "tool") out.tools.push({ slot: r.key, minRarity: r.minRarity, iLevel: r.iLevel || 0, count: r.amount, ...foil });
     else if (r.kind === "title") out.titles.push(r.key);
     else if (r.kind === "custom") out.items.push(...r.items);
     else if (r.kind === "skillGem") out.gemstoneItems.push(...r.gemstones);
@@ -80,6 +85,7 @@ const AdminScreen = () => {
   const [key, setKey] = useState("");
   const [amount, setAmount] = useState(1);
   const [minRarity, setMinRarity] = useState(0);
+  const [toolLevel, setToolLevel] = useState("0");
   const [forceHolofoil, setForceHolofoil] = useState(false);
   const [color1, setColor1] = useState("");
   const [color2, setColor2] = useState("");
@@ -124,7 +130,7 @@ const AdminScreen = () => {
 
   const options = KINDS[kind].options;
   const selectedKey = options ? key || options[0][0] : "";
-  const isGear = kind === "gear" || kind === "unique";
+  const isGear = kind === "gear" || kind === "unique" || kind === "tool";
 
   const addRow = () => {
     if (kind === "skillGem") {
@@ -171,6 +177,16 @@ const AdminScreen = () => {
       return;
     }
     const n = Math.max(1, Math.floor(Number(amount) || 0));
+    if (kind === "tool") {
+      const iLevel = Number(toolLevel);
+      if (!Number.isInteger(iLevel) || iLevel < 0 || iLevel > TOOL_MAX_ITEM_LEVEL) {
+        setNote(`Tool item level must be a whole number from 1 to ${TOOL_MAX_ITEM_LEVEL}, or 0 for the recipient's profession level.`);
+        return;
+      }
+      setRows((r) => [...r, { kind, key: selectedKey, amount: n, minRarity: Math.min(Number(minRarity), TOOL_RARITIES.length - 1), iLevel, ...(holofoil ? { holofoil } : {}) }]);
+      setNote("");
+      return;
+    }
     setRows((r) => [...r, { kind, key: selectedKey, amount: n, minRarity: Number(minRarity), ...(holofoil ? { holofoil } : {}) }]);
     setNote("");
   };
@@ -549,10 +565,21 @@ const AdminScreen = () => {
             )}
             {(kind === "gear" || kind === "gemstone") && (
               <select className='input-field' value={minRarity} onChange={(e) => setMinRarity(e.target.value)}>
-                {RARITY_NAMES.map((r, i) => (
+                {RARITY_NAMES.filter((r) => kind === "gear" ? r !== "Artifact" : !["Mythic", "Artifact"].includes(r)).map((r, i) => (
                   <option key={r} value={i}>{r}+</option>
                 ))}
               </select>
+            )}
+            {kind === "tool" && (
+              <>
+                <select className='input-field' aria-label='Tool rarity' value={Math.min(Number(minRarity), TOOL_RARITIES.length - 1)} onChange={(e) => setMinRarity(e.target.value)}>
+                  {TOOL_RARITIES.map((r, i) => <option key={r} value={i}>{r}+</option>)}
+                </select>
+                <label>
+                  Tool item level (0 = recipient's profession level)
+                  <input className='input-field' type='number' min={0} max={TOOL_MAX_ITEM_LEVEL} value={toolLevel} onChange={(e) => setToolLevel(e.target.value)} />
+                </label>
+              </>
             )}
             {kind !== "keyItem" && kind !== "title" && (
               <input className='input-field' aria-label='Quantity' type='number' min={1} value={amount} onChange={(e) => setAmount(e.target.value)} />

@@ -50,6 +50,24 @@ test("Progression provides skill category subtabs and a Subclasses tab", () => {
 
   fireEvent.click(screen.getByRole("tab", { name: "Subclasses" }));
   expect(screen.getByRole("status").textContent).toContain("Subclass progression is coming soon.");
+
+  fireEvent.click(screen.getByRole("tab", { name: "Professions" }));
+  const professions = screen.getByRole("tablist", { name: "Profession categories" });
+  expect(within(professions).getByRole("tab", { name: "Crafting" }).getAttribute("aria-selected")).toBe("true");
+  const disciplines = screen.getByRole("tablist", { name: "Crafting disciplines" });
+  expect(within(disciplines).getByRole("tab", { name: "Weaponry" }).getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("region", { name: "Weaponry progression" }).textContent).toContain("Weaponry level 1");
+  fireEvent.click(within(disciplines).getByRole("tab", { name: "Armor" }));
+  const armor = screen.getByRole("region", { name: "Armor progression" });
+  expect(armor.textContent).toContain("Armor level 1");
+  expect(within(armor).getByRole("region", { name: "Unique recipes" }).textContent).toContain("Frostwoven Mantle");
+  expect(within(armor).getByRole("progressbar", { name: "Armor exp" })).toBeTruthy();
+  fireEvent.click(within(disciplines).getByRole("tab", { name: "Jewelry" }));
+  const jewelry = screen.getByRole("region", { name: "Jewelry progression" });
+  expect(within(jewelry).getByRole("region", { name: "Tool blueprints" }).textContent).toContain("Precision Tools");
+  expect(jewelry.textContent).toContain("Next unlock · Lv 5");
+  fireEvent.click(within(professions).getByRole("tab", { name: "Gathering" }));
+  expect(screen.getByRole("status").textContent).toContain("Gathering progression is coming soon.");
 });
 
 test("overcapped skills display gem levels without blocking learned-level upgrades", () => {

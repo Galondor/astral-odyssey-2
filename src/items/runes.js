@@ -12,11 +12,12 @@ import {
   STAT_LABELS,
   SUBSTAT_NAMES,
 } from "./items";
+import { isToolItem } from "./craftingStats";
 
 export const RUNE_MAIN_STATS = ["strength", "dexterity", "intelligence"];
 
 export const canApplyRune = (item, key) =>
-  !!item?.mainStat && !item.twoHandedOf &&
+  !!item?.mainStat && !item.twoHandedOf && !isToolItem(item) &&
   (!key || (CONSUMABLES[key]?.rune && !(item.usedRunes || []).includes(CONSUMABLES[key].name))) &&
   (key !== "runeOfAscension" || !!getNextItemQuality(item, "rarity")) &&
   (key !== "polishingRune" || !!getNextItemQuality(item, "condition"));

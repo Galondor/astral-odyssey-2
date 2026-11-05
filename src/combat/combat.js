@@ -41,6 +41,7 @@ import {
   rollMaterialDrops,
 } from "./enemies";
 import { MATERIALS, addToMaterials } from "../items/materials";
+import { rollCraftingDrops } from "../items/craftingDrops";
 import { recordQuestKill } from "../world/quests";
 import { freshActions, getActionAvailability } from "./actionEconomy";
 import { TUTORIAL_STEPS, tutorialActionError } from "./tutorial";
@@ -879,6 +880,8 @@ function awardEnemyRewards(p, s, replies, patch, rewardMultiplier) {
     enemy,
     luckBonus + getKeyItemEffect(p, "materialChance"),
   );
+  for (const [key, amount] of Object.entries(rollCraftingDrops(enemy, luckBonus)))
+    drops[key] = (drops[key] || 0) + amount;
   if (Object.keys(drops).length) {
     patch.materials = addToMaterials(p.materials, drops);
     const list = Object.entries(drops).map(

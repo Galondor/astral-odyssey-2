@@ -1,4 +1,5 @@
 import { isHolofoilColors } from "./holofoil";
+import { isToolItem } from "./craftingStats";
 
 export const MAX_ITEM_SOCKETS = 3;
 
@@ -11,8 +12,9 @@ export const getItemGemstones = (item) => {
     : item.gemstone ? [item.gemstone] : [];
 };
 
+// Crafting tools never have sockets, Holofoil or not.
 export const getItemBaseSocketCount = (item) => {
-  if (!item || item.twoHandedOf) return 0;
+  if (!item || item.twoHandedOf || isToolItem(item)) return 0;
   switch (item.rarity) {
     case "Rare": return 1;
     case "Epic":
@@ -25,7 +27,7 @@ export const getItemBaseSocketCount = (item) => {
 };
 
 export const getItemSocketCount = (item) =>
-  !item || item.twoHandedOf ? 0 : Math.min(
+  !item || item.twoHandedOf || isToolItem(item) ? 0 : Math.min(
     MAX_ITEM_SOCKETS,
     getItemBaseSocketCount(item) + (isHolofoilColors(item.holofoil) ? 1 : 0),
   );

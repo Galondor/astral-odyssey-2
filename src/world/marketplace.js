@@ -295,6 +295,7 @@ export const getItemStats = (item) => {
   const out = {};
   if (item.mainStat?.stat) out[item.mainStat.stat] = (out[item.mainStat.stat] || 0) + (Number(item.mainStat.value) || 0);
   for (const [k, v] of Object.entries(item.subStats || {})) out[k] = (out[k] || 0) + (Number(v) || 0);
+  if (item.mythicSubStat?.stat) out[item.mythicSubStat.stat] = (out[item.mythicSubStat.stat] || 0) + (Number(item.mythicSubStat.value) || 0);
   for (const gemstone of getItemGemstones(item))
     if (gemstone.stat) out[gemstone.stat] = (out[gemstone.stat] || 0) + (Number(gemstone.value) || 0);
   if (isGemstoneListing(item) && item.stat) out[item.stat] = (out[item.stat] || 0) + (Number(item.value) || 0);
@@ -332,7 +333,7 @@ const searchText = (listing) => {
 
 const num = (v) => (v === "" || v == null || !Number.isFinite(Number(v)) ? null : Number(v));
 
-export const filterListings = (listings, f, level = getPlayer()?.level || 1) => {
+export const filterListings = (listings, f, level = getPlayer()?.level || 1, player = getPlayer()) => {
   const terms = String(f.query || "").toLowerCase().split(/\s+/).filter(Boolean);
   const minPrice = num(f.minPrice);
   const maxPrice = num(f.maxPrice);
@@ -347,7 +348,7 @@ export const filterListings = (listings, f, level = getPlayer()?.level || 1) => 
     if (f.tier && (kind !== "material" || item.tier !== f.tier)) return false;
     if (minPrice !== null && l.price < minPrice) return false;
     if (maxPrice !== null && l.price > maxPrice) return false;
-    if (f.usable && kind === "gear" && !canEquip(item, level)) return false;
+    if (f.usable && kind === "gear" && !canEquip(item, level, player)) return false;
     if (f.ability === "__any" && !item.ability) return false;
     if (f.ability === "__none" && item.ability) return false;
     if (f.ability && !f.ability.startsWith("__") && item.ability?.name !== f.ability) return false;

@@ -1,6 +1,7 @@
 import { createUniqueItem, generateRandomSkillGemstone, generateRandomSlotItem, SKILL_GEM_DROP_CHANCE } from "../items/items";
 import { CONSUMABLES } from "../items/consumables";
 import { MATERIALS, addToMaterials } from "../items/materials";
+import { rollEndgameCraftingDrops } from "../items/craftingDrops";
 import { expForLevel, gainExp } from "../character/stats";
 import { updateRecords } from "../character/records";
 import { PASSIVE_TUNING } from "../character/passives";
@@ -384,6 +385,8 @@ export function reconcileGroupRun(player, run, identity, { leaving = false } = {
       [dungeon.materials.elite]: rnd(1, 2),
       ...(Math.random() < 0.35 ? { [dungeon.materials.boss]: 1 } : {}),
     };
+    for (const [key, amount] of Object.entries(rollEndgameCraftingDrops()))
+      drops[key] = (drops[key] || 0) + amount;
     patch.materials = addToMaterials(player.materials, drops);
     lines.push(`Materials gained: ${Object.entries(drops).map(([k, n]) => `{{${n}x ${MATERIALS[k].name}|material:${k}}}`).join(", ")}.`);
     const inventory = [...(player.inventory || [])];

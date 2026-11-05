@@ -239,6 +239,13 @@ test("mobile Character opens Inventory and keeps Equipment and Stats separately 
   fireEvent.click(within(sections).getByRole("button", { name: "Equipment" }));
   expect(screen.queryByRole("heading", { name: "Nova" })).toBeNull();
   expect(screen.getByRole("button", { name: /Main Hand/ })).toBeTruthy();
+  const equipmentCategories = screen.getByRole("tablist", { name: "Equipment categories" });
+  fireEvent.click(within(equipmentCategories).getByRole("tab", { name: "Crafting & Gathering" }));
+  expect(screen.getByRole("button", { name: /Hammer/ })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /Precision Tools/ })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Main Hand/ })).toBeNull();
+  fireEvent.click(within(equipmentCategories).getByRole("tab", { name: "Combat Gear" }));
+  expect(screen.getByRole("button", { name: /Main Hand/ })).toBeTruthy();
   fireEvent.click(within(sections).getByRole("button", { name: "Inventory" }));
   const popup = openPotion();
   expect(within(popup).getByRole("button", { name: "Use" })).toBeTruthy();

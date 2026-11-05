@@ -1,6 +1,7 @@
 import { getClassForStats } from "./classes";
 import { getItemGearScore } from "../items/gearScore";
 import { getItemGemstones, isSkillGemstone } from "../items/sockets";
+import { isToolItem } from "../items/craftingStats";
 
 /*
  Central stat calculation. Every derived stat is computed here from:
@@ -35,12 +36,14 @@ const getGearSources = (equipment = {}) => {
     out[key].push(line(label, value));
   };
   for (const item of Object.values(equipment)) {
-    if (!item) continue;
+    // Crafting tools only affect Material Crafting.
+    if (!item || isToolItem(item)) continue;
     for (const gemstone of getItemGemstones(item))
       if (!isSkillGemstone(gemstone))
         add(gemstone.stat, `${item.name} (${gemstone.name})`, gemstone.value);
     if (item.mainStat) add(item.mainStat.stat, item.name, item.mainStat.value);
     for (const [k, v] of Object.entries(item.subStats || {})) add(k, item.name, v);
+    if (item.mythicSubStat) add(item.mythicSubStat.stat, `${item.name} (Mythic)`, item.mythicSubStat.value);
   }
   return out;
 };
@@ -151,7 +154,7 @@ const compute = (player) => {
   define(
     "gearScore",
     Object.values(player.equipment || {})
-      .filter((item) => item && !item.twoHandedOf)
+      .filter((item) => item && !item.twoHandedOf && !isToolItem(item))
       .map((item) => line(item.name, getItemGearScore(item))),
   );
 

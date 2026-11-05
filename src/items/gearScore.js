@@ -4,6 +4,7 @@
  Both the main stat and the substats count. Percent stats (fractional values) are weighted per 1.00, so 1% = weight / 100.
 */
 import { getItemGemstones } from "./sockets";
+import { isToolItem } from "./craftingStats";
 
 export const GEAR_SCORE_STAT_WEIGHTS = {
   strength: 3,
@@ -35,13 +36,14 @@ export const GEAR_SCORE_TWO_HANDED_MULT = 2.0;
 export const GEAR_SCORE_ABILITY_BONUS = 25;
 
 export const getItemGearScore = (item) => {
-  if (!item || item.twoHandedOf) return 0;
+  if (!item || item.twoHandedOf || isToolItem(item)) return 0;
   const weight = (stat) => GEAR_SCORE_STAT_WEIGHTS[stat] || 0;
   let raw = 0;
   for (const gemstone of getItemGemstones(item))
     raw += gemstone.value * weight(gemstone.stat);
   if (item.mainStat) raw += item.mainStat.value * weight(item.mainStat.stat);
   for (const [k, v] of Object.entries(item.subStats || {})) raw += v * weight(k);
+  if (item.mythicSubStat) raw += item.mythicSubStat.value * weight(item.mythicSubStat.stat);
   const mult = (item.twoHanded ? GEAR_SCORE_TWO_HANDED_MULT : 1);
   return Math.max(0, Math.round(raw * mult)) + (item.ability ? GEAR_SCORE_ABILITY_BONUS : 0);
 };

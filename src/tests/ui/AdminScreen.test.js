@@ -275,6 +275,38 @@ test("admins can attach Labyrinth Relic Fragments and the Unwritten Path unique"
   })));
 });
 
+test("admins can attach crafting tools and crafting-only Uniques", async () => {
+  sendMessage.mockResolvedValue();
+  render(<AdminScreen />);
+  fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "Crafting kit" } });
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Happy crafting." } });
+  const keySelect = () => screen.getByLabelText("Attachment type").closest(".admin-attach").querySelectorAll("select")[1];
+
+  fireEvent.change(screen.getByLabelText("Attachment type"), { target: { value: "tool" } });
+  expect(screen.getByRole("option", { name: "Blacksmith's Hammer" })).toBeTruthy();
+  fireEvent.change(keySelect(), { target: { value: "precisionTools" } });
+  fireEvent.change(screen.getByLabelText("Tool rarity"), { target: { value: "3" } });
+  fireEvent.change(screen.getByLabelText(/Tool item level/), { target: { value: "60" } });
+  fireEvent.click(screen.getByRole("button", { name: "Attach" }));
+  expect(screen.getByText(/Tool item level must be/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText(/Tool item level/), { target: { value: "35" } });
+  fireEvent.click(screen.getByLabelText("Force holofoil"));
+  fireEvent.click(screen.getByRole("button", { name: "Attach" }));
+
+  fireEvent.change(screen.getByLabelText("Attachment type"), { target: { value: "unique" } });
+  expect(screen.getByRole("option", { name: "Emberwrought Blade (crafted)" })).toBeTruthy();
+  fireEvent.change(keySelect(), { target: { value: "emberwroughtBlade" } });
+  fireEvent.click(screen.getByRole("button", { name: "Attach" }));
+  fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+  await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+    attachments: expect.objectContaining({
+      tools: [{ slot: "precisionTools", minRarity: 3, iLevel: 35, count: 1, holofoil: true }],
+      uniques: [{ id: "emberwroughtBlade", count: 1, holofoil: true }],
+    }),
+  })));
+});
+
 test.each(["broadcast", "individual"])("admins can mail the title by %s", async (mode) => {
   getDirectory.mockResolvedValue([{ uid: "player-1", name: "Nova", level: 100 }]);
   sendMessage.mockResolvedValue();

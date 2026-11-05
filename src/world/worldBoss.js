@@ -4,6 +4,7 @@ import { getEnemyCriticalChance } from "../combat/enemies";
 import { db } from "../firebase";
 import { CONSUMABLES, POLISHING_RUNE_DROP_CHANCE, RUNE_OF_UNPREDICTABILITY_DROP_CHANCE } from "../items/consumables";
 import { MATERIALS } from "../items/materials";
+import { rollEndgameCraftingDrops } from "../items/craftingDrops";
 import { TITLES } from "../character/titles";
 import { isAdmin } from "./inbox";
 import { getLeaderboardEligibility } from "./leaderboards";
@@ -411,6 +412,7 @@ const buildRewardMail = (cycle, entry, rank, total, ownsGiantSlayer) => {
         summary.push(`1 ${CONSUMABLES[key].name}`);
       }
     }
+    Object.assign(attachments.materials, rollEndgameCraftingDrops({ partChance: 0.5, catalystChance: 0.5 }));
   }
   let placementAstra = 0;
   if (rank === 1) {

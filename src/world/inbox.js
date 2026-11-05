@@ -2,8 +2,12 @@ import { get, onValue, push, ref, remove, set, update } from "firebase/database"
 import { db } from "../firebase";
 import { commitPlayerChange, getPlayer, setPlayer } from "../character/player";
 import { gainExp } from "../character/stats";
-import { addGemstone, addItem, createUniqueItem, generateRandomGemstone, generateRandomItem, GEAR_SLOT_TYPES, isValidGemstone, RARITY_NAMES, restrictItemSubStats } from "../items/items";
+import { addGemstone, addItem, createMythicItem, createUniqueItem, generateRandomGemstone, generateRandomItem, GEAR_SLOT_TYPES, isValidGemstone, RARITY_NAMES, restrictItemSubStats } from "../items/items";
 import { UNIQUES } from "./dungeonData";
+import { CRAFTED_UNIQUES } from "../items/craftingUniques";
+import { createToolItem, TOOL_CONDITION_NAMES, TOOL_NAMES, TOOL_RARITIES } from "../items/tools";
+import { TOOL_MAX_ITEM_LEVEL } from "../items/craftingStats";
+import { getToolProfessionLevel } from "../character/professions";
 import { CONSUMABLES, KEY_ITEMS, addConsumable, addKeyItem } from "../items/consumables";
 import { MATERIALS, addToMaterials } from "../items/materials";
 import { validateHolofoil } from "../items/holofoil";
@@ -14,8 +18,10 @@ import { TITLES } from "../character/titles";
    inbox/{uid}/{id}      personal messages (admin-written)
    broadcasts/{id}       messages for every player (admin-written)
    inboxState/{uid}/{id} this player's { read, claimed, deleted } flags for either kind
- attachments: { astra, exp, rep, materials: { key: n }, consumables: { key: n }, keyItems: { key: true }, gear: [{ slot, minRarity, count }], gemstones: [{ minRarity, count }], gemstoneItems: [gemstone], items: [item] }
+ attachments: { astra, exp, rep, materials: { key: n }, consumables: { key: n }, keyItems: { key: true }, gear: [{ slot, minRarity, count }], gemstones: [{ minRarity, count }], gemstoneItems: [gemstone], items: [item], tools: [{ slot, minRarity, iLevel, count }] }
  Gear is generated when claimed to match the claiming player's level; gemstones are generated at the selected minimum rarity.
+ A Mythic minimum rarity sends crafting-tier Mythic gear. `uniques` accepts dungeon and crafting-only Uniques.
+ `tools` are Hammers/Precision Tools (Common-Legendary, item level 1-50; 0 uses the claiming player's profession level).
  Gear and unique attachments may include `holofoil: true` for random colors or two #RRGGBB colors to force a holofoil.
  `items` also supports admin-created custom gear, saved at send time and claimed without rerolling.
  Player-written `gemstoneItems` and `items` are restricted to marketplace purchases by database rules.
@@ -30,6 +36,19 @@ export const getUnreadCount = () => state.messages.filter((m) => !m.read).length
 export const isAdmin = () => state.admin;
 
 const asList = (v) => (Array.isArray(v) ? v.filter(Boolean) : Object.values(v || {}));
+const ALL_UNIQUES = { ...UNIQUES, ...CRAFTED_UNIQUES };
+const MYTHIC_INDEX = RARITY_NAMES.indexOf("Mythic");
+const TOOL_WEIGHTS = [50, 25, 15, 8, 2];
+
+const rollToolRarity = (minRarity) => {
+  const weights = TOOL_WEIGHTS.map((weight, index) => (index < minRarity ? 0 : weight));
+  let roll = Math.random() * weights.reduce((sum, weight) => sum + weight, 0);
+  for (let index = 0; index < weights.length; index++) {
+    if (roll < weights[index]) return TOOL_RARITIES[index];
+    roll -= weights[index];
+  }
+  return TOOL_RARITIES[minRarity];
+};
 
 export const normalizeAttachments = (a = {}) => ({
   astra: Math.max(0, Math.floor(Number(a.astra) || 0)),
@@ -49,15 +68,24 @@ export const normalizeAttachments = (a = {}) => ({
       const minTier = Math.max(0, Math.min(10, Math.floor(Number(g.minTier) || 0)));
       return {
         slot: g.slot,
-        minRarity: Math.max(0, Math.min(RARITY_NAMES.length - 1, Math.floor(Number(g.minRarity) || 0))),
+        minRarity: Math.max(0, Math.min(MYTHIC_INDEX, Math.floor(Number(g.minRarity) || 0))),
         ...(minTier ? { minTier } : {}),
         count: Math.floor(Number(g.count)),
         ...(g.holofoil !== undefined ? { holofoil: g.holofoil } : {}),
       };
     }),
   uniques: asList(a.uniques)
-    .filter((u) => UNIQUES[u.id] && Math.floor(Number(u.count)) > 0)
+    .filter((u) => ALL_UNIQUES[u.id] && Math.floor(Number(u.count)) > 0)
     .map((u) => ({ id: u.id, count: Math.floor(Number(u.count)), ...(u.holofoil !== undefined ? { holofoil: u.holofoil } : {}) })),
+  tools: asList(a.tools)
+    .filter((t) => TOOL_NAMES[t.slot] && Math.floor(Number(t.count)) > 0)
+    .map((t) => ({
+      slot: t.slot,
+      minRarity: Math.max(0, Math.min(TOOL_RARITIES.length - 1, Math.floor(Number(t.minRarity) || 0))),
+      iLevel: Math.max(0, Math.min(TOOL_MAX_ITEM_LEVEL, Math.floor(Number(t.iLevel) || 0))),
+      count: Math.floor(Number(t.count)),
+      ...(t.holofoil !== undefined ? { holofoil: t.holofoil } : {}),
+    })),
   gemstones: asList(a.gemstones)
     .filter((g) => Number.isFinite(Number(g.count)) && Math.floor(Number(g.count)) > 0)
     .map((g) => ({
@@ -74,7 +102,7 @@ export const normalizeAttachments = (a = {}) => ({
 
 export const hasAttachments = (a) => {
   const n = normalizeAttachments(a);
-  return n.astra > 0 || n.exp > 0 || n.rep > 0 || n.materials.length + n.consumables.length + n.keyItems.length + n.gear.length + n.uniques.length + n.gemstones.length + n.gemstoneItems.length + n.items.length + n.titles.length > 0;
+  return n.astra > 0 || n.exp > 0 || n.rep > 0 || n.materials.length + n.consumables.length + n.keyItems.length + n.gear.length + n.uniques.length + n.tools.length + n.gemstones.length + n.gemstoneItems.length + n.items.length + n.titles.length > 0;
 };
 
 export const hasUnclaimed = (msg) => !msg.claimed && hasAttachments(msg.attachments);
@@ -90,7 +118,8 @@ export const describeAttachments = (a) => {
     ...n.consumables.map(([k, c]) => `${c}× ${CONSUMABLES[k].name}`),
     ...n.keyItems.map((k) => `Key item: ${KEY_ITEMS[k].name}`),
     ...n.gear.map((g) => `${g.count}× random ${g.holofoil ? "Holofoil " : ""}${RARITY_NAMES[g.minRarity || 0]}+${g.minTier ? ` T${g.minTier}+` : ""} ${g.slot}`),
-    ...n.uniques.map((u) => `${u.count}× ${u.holofoil ? "Holofoil " : ""}Unique: ${UNIQUES[u.id].name}`),
+    ...n.uniques.map((u) => `${u.count}× ${u.holofoil ? "Holofoil " : ""}Unique: ${ALL_UNIQUES[u.id].name}`),
+    ...n.tools.map((t) => `${t.count}× ${t.holofoil ? "Holofoil " : ""}${TOOL_RARITIES[t.minRarity]}+ ${TOOL_NAMES[t.slot]} (${t.iLevel ? `item level ${t.iLevel}` : "profession level"})`),
     ...n.gemstones.map((g) => `${g.count}× random ${RARITY_NAMES[g.minRarity]}+ gemstone${g.count === 1 ? "" : "s"}`),
     ...n.gemstoneItems.map((g) => `${g.rarity} ${g.name}`),
     ...n.items.map((i) => `${i.holofoil ? "Holofoil " : ""}${i.rarity ? `${i.rarity} ` : ""}${i.name}`),
@@ -152,7 +181,7 @@ export const deleteMessage = (id) => update(stateRef(id), { deleted: true });
 
 function grant(a) {
   const n = normalizeAttachments(a);
-  [...n.gear, ...n.uniques].forEach((item) => validateHolofoil(item.holofoil));
+  [...n.gear, ...n.uniques, ...n.tools].forEach((item) => validateHolofoil(item.holofoil));
   const lines = [];
   const p = getPlayer();
   const patch = {};
@@ -191,7 +220,9 @@ function grant(a) {
   });
   n.gear.forEach((g) => {
     for (let i = 0; i < g.count; i++) {
-      const item = generateRandomItem(g.slot, g.minRarity || 0, g.holofoil, g.minTier || 0);
+      const item = g.minRarity >= MYTHIC_INDEX
+        ? createMythicItem({ slot: g.slot, iLevel: getPlayer()?.level || 1 })
+        : generateRandomItem(g.slot, g.minRarity || 0, g.holofoil, g.minTier || 0);
       if (item) {
         addItem(item);
         lines.push(item.name);
@@ -200,11 +231,24 @@ function grant(a) {
   });
   n.uniques.forEach((u) => {
     for (let i = 0; i < u.count; i++) {
-      const item = createUniqueItem(UNIQUES[u.id], getPlayer()?.level || 1, u.holofoil);
+      const item = createUniqueItem(ALL_UNIQUES[u.id], getPlayer()?.level || 1, u.holofoil);
       if (item) {
         addItem(item);
         lines.push(item.name);
       }
+    }
+  });
+  n.tools.forEach((t) => {
+    for (let i = 0; i < t.count; i++) {
+      const item = createToolItem({
+        slot: t.slot,
+        iLevel: t.iLevel || getToolProfessionLevel(getPlayer(), t.slot),
+        rarity: rollToolRarity(t.minRarity),
+        condition: TOOL_CONDITION_NAMES[Math.floor(Math.random() * TOOL_CONDITION_NAMES.length)],
+        holofoil: t.holofoil,
+      });
+      addItem(item);
+      lines.push(item.name);
     }
   });
   n.gemstones.forEach((g) => {
@@ -308,7 +352,7 @@ export const deleteBroadcast = (id) => remove(ref(db, `broadcasts/${id}`));
 // `to` is a player uid or "all". Returns once written.
 export async function sendMessage({ to, subject, body, attachments }) {
   const n = normalizeAttachments(attachments);
-  [...n.gear, ...n.uniques].forEach((item) => validateHolofoil(item.holofoil));
+  [...n.gear, ...n.uniques, ...n.tools].forEach((item) => validateHolofoil(item.holofoil));
   const clean = {
     ...(n.astra ? { astra: n.astra } : {}),
     ...(n.exp ? { exp: n.exp } : {}),
@@ -318,6 +362,7 @@ export async function sendMessage({ to, subject, body, attachments }) {
     ...(n.keyItems.length ? { keyItems: Object.fromEntries(n.keyItems.map((k) => [k, true])) } : {}),
     ...(n.gear.length ? { gear: n.gear.map((g) => ({ slot: g.slot, minRarity: g.minRarity || 0, ...(g.minTier ? { minTier: g.minTier } : {}), count: g.count, ...(g.holofoil !== undefined ? { holofoil: g.holofoil } : {}) })) } : {}),
     ...(n.uniques.length ? { uniques: n.uniques } : {}),
+    ...(n.tools.length ? { tools: n.tools } : {}),
     ...(n.gemstones.length ? { gemstones: n.gemstones } : {}),
     ...(n.gemstoneItems.length ? { gemstoneItems: n.gemstoneItems } : {}),
     ...(n.titles.length ? { titles: n.titles } : {}),

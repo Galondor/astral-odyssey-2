@@ -44,6 +44,8 @@ import { applyRune, canApplyRune, RUNE_MAIN_STATS } from "../items/runes";
 import { canRenameItem, renameItem } from "../items/certificates";
 import { applyPrismaticAlloy, canApplyPrismaticAlloy } from "../items/prismaticAlloy";
 import { getItemUpgradeStatus, upgradeInventoryItem } from "../items/upgrades";
+import MaterialCrafting from "./MaterialCrafting";
+import ProfessionProgress from "./ProfessionProgress";
 import { getItemStats, MARKET_RARITIES, MARKET_SLOTS, MARKET_STATS } from "../world/marketplace";
 import {
   CONSUMABLES,
@@ -687,25 +689,28 @@ const ForgeScreen = ({ onChange }) => {
     !Object.values(player.equipment || {}).some((equipped) => equipped?.id === item.id));
   const selectedUpgradeItem = inventoryGear.find((item) => item.id === selectedUpgradeId);
   return (
-    <div className={`workshop relic-forge ${tab === "upgrading" ? "relic-forge-upgrading" : ""}`}>
+    <div className={`workshop relic-forge ${tab === "upgrading" ? "relic-forge-upgrading" : ""} ${tab === "crafting" ? "relic-forge-crafting" : ""}`}>
       <header className='relic-forge-header'>
         <div>
-          <h3>{tab === "upgrading" ? "Gear Upgrading" : "Relic Forge"}</h3>
+          <h3>{tab === "upgrading" ? "Gear Upgrading" : tab === "crafting" ? "Material Crafting" : "Relic Forge"}</h3>
           <p>{tab === "upgrading"
-            ? "Upgrade unequipped gear by 1 item level. Maximum item level: 100. Maximum upgrades per item: 10."
-            : "Design one custom item. Random choices are free; fragment costs are shown before forging."}</p>
+            ? "Upgrade unequipped gear by 1 item level. Maximum item level: 100 (50 for crafting tools). Maximum upgrades per item: 10."
+            : tab === "crafting"
+              ? "Combine a base material with reagents to craft gear, tools, and Uniques. Experiment to learn what each material does."
+              : "Design one custom item. Random choices are free; fragment costs are shown before forging."}</p>
         </div>
         <div className='relic-forge-wallet' aria-label='Crafting materials'>
-          {tab === "upgrading" && <span><strong>{player.astra || 0}</strong> astra</span>}
-          <span><strong>{relicCount}</strong> Sealed Relics</span>
-          <span><strong>{fragmentCount}</strong> Relic Fragments</span>
+          {tab !== "relic" && <span><strong>{player.astra || 0}</strong> astra</span>}
+          {tab !== "crafting" && <span><strong>{relicCount}</strong> Sealed Relics</span>}
+          {tab !== "crafting" && <span><strong>{fragmentCount}</strong> Relic Fragments</span>}
         </div>
       </header>
       <div className='inventory-tabs' role='tablist' aria-label='Forge'>
         <button type='button' role='tab' aria-selected={tab === "relic"} className={`inventory-tab ${tab === "relic" ? "active" : ""}`} onClick={() => { setTab("relic"); setNote(""); setSelectedUpgradeId(null); }}>Relic Crafting</button>
-        <button type='button' role='tab' aria-selected='false' className='inventory-tab' disabled title='Material crafting is not available yet'>Material Crafting</button>
+        <button type='button' role='tab' aria-selected={tab === "crafting"} className={`inventory-tab ${tab === "crafting" ? "active" : ""}`} onClick={() => { setTab("crafting"); setNote(""); setSelectedUpgradeId(null); }}>Material Crafting</button>
         <button type='button' role='tab' aria-selected={tab === "upgrading"} className={`inventory-tab ${tab === "upgrading" ? "active" : ""}`} onClick={() => { setTab("upgrading"); setNote(""); }}>Upgrading</button>
       </div>
+      {tab === "crafting" && <MaterialCrafting onChange={onChange} />}
       {tab === "upgrading" && (
         <div className='relic-forge-content'>
           {!inventoryGear.length && <p className='recipe-note'>Unequip some gear or add gear to your inventory to upgrade it here.</p>}
@@ -1292,7 +1297,13 @@ const Equipment = ({ player, onChange, locked }) => {
   const [compareSelected, setCompareSelected] = useState(false);
   const [socketPicker, setSocketPicker] = useState(false);
   const [gemMessage, setGemMessage] = useState("");
+  const [gearCategory, setGearCategory] = useState("combat");
   const equipment = player.equipment || {};
+  const visibleSlots = SLOTS.filter((slot) =>
+    gearCategory === "crafting-gathering"
+      ? slot.category === "crafting-gathering"
+      : slot.category !== "crafting-gathering",
+  );
   // Resolve two-handed placeholders to the slot that holds the real item.
   const gemSlotKey = selectedGear
     ? equipment[selectedGear.slotKey]?.twoHandedOf || selectedGear.slotKey
@@ -1328,8 +1339,25 @@ const Equipment = ({ player, onChange, locked }) => {
       <div className='equip-col'>
         <h3>Equipment</h3>
         {gemMessage && !selectedGear && <div className='gemstone-message' role='status'>{gemMessage}</div>}
+        <div className='inventory-tabs equipment-tabs' role='tablist' aria-label='Equipment categories'>
+          {[
+            ["combat", "Combat Gear"],
+            ["crafting-gathering", "Crafting & Gathering"],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              type='button'
+              role='tab'
+              aria-selected={gearCategory === key}
+              className={`inventory-tab ${gearCategory === key ? "active" : ""}`}
+              onClick={() => setGearCategory(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <div className='equip-slots'>
-          {SLOTS.map((slot) => {
+          {visibleSlots.map((slot) => {
             const slotItem = equipment[slot.key];
             const item = slotItem?.twoHandedOf
               ? equipment[slotItem.twoHandedOf]
@@ -1739,7 +1767,7 @@ const Inventory = ({ player, onChange, locked }) => {
       if (!matchesFavorite("gear", item)) return false;
       if (gearFilters.slot && item.slot !== gearFilters.slot) return false;
       if (gearFilters.rarity && item.rarity !== gearFilters.rarity) return false;
-      if (gearFilters.usable && !canEquip(item, player.level)) return false;
+      if (gearFilters.usable && !canEquip(item, player.level, player)) return false;
       if (gearFilters.ability === "__any" && !item.ability) return false;
       if (gearFilters.ability === "__none" && item.ability) return false;
       if (gearFilters.ability && !gearFilters.ability.startsWith("__") && item.ability?.name !== gearFilters.ability) return false;
@@ -2064,7 +2092,7 @@ const Inventory = ({ player, onChange, locked }) => {
                 <Tooltip disableOnMobile key={item.id || index} content={itemTooltip(item)}>
                   <button
                     type='button'
-                    className={`inventory-item gear-card ${canEquip(item, player.level) ? "" : "too-high"} ${favoriteClass("gear", item)}`}
+                    className={`inventory-item gear-card ${canEquip(item, player.level, player) ? "" : "too-high"} ${favoriteClass("gear", item)}`}
                     style={getHolofoilStyle(item)}
                     onClick={() => {
                       markInventoryItemViewed("gear", getInventoryItemKey(item));
@@ -2450,7 +2478,7 @@ const Inventory = ({ player, onChange, locked }) => {
             }),
             {
               label: "Equip",
-              disabled: locked || !canEquip(selectedGear.item, player.level),
+              disabled: locked || !canEquip(selectedGear.item, player.level, player),
               onClick: () => {
                 const result = equipItem(selectedGear.index);
                 if (result.ok) setSelectedGear(null);
@@ -2512,6 +2540,13 @@ const PROGRESSION_TABS = [
   { key: "skills", label: "Skills" },
   { key: "classes", label: "Classes" },
   { key: "subclasses", label: "Subclasses" },
+  { key: "professions", label: "Professions" },
+];
+
+const CRAFTING_DISCIPLINES = [
+  ["weaponry", "Weaponry"],
+  ["armor", "Armor"],
+  ["jewelry", "Jewelry"],
 ];
 
 const SKILL_CATEGORIES = [
@@ -2800,6 +2835,8 @@ const ClassesTab = ({ player }) => (
 const ProgressionScreen = ({ player: initial, inCombat, onChange }) => {
   const [player, setPlayerState] = useState(initial);
   const [tab, setTab] = useState("points");
+  const [professionCategory, setProfessionCategory] = useState("crafting");
+  const [craftingDiscipline, setCraftingDiscipline] = useState("weaponry");
   if (!player) return <div className='panel'>No character yet.</div>;
   const refresh = () => {
     setPlayerState(getPlayer());
@@ -2825,7 +2862,7 @@ const ProgressionScreen = ({ player: initial, inCombat, onChange }) => {
           You can't spend points or change skills during combat.
         </div>
       )}
-      <div className='inventory-tabs' role='tablist'>
+      <div className='inventory-tabs' role='tablist' aria-label='Progression categories'>
         {PROGRESSION_TABS.map((t) => (
           <button
             key={t.key}
@@ -2853,6 +2890,50 @@ const ProgressionScreen = ({ player: initial, inCombat, onChange }) => {
         <div className='equip-empty' role='status'>
           Subclass progression is coming soon.
         </div>
+      )}
+      {tab === "professions" && (
+        <>
+          <div className='inventory-tabs' role='tablist' aria-label='Profession categories'>
+            {[
+              ["crafting", "Crafting"],
+              ["gathering", "Gathering"],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                type='button'
+                role='tab'
+                aria-selected={professionCategory === key}
+                className={`inventory-tab ${professionCategory === key ? "active" : ""}`}
+                onClick={() => setProfessionCategory(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {professionCategory === "crafting" ? (
+            <>
+              <div className='inventory-tabs' role='tablist' aria-label='Crafting disciplines'>
+                {CRAFTING_DISCIPLINES.map(([key, label]) => (
+                  <button
+                    key={key}
+                    type='button'
+                    role='tab'
+                    aria-selected={craftingDiscipline === key}
+                    className={`inventory-tab ${craftingDiscipline === key ? "active" : ""}`}
+                    onClick={() => setCraftingDiscipline(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <ProfessionProgress player={player} profession={craftingDiscipline} />
+            </>
+          ) : (
+            <div className='equip-empty' role='status'>
+              Gathering progression is coming soon.
+            </div>
+          )}
+        </>
       )}
     </div>
   );

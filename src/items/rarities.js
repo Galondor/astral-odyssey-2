@@ -6,4 +6,5 @@ export const RARITY_COLORS = {
   Legendary: "#ff8000",
   Unique: "#ff2a2a",
   Mythic: "#ff00ff",
+  Artifact: "#ffe033"
 };

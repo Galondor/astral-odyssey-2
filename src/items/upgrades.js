@@ -1,9 +1,13 @@
 import { getPlayer, setPlayer } from "../character/player";
 import { getEnemy } from "../combat/combat";
 import { getSubStatTier, SLOTS } from "./items";
+import { isToolItem, TOOL_MAX_ITEM_LEVEL } from "./craftingStats";
+import { getToolSubStatTier } from "./tools";
 
 export const MAX_ITEM_UPGRADES = 10;
 export const MAX_UPGRADE_ITEM_LEVEL = 100;
+
+const maxLevelFor = (item) => (isToolItem(item) ? TOOL_MAX_ITEM_LEVEL : MAX_UPGRADE_ITEM_LEVEL);
 
 export function getItemUpgradeStatus(item) {
   if (!item?.id || !SLOTS.some((slot) => slot.type === item.slot) || item.twoHandedOf)
@@ -11,8 +15,8 @@ export function getItemUpgradeStatus(item) {
   if (!Number.isSafeInteger(item.iLevel) || item.iLevel < 1 ||
       !Number.isSafeInteger(item.upgrades ?? 0) || (item.upgrades ?? 0) < 0)
     return { ok: false, message: "This item's upgrade data is invalid." };
-  if (item.iLevel >= MAX_UPGRADE_ITEM_LEVEL)
-    return { ok: false, message: "Maximum item level reached (100)." };
+  if (item.iLevel >= maxLevelFor(item))
+    return { ok: false, message: `Maximum item level reached (${maxLevelFor(item)}).` };
   if ((item.upgrades ?? 0) >= MAX_ITEM_UPGRADES)
     return { ok: false, message: "Maximum upgrades reached (10)." };
   const cost = item.iLevel * 100 * ((item.upgrades ?? 0) + 1);
@@ -43,10 +47,13 @@ export function upgradeInventoryItem(itemId) {
 
   const subStats = {};
   const subTiers = { ...item.subTiers };
+  const scaleUp = (value) => Math.round(value * status.nextLevel / item.iLevel * 1e6) / 1e6;
   for (const [stat, value] of Object.entries(item.subStats || {})) {
     // Keep fractional gains so rounding cannot strand low rolls across repeated upgrades.
-    subStats[stat] = Math.round(value * status.nextLevel / item.iLevel * 1e6) / 1e6;
-    const tier = getSubStatTier(stat, subStats[stat], status.nextLevel, item.twoHanded);
+    subStats[stat] = scaleUp(value);
+    const tier = isToolItem(item)
+      ? getToolSubStatTier(stat, subStats[stat], status.nextLevel)
+      : getSubStatTier(stat, subStats[stat], status.nextLevel, item.twoHanded);
     if (tier !== null) subTiers[stat] = tier;
   }
   const upgraded = {
@@ -57,6 +64,11 @@ export function upgradeInventoryItem(itemId) {
     subStats,
     subTiers,
   };
+  if (item.mythicSubStat && Number.isFinite(item.mythicSubStat.value)) {
+    const value = scaleUp(item.mythicSubStat.value);
+    const tier = getSubStatTier(item.mythicSubStat.stat, value, status.nextLevel, item.twoHanded);
+    upgraded.mythicSubStat = { ...item.mythicSubStat, value, ...(tier !== null ? { tier } : {}) };
+  }
   inventory[index] = upgraded;
   setPlayer({
     inventory,

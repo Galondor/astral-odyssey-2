@@ -8,6 +8,9 @@ import { isFavorite } from "./favorites";
 import { getHolofoilStyle, isHolofoilColors, rollHolofoil, validateHolofoil } from "./holofoil";
 import { RARITY_COLORS } from "./rarities";
 import { getItemBaseSocketCount, getItemGemstones, getItemSocketCount, isSkillGemstone, rollItemSocketCount } from "./sockets";
+import { CRAFTING_PERCENT_STATS, CRAFTING_STAT_LABELS, isToolItem, isToolSlot, TOOL_MAX_ITEM_LEVEL, TOOL_SUBSTATS } from "./craftingStats";
+import { getToolProfessionLabel, getToolProfessionLevel } from "../character/professions";
+import { applyToolHolofoilBonuses } from "./tools";
 export { RARITY_COLORS } from "./rarities";
 
 /*
@@ -22,6 +25,9 @@ export { RARITY_COLORS } from "./rarities";
  `socketCount` stores base capacity rolled at creation, excluding the Holofoil bonus; `gemstones` stores socketed gems in order. Legacy `gemstone` saves remain readable until the next socket change.
  `upgrades` stores permanent Forge upgrades used (0 when absent), limited to 10 and item level 100.
  Holofoil bonuses raise low stats to T5+, double value once, and are tracked by `holofoilBonusVersion`.
+ Mythic items (crafting only) roll every stat at T7, are always Holofoil, and carry a wildcard
+ `mythicSubStat: { stat, value, tier }` that may be any substat, even one already on the item.
+ Hammers and Precision Tools (src/items/tools.js) are crafting-only, never socketed, and ignored by combat stats.
 */
 export const SLOTS = [
   { key: "mainHand", label: "Main Hand", type: "weapon" },
@@ -34,6 +40,8 @@ export const SLOTS = [
   { key: "necklace", label: "Necklace", type: "necklace" },
   { key: "ring1", label: "Ring 1", type: "ring" },
   { key: "ring2", label: "Ring 2", type: "ring" },
+  { key: "hammer", label: "Hammer", type: "hammer", category: "crafting-gathering" },
+  { key: "precisionTools", label: "Precision Tools", type: "precisionTools", category: "crafting-gathering" },
 ];
 
 export const ITEMS = {};
@@ -110,6 +118,7 @@ const PERCENT_STATS = [
   "magicAttackPercent",
   "criticalResistance",
   "statusResistance",
+  ...CRAFTING_PERCENT_STATS,
 ];
 export const STAT_LABELS = {
   defense: "Defense",
@@ -133,6 +142,7 @@ export const STAT_LABELS = {
   maxPower: "Power",
   criticalResistance: "Critical Resistance",
   statusResistance: "Status Resistance",
+  ...CRAFTING_STAT_LABELS,
 };
 
 const RARITIES = [
@@ -187,9 +197,17 @@ const RARITIES = [
   {
     name: "Mythic",
     chance: 0,
-    mainStatBonus: 5,
+    mainStatBonus: 10,
     substats: 7,
-    priceMult: 32,
+    priceMult: 50,
+    abilityChance: 1,
+  },
+  {
+    name: "Artifact",
+    chance: 0,
+    mainStatBonus: 20,
+    substats: 8,
+    priceMult: 100,
     abilityChance: 1,
   }
 ];
@@ -366,6 +384,14 @@ for (const slot of ["helmet", "chestplate", "gauntlets", "legs", "boots", "ring"
 export const getSubStatPool = (slot) => [...(SUBSTAT_POOLS[slot] || [])];
 
 export const restrictItemSubStats = (item) => {
+  if (isToolItem(item)) {
+    const allowed = new Set(TOOL_SUBSTATS);
+    return {
+      ...item,
+      subStats: Object.fromEntries(Object.entries(item.subStats || {}).filter(([stat]) => allowed.has(stat))),
+      ...(item.subTiers ? { subTiers: Object.fromEntries(Object.entries(item.subTiers).filter(([stat]) => allowed.has(stat))) } : {}),
+    };
+  }
   const allowed = new Set(SUBSTAT_POOLS[item?.slot] || []);
   const subStats = Object.fromEntries(
     Object.entries(item?.subStats || {}).filter(([stat]) => allowed.has(stat)),
@@ -373,12 +399,19 @@ export const restrictItemSubStats = (item) => {
   const subTiers = Object.fromEntries(
     Object.entries(item?.subTiers || {}).filter(([stat]) => allowed.has(stat)),
   );
-  return {
+  const out = {
     ...item,
     subStats,
     ...(item?.subTiers ? { subTiers } : {}),
   };
+  if (!hasValidMythicSubStat(item)) delete out.mythicSubStat;
+  return out;
 };
+
+function hasValidMythicSubStat(item) {
+  return !item?.mythicSubStat ||
+    (SUBSTAT_CAPS[item.mythicSubStat.stat] !== undefined && Number.isFinite(item.mythicSubStat.value));
+}
 
 // Two-handed weapons occupy the main hand and off hand, so they roll this multiple of the normal stats.
 const TWO_HANDED_MULT = 2.0;
@@ -641,6 +674,7 @@ export const HOLOFOIL_MIN_TIER = 5;
 
 // The marker prevents reapplying value/stat bonuses on color rerolls or reloads.
 export const applyHolofoilBonuses = (item) => {
+  if (isToolItem(item)) return applyToolHolofoilBonuses(item);
   if (!item || item.twoHandedOf || !isHolofoilColors(item.holofoil) || item.holofoilBonusVersion === 1)
     return item;
   if (item.price !== undefined && (!Number.isSafeInteger(item.price) || item.price < 0 || !Number.isSafeInteger(item.price * 2)))
@@ -904,6 +938,157 @@ export const createUniqueItem = (def, iLevel = 1, holofoil) => {
 export const GEAR_SLOT_TYPES = Object.keys(SLOT_CONFIG);
 export const RARITY_NAMES = RARITIES.map((r) => r.name);
 export const CONDITION_NAMES = CONDITIONS.map((c) => c.name);
+
+// Base item types for a slot, e.g. { name: "Sword", stat: "strength", material: "metal", twoHanded? }.
+export const getSlotBases = (slot) => (SLOT_CONFIG[slot]?.bases || []).map((base) => ({ ...base }));
+
+const itemPrice = ({ iLevel, mainStat, subStats, ability, rarity, condition, slot, mythicSubStat }) => {
+  const subValue = Object.entries(subStats).reduce((sum, [k, v]) => sum + v * SUBSTAT_PRICE[k], 0) +
+    (mythicSubStat ? mythicSubStat.value * SUBSTAT_PRICE[mythicSubStat.stat] : 0);
+  return Math.max(1, Math.round(
+    (5 + iLevel * 2 + mainStat.value * 2 + subValue + (ability ? iLevel * 5 : 0)) *
+      rarity.priceMult * SLOT_CONFIG[slot].priceMult * condition.valueMultiplier,
+  ));
+};
+
+/*
+ Material Crafting output (src/items/crafting.js decides every input):
+   slot, baseName, stat (main stat override), rarity, condition, iLevel,
+   minTier (all substats), subTierMins { stat: tier }, guaranteed [stats], abilityChance,
+   mainBoost (added main stat), socketCount (override), holofoil (true forces Holofoil)
+*/
+export const createCraftedItem = (spec) => {
+  const config = SLOT_CONFIG[spec.slot];
+  const base = config?.bases.find((candidate) => candidate.name === spec.baseName);
+  const rarity = RARITIES.find((candidate) => candidate.name === spec.rarity);
+  const condition = CONDITIONS.find((candidate) => candidate.name === spec.condition);
+  const iLevel = Math.min(100, Math.max(1, Math.floor(Number(spec.iLevel) || 1)));
+  if (!config || !base || !rarity || !condition)
+    throw new Error("Cannot craft that item.");
+  const twoHanded = !!base.twoHanded;
+  const scale = twoHanded ? TWO_HANDED_MULT : 1;
+  const minTier = Math.min(SUBSTAT_MAX_TIER, Math.max(0, Math.floor(spec.minTier || 0)));
+  const mainBoost = Math.max(0, Math.floor(spec.mainBoost || 0));
+  const minMainValue = Math.ceil((Math.max(0, minTier - 0.5) / SUBSTAT_MAX_TIER) * MAIN_STAT_MAX_VALUE);
+  const mainValue = (roll) =>
+    Math.max(0, Math.round((roll + rarity.mainStatBonus) * scale) + condition.mainStatModifier + mainBoost);
+  const rolls = [1, 2, 3, 4, 5].filter((roll) => mainValue(roll) >= minMainValue);
+  const mainStatValue = mainValue(rolls.length ? pick(rolls) : 5);
+  const mainStat = {
+    stat: MAIN_STAT_NAMES.includes(spec.stat) ? spec.stat : base.stat,
+    tier: getMainStatTier(mainStatValue),
+    value: mainStatValue,
+  };
+
+  const pool = [...SUBSTAT_POOLS[spec.slot]];
+  const count = Math.min(rarity.substats, pool.length);
+  const chosen = [...new Set(spec.guaranteed || [])].filter((stat) => pool.includes(stat)).slice(0, count);
+  const rest = pool.filter((stat) => !chosen.includes(stat));
+  while (chosen.length < count) chosen.push(rest.splice(Math.floor(Math.random() * rest.length), 1)[0]);
+  const subStats = {};
+  const subTiers = {};
+  for (const key of chosen) {
+    const statMin = Math.min(SUBSTAT_MAX_TIER, Math.max(minTier, spec.subTierMins?.[key] || 0));
+    const roll = rollSubStatValue(key, iLevel, statMin, scale);
+    subTiers[key] = rollTier(key, roll, iLevel, scale);
+    subStats[key] = scaleValue(key, roll, scale);
+  }
+
+  const abilityPool = ABILITIES.filter((a) => a.slots.includes(spec.slot));
+  let ability = null;
+  if (abilityPool.length && Math.random() < rarity.abilityChance + Math.max(0, spec.abilityChance || 0)) {
+    const { name, description } = pick(abilityPool);
+    ability = { name, description };
+  }
+  const tier = Math.min(MATERIALS.metal.length - 1, Math.floor((iLevel - 1) / 25));
+  const name = [condition.name, ability?.name, MATERIALS[base.material][tier], base.name].filter(Boolean).join(" ");
+  return applyHolofoilBonuses({
+    id: newId(),
+    name,
+    slot: spec.slot,
+    twoHanded,
+    rarity: rarity.name,
+    socketCount: Number.isInteger(spec.socketCount) ? spec.socketCount : rollItemSocketCount(rarity.name),
+    condition: condition.name,
+    iLevel,
+    price: itemPrice({ iLevel, mainStat, subStats, ability, rarity, condition, slot: spec.slot }),
+    description: "",
+    mainStat,
+    subStats,
+    subTiers,
+    ability,
+    ...rollHolofoil(spec.holofoil ? true : undefined),
+  });
+};
+
+const MYTHIC_PREFIXES = ["Mythbound", "Worldforged", "Everlasting", "Godwrought", "Starborn", "Fabled"];
+const MYTHIC_SUBSTATS = 6;
+
+/*
+ Mythic gear: every stat rolls at T7, it is always Holofoil, and it adds a wildcard 7th substat that may be any
+ substat (even one this slot can't roll, or a duplicate). `unique` crafts a Mythic version of a Unique definition.
+*/
+export const createMythicItem = ({ slot, baseName, stat, iLevel = 1, unique, name } = {}) => {
+  const itemSlot = unique?.slot || slot;
+  const config = SLOT_CONFIG[itemSlot];
+  if (!config) throw new Error("Cannot create a Mythic item for that slot.");
+  const base = unique
+    ? { name: unique.name, stat: unique.stat, twoHanded: !!unique.twoHanded }
+    : config.bases.find((candidate) => candidate.name === baseName) || pick(config.bases);
+  const rarity = RARITIES.find((candidate) => candidate.name === "Mythic");
+  const condition = CONDITIONS.find((candidate) => candidate.name === "Perfect");
+  const level = Math.min(100, Math.max(1, Math.floor(Number(iLevel) || 1)));
+  const twoHanded = !!base.twoHanded;
+  const scale = twoHanded ? TWO_HANDED_MULT : 1;
+  const mainValue = twoHanded ? Math.round((randInt(5) + rarity.mainStatBonus) * scale) + condition.mainStatModifier : 20 + randInt(2);
+  const mainStat = {
+    stat: MAIN_STAT_NAMES.includes(stat) ? stat : base.stat,
+    tier: getMainStatTier(mainValue),
+    value: mainValue,
+  };
+  const pool = [...SUBSTAT_POOLS[itemSlot]];
+  const chosen = unique
+    ? (unique.subStats || []).filter((key) => pool.includes(key)).slice(0, MYTHIC_SUBSTATS)
+    : [];
+  const rest = pool.filter((key) => !chosen.includes(key));
+  while (chosen.length < Math.min(MYTHIC_SUBSTATS, pool.length))
+    chosen.push(rest.splice(Math.floor(Math.random() * rest.length), 1)[0]);
+  const rollTopTier = (key) => {
+    const roll = rollSubStatValue(key, level, SUBSTAT_MAX_TIER, scale);
+    return { value: scaleValue(key, roll, scale), tier: rollTier(key, roll, level, scale) };
+  };
+  const subStats = {};
+  const subTiers = {};
+  for (const key of chosen) {
+    const { value, tier } = rollTopTier(key);
+    subStats[key] = value;
+    subTiers[key] = tier;
+  }
+  const wildcard = pick(SUBSTAT_NAMES);
+  const mythicSubStat = { stat: wildcard, ...rollTopTier(wildcard) };
+  const uniqueAbility = unique && UNIQUE_ABILITIES.find((a) => a.name === unique.ability);
+  const abilityDef = uniqueAbility || pick(ABILITIES.filter((a) => a.slots.includes(itemSlot)));
+  const ability = abilityDef ? { name: abilityDef.name, description: abilityDef.description } : null;
+  return applyHolofoilBonuses({
+    id: newId(),
+    name: name || (unique ? unique.name : `${pick(MYTHIC_PREFIXES)} ${base.name}`),
+    slot: itemSlot,
+    twoHanded,
+    rarity: rarity.name,
+    socketCount: rollItemSocketCount(rarity.name),
+    condition: condition.name,
+    iLevel: level,
+    price: itemPrice({ iLevel: level, mainStat, subStats, ability, rarity, condition, slot: itemSlot, mythicSubStat }),
+    description: "",
+    ...(unique ? { unique: unique.id } : {}),
+    mainStat,
+    subStats,
+    subTiers,
+    mythicSubStat,
+    ability,
+    ...rollHolofoil(true),
+  });
+};
 
 export const getNextItemQuality = (item, field) => {
   const names = field === "rarity" ? RARITY_NAMES.slice(0, 5)
@@ -1260,15 +1445,29 @@ export const itemTooltip = (item, extra) => {
       tierColor: TIER_COLORS[item.subTiers?.[k]],
     });
   }
+  if (item.mythicSubStat) {
+    const { stat, value, tier } = item.mythicSubStat;
+    stats.push({
+      label: `${STAT_LABELS[stat] || stat} (Mythic)`,
+      value: formatValue(stat, value),
+      color: RARITY_COLORS.Mythic,
+      tier: tier !== undefined ? `T${tier}` : undefined,
+      tierColor: TIER_COLORS[tier],
+    });
+  }
   const slotLabel = slot ? slot.label.replace(/ \d$/, "") : item.slot;
   const level = getPlayer()?.level || 1;
+  const tool = isToolItem(item);
+  const requirement = tool
+    ? `Requires ${getToolProfessionLabel(item.slot)} ${getEquipLevel(item)}`
+    : `Equip level ${getEquipLevel(item)}`;
   const tags = [
     slotLabel,
     item.twoHanded && "Two-handed",
     item.crafted && "Crafted",
     ...(item.usedRunes || []),
     item.prismatic && "Prismatic",
-    `Gear score ${getItemGearScore(item)}`,
+    tool ? "Crafting tool" : `Gear score ${getItemGearScore(item)}`,
     item.originalOwner && `Original Owner: ${item.originalOwner}`,
   ].filter(Boolean);
   const abilityText = item.ability
@@ -1278,13 +1477,13 @@ export const itemTooltip = (item, extra) => {
     title: item.name,
     backgroundStyle: getHolofoilStyle(item),
     titleColor: RARITY_COLORS[item.rarity],
-    subtitle: `${item.holofoil ? "Holofoil " : ""}${item.rarity}${item.condition ? `, ${item.condition}` : ""}, Item Level ${item.iLevel} • Equip level ${getEquipLevel(item)}`,
+    subtitle: `${item.holofoil ? "Holofoil " : ""}${item.rarity}${item.condition ? `, ${item.condition}` : ""}, Item Level ${item.iLevel} • ${requirement}`,
     upgrades: item.upgrades ?? 0,
     description: [abilityText].filter(Boolean),
     stats,
     footer: [
       extra,
-      !canEquip(item, level) && `Requires level ${getEquipLevel(item)} • `,
+      !canEquip(item, level) && (tool ? `${requirement} • ` : `Requires level ${getEquipLevel(item)} • `),
       `Value: ${item.price}`,
     ].filter(Boolean),
     tags,
@@ -1325,6 +1524,8 @@ const sumStats = (items) => {
       out[it.mainStat.stat] = (out[it.mainStat.stat] || 0) + it.mainStat.value;
     for (const [k, v] of Object.entries(it.subStats || {}))
       out[k] = (out[k] || 0) + v;
+    if (it.mythicSubStat)
+      out[it.mythicSubStat.stat] = (out[it.mythicSubStat.stat] || 0) + it.mythicSubStat.value;
   }
   return out;
 };
@@ -1372,7 +1573,9 @@ export const itemComparisonTooltip = (item, extra) => {
 
 // Equip level is iLevel - 1, plus bonuses for abilities and Legendary rarity.
 // Always derived, so items saved under an older formula stay consistent.
+// Tools instead require a profession level equal to their item level.
 export const getEquipLevel = (item) => {
+  if (isToolItem(item)) return Math.min(TOOL_MAX_ITEM_LEVEL, Math.max(1, item.iLevel || 1));
   const level = (item?.iLevel || 1) - 1;
   return Math.min(
     100,
@@ -1380,13 +1583,15 @@ export const getEquipLevel = (item) => {
       1,
       level +
         (item?.ability ? 1 : 0) +
-        (item?.rarity === "Legendary" || item?.rarity === "Unique" ? 1 : 0),
+        (["Legendary", "Unique", "Mythic"].includes(item?.rarity) ? 1 : 0),
     ),
   );
 };
 
-export const canEquip = (item, level = getPlayer()?.level || 1) =>
-  level >= getEquipLevel(item);
+export const canEquip = (item, level = getPlayer()?.level || 1, player = getPlayer()) =>
+  isToolItem(item)
+    ? getToolProfessionLevel(player, item.slot) >= getEquipLevel(item)
+    : level >= getEquipLevel(item);
 
 export const getInventory = () => getPlayer()?.inventory || [];
 export const getEquipment = () => getPlayer()?.equipment || {};
@@ -1733,7 +1938,7 @@ export function equipItem(index) {
   const item = inventory[index];
   if (!item) return { ok: false };
   if (getEnemy()) return { ok: false, reason: "combat" };
-  if (!canEquip(item, p.level)) return { ok: false, reason: "level" };
+  if (!canEquip(item, p.level, p)) return { ok: false, reason: isToolSlot(item.slot) ? "profession" : "level" };
   const candidates = SLOTS.filter((s) => s.type === item.slot);
   if (!candidates.length) return { ok: false };
   const equipment = { ...(p.equipment || {}) };

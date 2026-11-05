@@ -37,7 +37,7 @@ const buildPlayer = (name, level, archetype, minRarity = 2, minTier = 0, { fullG
   const points = 15 + 3 * (level - 1);
   const baseStats = Object.fromEntries(Object.entries(split).map(([k, f]) => [k, 1 + Math.round(points * f)]));
   const equipment = {};
-  for (const slot of SLOTS) {
+  for (const slot of SLOTS.filter((entry) => entry.category !== "crafting-gathering")) {
     if (slot.key === "offHand" && equipment.mainHand?.twoHanded) continue;
     const item = generateRandomItem(slot.type, minRarity, undefined, minTier);
     if (fullGemstones && item.socketCount) {

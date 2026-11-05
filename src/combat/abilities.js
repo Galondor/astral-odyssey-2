@@ -183,6 +183,52 @@ export const UNIQUE_ABILITIES = [
     description: "Your attacks deal 20% more damage.",
     effects: { damageBonus: 0.2 },
   },
+  // Crafting-only Uniques (src/items/craftingUniques.js).
+  {
+    name: "Forgefire",
+    description: "Hits have a 25% chance to set the enemy on fire, and you deal 10% more damage.",
+    effects: { ignite: 0.25, damageBonus: 0.1 },
+  },
+  {
+    name: "Undertow Ward",
+    description: "Reflect 15% of damage taken and reduce damage taken by 8%.",
+    effects: { reflect: 0.15, damageReduction: 0.08 },
+  },
+  {
+    name: "Starforged Edge",
+    description: "Deal 20% more damage, ignore 30% of enemy defense, and restore 15% of your max power on critical hits.",
+    effects: { damageBonus: 0.2, pierce: 0.3, surge: 0.15 },
+  },
+  {
+    name: "Rimeshell",
+    description: "Reduce damage taken by 10%. Once per combat, recover 30% health when falling below 10% health.",
+    effects: { damageReduction: 0.1, secondWind: 0.3 },
+  },
+  {
+    name: "Dune Dancer",
+    description: "Increase speed by 40% for turn order and speed comparisons, and deal 8% more damage.",
+    effects: { speedMult: 0.4, damageBonus: 0.08 },
+  },
+  {
+    name: "Unbroken Line",
+    description: "Reduce damage taken by 15% and reflect 15% of it. Once per combat, recover 25% health when falling below 10% health.",
+    effects: { damageReduction: 0.15, reflect: 0.15, secondWind: 0.25 },
+  },
+  {
+    name: "Tidal Fortune",
+    description: "Increase astra gain by 20% and restore 15% of your max power on critical hits.",
+    effects: { astraBonus: 0.2, surge: 0.15 },
+  },
+  {
+    name: "Venomkiss",
+    description: "Hits have a 20% chance to poison the enemy, and you heal for 5% of damage dealt.",
+    effects: { poison: 0.2, lifesteal: 0.05 },
+  },
+  {
+    name: "Sovereign's Due",
+    description: "Deal 15% more damage, heal for 6% of damage dealt, and gain 15% more astra.",
+    effects: { damageBonus: 0.15, lifesteal: 0.06, astraBonus: 0.15 },
+  },
 ];
 
 // Tuning for the group dungeon boss uniques (shared by solo and group combat).
