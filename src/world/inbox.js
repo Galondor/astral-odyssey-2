@@ -7,7 +7,8 @@ import { UNIQUES } from "./dungeonData";
 import { CRAFTED_UNIQUES } from "../items/craftingUniques";
 import { createToolItem, TOOL_CONDITION_NAMES, TOOL_NAMES, TOOL_RARITIES } from "../items/tools";
 import { TOOL_MAX_ITEM_LEVEL } from "../items/craftingStats";
-import { getToolProfessionLevel } from "../character/professions";
+import { addProfessionExp, getToolProfessionLevel, PROFESSIONS } from "../character/professions";
+import { addGatheringExp, GATHERING_PROFESSIONS } from "../character/gathering";
 import { CONSUMABLES, KEY_ITEMS, addConsumable, addKeyItem } from "../items/consumables";
 import { MATERIALS, addToMaterials } from "../items/materials";
 import { validateHolofoil } from "../items/holofoil";
@@ -18,7 +19,7 @@ import { TITLES } from "../character/titles";
    inbox/{uid}/{id}      personal messages (admin-written)
    broadcasts/{id}       messages for every player (admin-written)
    inboxState/{uid}/{id} this player's { read, claimed, deleted } flags for either kind
- attachments: { astra, exp, rep, materials: { key: n }, consumables: { key: n }, keyItems: { key: true }, gear: [{ slot, minRarity, count }], gemstones: [{ minRarity, count }], gemstoneItems: [gemstone], items: [item], tools: [{ slot, minRarity, iLevel, count }] }
+ attachments: { astra, exp, rep, professionExp: { professionId: n }, materials: { key: n }, consumables: { key: n }, keyItems: { key: true }, gear: [{ slot, minRarity, count }], gemstones: [{ minRarity, count }], gemstoneItems: [gemstone], items: [item], tools: [{ slot, minRarity, iLevel, count }] }
  Gear is generated when claimed to match the claiming player's level; gemstones are generated at the selected minimum rarity.
  A Mythic minimum rarity sends crafting-tier Mythic gear. `uniques` accepts dungeon and crafting-only Uniques.
  `tools` are Hammers/Precision Tools (Common-Legendary, item level 1-50; 0 uses the claiming player's profession level).
@@ -54,6 +55,10 @@ export const normalizeAttachments = (a = {}) => ({
   astra: Math.max(0, Math.floor(Number(a.astra) || 0)),
   exp: Math.max(0, Math.floor(Number(a.exp) || 0)),
   rep: Math.max(0, Math.floor(Number(a.rep) || 0)),
+  professionExp: Object.fromEntries(Object.entries(a.professionExp || {})
+    .filter(([id, amount]) => (PROFESSIONS[id] || GATHERING_PROFESSIONS[id]) &&
+      Number.isFinite(Number(amount)) && Math.floor(Number(amount)) > 0)
+    .map(([id, amount]) => [id, Math.floor(Number(amount))])),
   materials: Object.entries({
     ...(a.materials || {}),
     ...(Number(a.consumables?.relic) > 0
@@ -102,7 +107,7 @@ export const normalizeAttachments = (a = {}) => ({
 
 export const hasAttachments = (a) => {
   const n = normalizeAttachments(a);
-  return n.astra > 0 || n.exp > 0 || n.rep > 0 || n.materials.length + n.consumables.length + n.keyItems.length + n.gear.length + n.uniques.length + n.tools.length + n.gemstones.length + n.gemstoneItems.length + n.items.length + n.titles.length > 0;
+  return n.astra > 0 || n.exp > 0 || n.rep > 0 || Object.keys(n.professionExp).length > 0 || n.materials.length + n.consumables.length + n.keyItems.length + n.gear.length + n.uniques.length + n.tools.length + n.gemstones.length + n.gemstoneItems.length + n.items.length + n.titles.length > 0;
 };
 
 export const hasUnclaimed = (msg) => !msg.claimed && hasAttachments(msg.attachments);
@@ -114,6 +119,8 @@ export const describeAttachments = (a) => {
     ...(n.astra ? [`${n.astra} astra`] : []),
     ...(n.exp ? [`${n.exp} exp`] : []),
     ...(n.rep ? [`${n.rep} reputation`] : []),
+    ...Object.entries(n.professionExp).map(([id, amount]) =>
+      `${amount} ${(PROFESSIONS[id] || GATHERING_PROFESSIONS[id]).name} exp`),
     ...n.materials.map(([k, c]) => `${c}× ${MATERIALS[k].name}`),
     ...n.consumables.map(([k, c]) => `${c}× ${CONSUMABLES[k].name}`),
     ...n.keyItems.map((k) => `Key item: ${KEY_ITEMS[k].name}`),
@@ -198,6 +205,19 @@ function grant(a) {
     patch.rep = (p.rep || 0) + n.rep;
     lines.push(`${n.rep} reputation`);
   }
+  let progressionPlayer = { ...p };
+  Object.entries(n.professionExp).forEach(([id, amount]) => {
+    const isCraftingProfession = !!PROFESSIONS[id];
+    const progress = isCraftingProfession
+      ? addProfessionExp(progressionPlayer, id, amount, { countCraft: false })
+      : addGatheringExp(progressionPlayer, id, amount, { countAttempt: false });
+    const field = isCraftingProfession ? "professions" : "gathering";
+    patch[field] = progress[field];
+    progressionPlayer = { ...progressionPlayer, [field]: progress[field] };
+    const name = (PROFESSIONS[id] || GATHERING_PROFESSIONS[id]).name;
+    lines.push(`${amount} ${name} exp`);
+    if (progress.levelsGained) lines.push(`${name} reached level ${progress.level}!`);
+  });
   if (n.materials.length) {
     patch.materials = addToMaterials(p.materials, Object.fromEntries(n.materials));
     n.materials.forEach(([k, c]) => lines.push(`${c}× ${MATERIALS[k].name}`));
@@ -357,6 +377,7 @@ export async function sendMessage({ to, subject, body, attachments }) {
     ...(n.astra ? { astra: n.astra } : {}),
     ...(n.exp ? { exp: n.exp } : {}),
     ...(n.rep ? { rep: n.rep } : {}),
+    ...(Object.keys(n.professionExp).length ? { professionExp: n.professionExp } : {}),
     ...(n.materials.length ? { materials: Object.fromEntries(n.materials) } : {}),
     ...(n.consumables.length ? { consumables: Object.fromEntries(n.consumables) } : {}),
     ...(n.keyItems.length ? { keyItems: Object.fromEntries(n.keyItems.map((k) => [k, true])) } : {}),

@@ -22,6 +22,7 @@ import { isInGroupDungeon } from "./world/groupState";
 import { GroupRunActions } from "./ui/GroupDungeonScreen";
 import { expireIfNeeded, isInDungeon } from "./world/dungeons";
 import { isLabyrinthActive } from "./world/labyrinth";
+import { forfeitGathering, takeGatheringNotice } from "./world/gathering";
 import { isAdmin, startInbox } from "./world/inbox";
 import { startSocial } from "./world/social";
 import { finishWorldBossAttempt, reportWorldBossError, subscribeWorldBoss } from "./world/worldBoss";
@@ -260,7 +261,11 @@ export function Game({ uid, onLogout, onMainMenu }) {
     setInput("");
   }, []);
 
-  const goToScene = (id) => apply({ sceneId: id, replies: initialMessages(id).map((m) => m.text), clearLog: true });
+  const goToScene = (id) => {
+    if (sceneId === "gathering" && id !== "gathering") forfeitGathering();
+    const notice = takeGatheringNotice();
+    apply({ sceneId: id, replies: [...(notice ? [notice] : []), ...initialMessages(id).map((m) => m.text)], clearLog: true });
+  };
 
   // The dungeon timer runs out even while the player is idle
   useEffect(() => {
@@ -307,7 +312,7 @@ export function Game({ uid, onLogout, onMainMenu }) {
     viewOverride === (scenes[sceneId].screen || DEFAULT_SCREEN);
 
   useEffect(() => {
-    if (!showButtons || !sceneControlsVisible || sending || navigationModal || tutorialOpen || getContestStatus().playing || isInGroupDungeon() ||
+    if (sceneId === "gathering" || !showButtons || !sceneControlsVisible || sending || navigationModal || tutorialOpen || getContestStatus().playing || isInGroupDungeon() ||
       (getContestStatus().match && viewOverride === "combat")) return undefined;
 
     const selectOptionByNumber = (event) => {
@@ -338,6 +343,13 @@ export function Game({ uid, onLogout, onMainMenu }) {
   const activeScreen = contestView ? "combat" : contestLocked ? "arena" : groupLocked ? "groupRun" : SCREENS[viewOverride] ? viewOverride : sceneScreen;
   const Screen = SCREENS[activeScreen].component;
   const screenData = contestView?.data || (activeScreen === sceneScreen && scene.screenData ? scene.screenData() : undefined);
+  useEffect(() => {
+    if (sceneId !== "gathering" || activeScreen === "gathering") return;
+    forfeitGathering();
+    const message = takeGatheringNotice();
+    setSceneId("menu");
+    if (message) setMessages((previous) => [...previous, { sender: "game", text: message }]);
+  }, [sceneId, activeScreen]);
   useEffect(() => {
     if (mobileNavigation && gameContent.current) {
       gameContent.current.scrollTop = 0;

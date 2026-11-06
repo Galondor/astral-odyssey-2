@@ -21,7 +21,10 @@ import {
   canEquip,
   createMythicItem,
   getEquipLevel,
+  getCustomSubStatTiers,
+  getItemStatTierCap,
   getSubStatPool,
+  getSubStatTier,
   itemTooltip,
   restrictItemSubStats,
   SUBSTAT_NAMES,
@@ -71,6 +74,11 @@ describe("professions", () => {
     expect(crafts).toBeGreaterThan(1000);
     expect(crafts).toBeLessThan(1500);
     expect(getProfession(player, "armor")).toMatchObject({ level: 50, exp: 0 });
+  });
+
+  test("granted profession experience does not count as a craft", () => {
+    const result = addProfessionExp({ professions: { weaponry: { crafts: 4 } } }, "weaponry", 200, { countCraft: false });
+    expect(result.professions.weaponry).toEqual({ level: 2, exp: 20, crafts: 4 });
   });
 
   test("unlock reagent slots and keep the Mythic chance virtually zero before level 30", () => {
@@ -125,9 +133,66 @@ describe("blueprints", () => {
     }
     for (const unique of Object.values(CRAFTED_UNIQUES)) expect(findAbility({ name: unique.ability })?.effects).toBeTruthy();
   });
+
+  test("crafted unique abilities use the updated effects", () => {
+    const abilityEffects = (id) => findAbility({ name: CRAFTED_UNIQUES[id].ability }).effects;
+    expect(abilityEffects("starforgedGreatblade")).toEqual({ damageBonus: 0.2, pierce: 0.3 });
+    expect(abilityEffects("aegisOfTheUnbroken")).toEqual({ damageReduction: 0.1 });
+    expect(abilityEffects("brinelightPendant")).toEqual({ astraBonus: 0.2, surge: 0.3 });
+    expect(abilityEffects("sovereignsSignet")).toEqual({ damageBonus: 0.15, lifesteal: 0.06 });
+    expect(abilityEffects("tidecallerBulwark")).toEqual({ damageReduction: 0.3 });
+  });
 });
 
 describe("crafting", () => {
+  test.each([0, 1, 2, 3, 4, 5])("gear rolls player level plus %i independently of material tier", (bonus) => {
+    jest.spyOn(Math, "random").mockReturnValue(0.9).mockReturnValueOnce((bonus + 0.5) / 6);
+    const player = makePlayer({ level: 100, materials: { metal_scraps: 5 } });
+    const selection = { blueprintId: "weapon:Sword", base: "metal_scraps" };
+    expect(analyzeCraft(player, selection)).toMatchObject({ iLevel: 100, maxILevel: 105 });
+    expect(craftItem(player, selection).item.iLevel).toBe(100 + bonus);
+  });
+
+  test.each([[98, 103], [100, 105], [105, 105]])("gear respects the player bonus and level-105 cap for a level %i player", (level, expected) => {
+    jest.spyOn(Math, "random").mockReturnValue(0.99);
+    const player = makePlayer({ level, materials: { metal_scraps: 5 } });
+    expect(craftItem(player, { blueprintId: "weapon:Sword", base: "metal_scraps" }).item.iLevel).toBe(expected);
+  });
+
+  test("high-tier materials do not raise gear above the player's level range", () => {
+    jest.spyOn(Math, "random").mockReturnValue(0.99);
+    const player = makePlayer({ professions: professions(50), materials: { warsteel_ingot: 5 } });
+    expect(craftItem(player, { blueprintId: "weapon:Sword", base: "warsteel_ingot" }).item.iLevel).toBe(15);
+  });
+
+  test("Mythic gear uses the same bonus item-level roll", () => {
+    jest.spyOn(Math, "random").mockReturnValue(0.9).mockReturnValueOnce(0.99).mockReturnValueOnce(0);
+    const player = makePlayer({ level: 100, materials: { metal_scraps: 5 } });
+    expect(craftItem(player, { blueprintId: "weapon:Sword", base: "metal_scraps" }).item)
+      .toMatchObject({ rarity: "Mythic", iLevel: 105 });
+  });
+
+  test("crafted Unique gear can roll item level 105", () => {
+    jest.spyOn(Math, "random").mockReturnValue(0.9);
+    const player = makePlayer({
+      level: 100, professions: professions(20),
+      materials: { cinderite_ore: 5, infernal_heart: 1, ember_core: 5, forge_tempered_alloy: 2 },
+    });
+    expect(craftItem(player, { blueprintId: "unique:emberwroughtBlade", base: "cinderite_ore" }).item)
+      .toMatchObject({ rarity: "Unique", iLevel: 105 });
+  });
+
+  test.each([["ember_core", 43], ["forge_slagheart", 45]])("material %s level bonuses raise the minimum without exceeding player level plus five", (reagent, minimum) => {
+    jest.spyOn(Math, "random").mockReturnValue(0.99);
+    const player = makePlayer({
+      level: 40, professions: professions(30),
+      materials: { metal_scraps: 5, [reagent]: 1 },
+    });
+    const selection = { blueprintId: "weapon:Sword", base: "metal_scraps", reagents: [reagent] };
+    expect(analyzeCraft(player, selection)).toMatchObject({ iLevel: minimum, maxILevel: 45 });
+    expect(craftItem(player, selection).item.iLevel).toBe(45);
+  });
+
   test("crafts gear, spends materials and astra, gains exp and always reveals a first property", () => {
     jest.spyOn(Math, "random").mockReturnValue(0.5);
     const player = makePlayer({ materials: { metal_scraps: 5, slime_gel: 2 } });
@@ -217,16 +282,16 @@ describe("crafting", () => {
     expect(fresh.mythicChance).toBeLessThanOrEqual(0.0001);
   });
 
-  test("a successful Mythic roll produces a T7 Holofoil Mythic with a wildcard substat", () => {
+  test("a successful Mythic roll produces a T8-main-stat Holofoil Mythic", () => {
     jest.spyOn(Math, "random").mockReturnValue(0);
     const player = makePlayer({ level: 100, professions: professions(50), materials: { warsteel_ingot: 20 } });
     const result = craftItem(player, { blueprintId: "weapon:Sword", base: "warsteel_ingot" });
     expect(result.item.rarity).toBe("Mythic");
     expect(result.item.holofoil).toHaveLength(2);
-    expect(result.item.mainStat.tier).toBe(7);
+    expect(result.item.mainStat.tier).toBe(8);
     expect(Object.keys(result.item.subStats)).toHaveLength(6);
-    expect(Object.values(result.item.subTiers).every((tier) => tier === 7)).toBe(true);
-    expect(result.item.mythicSubStat.tier).toBe(7);
+    expect(Object.values(result.item.subTiers).every((tier) => tier === 8)).toBe(true);
+    expect(result.item.mythicSubStat.tier).toBe(8);
   });
 
   test("crafts Unique recipes with their extra materials", () => {
@@ -238,7 +303,7 @@ describe("crafting", () => {
     });
     const result = craftItem(player, { blueprintId: "unique:emberwroughtBlade", base: "cinderite_ore" });
     expect(result.ok).toBe(true);
-    expect(result.item).toMatchObject({ rarity: "Unique", unique: "emberwroughtBlade", ability: { name: "Forgefire" } });
+    expect(result.item).toMatchObject({ rarity: "Unique", unique: "emberwroughtBlade", iLevel: 45, ability: { name: "Forgefire" } });
     expect(result.patch.materials).toEqual({});
     expect(analyzeCraft(player, { blueprintId: "unique:emberwroughtBlade", base: "bog_iron" }).ok).toBe(false);
   });
@@ -250,9 +315,58 @@ describe("crafting", () => {
     expect(analyzeCraft(player, { blueprintId: "tool:hammer", base: "metal_scraps", reagents: ["hammerhead_i"] }).message).toMatch(/haft/);
     const result = craftItem(player, { blueprintId: "tool:hammer", base: "metal_scraps", reagents: ["hammerhead_i", "haft_i"] });
     expect(result.ok).toBe(true);
-    expect(result.item).toMatchObject({ slot: "hammer", iLevel: 20, socketCount: 0, crafted: true });
+    expect(result.item).toMatchObject({ slot: "hammer", iLevel: 11, socketCount: 0, crafted: true });
     expect(result.item.subStats).toHaveProperty("craftQuality");
     expect(result.item.subStats).toHaveProperty("materialPreservation");
+  });
+
+  test.each([
+    ["pickaxe", "i", 15, 5, 5],
+    ["axe", "i", 15, 5, 5],
+    ["pickaxe", "i", 50, 50, 20],
+    ["axe", "ii", 50, 50, 35],
+    ["pickaxe", "iii", 50, 50, 50],
+    ["axe", "iii", 50, 12, 12],
+    ["hammer", "i", 5, 30, 20],
+    ["hammer", "iii", 50, 10, 50],
+    ["precisionTools", "i", 12, 50, 12],
+    ["precisionTools", "iii", 50, 5, 50],
+  ])("%s with tier %s parts rolls every level from 1 to its equip/part cap", (slot, tier, craftingLevel, equipLevel, cap) => {
+    const parts = slot === "precisionTools"
+      ? [`lens_${tier}`, `calipers_${tier}`]
+      : [`${slot === "hammer" ? "hammerhead" : `${slot}head`}_${tier}`, `haft_${tier}`];
+    const base = slot === "precisionTools" ? "copper_nugget" : "metal_scraps";
+    const player = makePlayer({
+      professions: professions(craftingLevel, equipLevel, craftingLevel),
+      gathering: { mining: { level: equipLevel }, logging: { level: equipLevel } },
+      materials: { [base]: 100, ...Object.fromEntries(parts.map((key) => [key, 1])) },
+    });
+    const selection = { blueprintId: `tool:${slot}`, base, reagents: parts };
+    expect(analyzeCraft(player, selection)).toMatchObject({ ok: true, iLevel: 1, maxILevel: cap });
+    const random = jest.spyOn(Math, "random").mockReturnValue(0.5);
+    for (let level = 1; level <= cap; level++) {
+      random.mockReturnValueOnce((level - 0.5) / cap);
+      const result = craftItem(player, selection);
+      expect(result.ok).toBe(true);
+      expect(result.item.iLevel).toBe(level);
+      expect(canEquip(result.item, player.level, player)).toBe(true);
+    }
+    random.mockReturnValueOnce(0);
+    expect(craftItem(player, selection).item.iLevel).toBe(1);
+    random.mockReturnValueOnce(0.999999);
+    expect(craftItem(player, selection).item.iLevel).toBe(cap);
+  });
+
+  test("gathering tools can still be crafted before the gathering equip unlock", () => {
+    const player = makePlayer({
+      professions: professions(5),
+      materials: { metal_scraps: 3, pickaxehead_i: 1, haft_i: 1 },
+    });
+    const selection = { blueprintId: "tool:pickaxe", base: "metal_scraps", reagents: ["pickaxehead_i", "haft_i"] };
+    expect(analyzeCraft(player, selection)).toMatchObject({ ok: true, iLevel: 1, maxILevel: 1 });
+    const result = craftItem(player, selection);
+    expect(result.item.iLevel).toBe(1);
+    expect(canEquip(result.item, player.level, player)).toBe(false);
   });
 });
 
@@ -301,17 +415,40 @@ describe("tools", () => {
 });
 
 describe("Mythic items", () => {
-  test("roll T7 stats, Holofoil, and a wildcard that may be off-slot or duplicate", () => {
-    for (let i = 0; i < 25; i++) {
+  test("guarantee T7 substats with 50% T8 rolls, T8 main stats, and a wildcard substat", () => {
+    const tierRolls = [];
+    for (let i = 0; i < 100; i++) {
       const item = createMythicItem({ slot: "boots", iLevel: 80 });
       expect(item.rarity).toBe("Mythic");
       expect(item.holofoil).toHaveLength(2);
-      expect(item.mainStat.tier).toBe(7);
-      expect(Object.values(item.subTiers)).toEqual(Array(6).fill(7));
+      expect(item.mainStat.tier).toBe(8);
+      expect(itemTooltip(item).stats[0].tier).toBe("T8");
+      expect(Object.values(item.subTiers).every((tier) => tier === 7 || tier === 8)).toBe(true);
       expect(SUBSTAT_NAMES).toContain(item.mythicSubStat.stat);
-      expect(item.mythicSubStat.tier).toBe(7);
+      expect([7, 8]).toContain(item.mythicSubStat.tier);
+      expect(getSubStatTier(
+        item.mythicSubStat.stat,
+        item.mythicSubStat.value,
+        item.iLevel,
+        item.twoHanded,
+        getItemStatTierCap(item),
+      )).toBe(item.mythicSubStat.tier);
+      for (const [stat, value] of Object.entries(item.subStats))
+        expect(getSubStatTier(stat, value, item.iLevel, item.twoHanded, getItemStatTierCap(item))).toBe(item.subTiers[stat]);
+      tierRolls.push(...Object.values(item.subTiers), item.mythicSubStat.tier);
       expect(getItemSocketCount(item)).toBe(3);
     }
+    const t8Rate = tierRolls.filter((tier) => tier === 8).length / tierRolls.length;
+    expect(t8Rate).toBeGreaterThan(0.4);
+    expect(t8Rate).toBeLessThan(0.6);
+
+    const item = createMythicItem({ slot: "boots", iLevel: 80 });
+    const stat = Object.keys(item.subStats)[0];
+    expect(getItemStatTierCap(item)).toBe(8);
+    expect(getCustomSubStatTiers(stat, item.iLevel)).not.toContain(8);
+    expect(getCustomSubStatTiers(stat, item.iLevel, false, 8)).toContain(8);
+    expect(getItemStatTierCap({ rarity: "Artifact" })).toBe(9);
+    expect(getCustomSubStatTiers(stat, item.iLevel, false, 9)).toContain(9);
     const wildcards = new Set(Array.from({ length: 300 }, () => createMythicItem({ slot: "boots", iLevel: 50 }).mythicSubStat.stat));
     expect([...wildcards].some((stat) => !getSubStatPool("boots").includes(stat))).toBe(true);
     const duplicates = Array.from({ length: 300 }, () => createMythicItem({ slot: "boots", iLevel: 50 }))

@@ -288,7 +288,7 @@ test("a certificate rename and its cost persist together to the player save", as
   }));
   expect(renameItem("sword", "Alice Blade 42")).toMatchObject({ ok: true });
   await flushPlayer();
-  expect(records["users/alice/player"].inventory).toEqual([{ ...item, name: "Alice Blade 42" }]);
+  expect(records["users/alice/player"].inventory).toEqual([{ ...item, baseType: "Sword", name: "Alice Blade 42" }]);
   expect(records["users/alice/player"].consumables).toEqual({ healthPotion: 4 });
   expect(JSON.parse(localStorage.getItem("Player")).inventory[0].name).toBe("Alice Blade 42");
 });
@@ -424,6 +424,27 @@ test("gameplay schedules a save immediately rather than after an inactivity wind
   jest.runOnlyPendingTimers();
   await flushPlayer();
   expect(records["users/alice"]).toMatchObject({ saveRevision: 2, player: { astra: 123 } });
+});
+
+test("gathering progression and crafted tools persist locally and through cloud saves", async () => {
+  existingPlayer();
+  await loadPlayer("alice");
+  const { createToolItem } = require("../../items/tools");
+  const pickaxe = createToolItem({ slot: "pickaxe", iLevel: 20, rarity: "Rare" });
+  const gathering = {
+    mining: { level: 20, exp: 37, attempts: 12 },
+    logging: { level: 5, exp: 18, attempts: 7 },
+  };
+  setPlayer({ gathering, equipment: { pickaxe }, materials: { bog_iron: 4 } });
+  expect(JSON.parse(localStorage.getItem("Player")).gathering).toEqual(gathering);
+  await flushPlayer();
+  expect(records["users/alice"].player).toMatchObject({
+    gathering, materials: { bog_iron: 4 },
+    equipment: { pickaxe: { mainStat: pickaxe.mainStat, subStats: pickaxe.subStats } },
+  });
+  await loadPlayer("alice");
+  expect(getPlayer().gathering).toEqual(gathering);
+  expect(getPlayer().equipment.pickaxe.mainStat.stat).toBe("gatheringPower");
 });
 
 test("saves wait for leaderboard publication before completing or writing newer progress", async () => {

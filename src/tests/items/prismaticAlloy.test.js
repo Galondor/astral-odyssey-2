@@ -2,7 +2,7 @@ import { getPlayer, setPlayer } from "../../character/player";
 import { getEnemy } from "../../combat/combat";
 import { applyPrismaticAlloy, canApplyPrismaticAlloy } from "../../items/prismaticAlloy";
 import { drinkConsumable } from "../../items/consumables";
-import { HOLOFOIL_EFFECTS } from "../../items/holofoil";
+import { HOLOFOIL_EFFECTS, MYTHIC_HOLOFOIL_EFFECTS, MYTHIC_HOLOFOIL_PALETTES } from "../../items/holofoil";
 import { getItemSocketCount } from "../../items/sockets";
 import { getSubStatTier } from "../../items/items";
 
@@ -70,6 +70,23 @@ test("applies foils to equipped gear but rejects missing items, placeholders, an
   expect(applyPrismaticAlloy("sword").ok).toBe(false);
   expect(player.consumables.prismaticAlloy).toBe(1);
   expect(setPlayer).not.toHaveBeenCalled();
+});
+
+test.each(["inventory", "equipment"])("Mythic Alloy rerolls in %s keep the exclusive pool and do not stack bonuses", location => {
+  const mythic = {
+    ...item, rarity: "Mythic", holofoil: ["#123456", "#abcdef"],
+    holofoilEffect: "event-horizon", holofoilBonusVersion: 1, price: 1000,
+  };
+  player.inventory = location === "inventory" ? [mythic] : [];
+  player.equipment = location === "equipment" ? { mainHand: mythic } : {};
+  const effect = MYTHIC_HOLOFOIL_EFFECTS[2];
+  expect(applyPrismaticAlloy("sword").ok).toBe(true);
+  const result = location === "inventory" ? player.inventory[0] : player.equipment.mainHand;
+  expect(result.holofoilEffect).toBe(effect);
+  expect(result.holofoil).toEqual(MYTHIC_HOLOFOIL_PALETTES[effect][1]);
+  expect(result.price).toBe(1000);
+  expect(result.rarity).toBe("Mythic");
+  expect(player.consumables).toEqual({});
 });
 
 test("Alloy grants bonuses once and immediately recalculates equipped stats", () => {

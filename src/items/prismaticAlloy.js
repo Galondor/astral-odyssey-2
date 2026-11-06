@@ -26,7 +26,7 @@ export function applyPrismaticAlloy(itemId) {
     return { ok: false, message: "Choose an equipment item to apply the alloy to." };
 
   const reroll = isHolofoilColors(item.holofoil);
-  const upgraded = applyHolofoilBonuses({ ...item, ...rollHolofoil(true), prismatic: true });
+  const upgraded = applyHolofoilBonuses({ ...item, ...rollHolofoil(true, item.rarity), prismatic: true });
   const consumables = { ...player.consumables, prismaticAlloy: player.consumables.prismaticAlloy - 1 };
   if (!consumables.prismaticAlloy) delete consumables.prismaticAlloy;
   const changes = { consumables };

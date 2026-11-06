@@ -9,6 +9,7 @@ import { getInputMode, getVisibleOptions, processButton, scenes } from "../world
 import { getContestStatus, subscribeContest } from "../world/contest";
 import { getGroupStatus, subscribeGroup } from "../world/groupParty";
 import { isInGroupDungeon } from "../world/groupState";
+import { forfeitGathering } from "../world/gathering";
 
 jest.mock("firebase/auth", () => ({
   onAuthStateChanged: (_, callback) => {
@@ -35,6 +36,7 @@ jest.mock("../character/characters", () => ({
   loadCharacters: jest.fn(),
 }));
 jest.mock("../world/blackjack", () => ({ clearBlackjack: jest.fn() }));
+jest.mock("../world/gathering", () => ({ forfeitGathering: jest.fn(), takeGatheringNotice: () => "" }));
 jest.mock("../world/contest", () => ({
   getContestStatus: jest.fn(() => ({})),
   sendContestCommand: jest.fn(),
@@ -76,6 +78,7 @@ jest.mock("../ui/screens", () => ({
     combat: { label: "Combat", hideUnlessActive: true, component: ({ data }) => <h1>Combat screen: {data?.enemy?.name}</h1> },
     gearTrader: { label: "Gear Trader", hideUnlessActive: true, component: () => <h1>Gear Trader screen</h1> },
     groupRun: { label: "Group Dungeon", hideUnlessActive: true, component: () => <h1>Group run screen</h1> },
+    gathering: { label: "Gathering", hideUnlessActive: true, component: () => <h1>Gathering screen</h1> },
   },
 }));
 jest.mock("../world/gameLogic", () => ({
@@ -88,6 +91,7 @@ jest.mock("../world/gameLogic", () => ({
     start: { screen: "adventure" },
     createCharacter: { screen: "adventure" },
     menu: { screen: "adventure" },
+    gathering: { screen: "gathering", input: "pointer" },
   },
 }));
 
@@ -137,6 +141,22 @@ const enterGame = async () => {
   const guide = screen.queryByRole("dialog", { name: "Welcome, adventurer!" });
   if (guide) fireEvent.click(within(guide).getByRole("button", { name: "Start exploring" }));
 };
+
+test("gathering bypasses numeric shortcuts and leaving via navigation forfeits the opportunity", async () => {
+  getInputMode.mockReturnValue("buttons");
+  getVisibleOptions.mockReturnValue([{ label: "Gather" }]);
+  processButton.mockReturnValueOnce({ sceneId: "gathering", replies: [] });
+  render(<App />);
+  await enterGame();
+  fireEvent.click(screen.getByRole("button", { name: /Gather$/ }));
+  expect(screen.getByRole("heading", { name: "Gathering screen" })).toBeTruthy();
+  processButton.mockClear();
+  fireEvent.keyDown(window, { key: "1" });
+  expect(processButton).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: /^Character 2$/ }));
+  expect(forfeitGathering).toHaveBeenCalled();
+  expect(screen.getByRole("heading", { name: "Character screen" })).toBeTruthy();
+});
 
 test("the first visit opens a quick guide that can be reopened from the game menu", async () => {
   localStorage.removeItem("astralOdyssey2QuickGuideSeen:test-player");

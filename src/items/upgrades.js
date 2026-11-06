@@ -1,7 +1,7 @@
 import { getPlayer, setPlayer } from "../character/player";
 import { getEnemy } from "../combat/combat";
-import { getSubStatTier, SLOTS } from "./items";
-import { isToolItem, TOOL_MAX_ITEM_LEVEL } from "./craftingStats";
+import { getItemStatTierCap, getSubStatTier, SLOTS } from "./items";
+import { isGatheringToolSlot, isToolItem, TOOL_MAX_ITEM_LEVEL } from "./craftingStats";
 import { getToolSubStatTier } from "./tools";
 
 export const MAX_ITEM_UPGRADES = 10;
@@ -47,13 +47,14 @@ export function upgradeInventoryItem(itemId) {
 
   const subStats = {};
   const subTiers = { ...item.subTiers };
+  const maxStatTier = getItemStatTierCap(item);
   const scaleUp = (value) => Math.round(value * status.nextLevel / item.iLevel * 1e6) / 1e6;
   for (const [stat, value] of Object.entries(item.subStats || {})) {
     // Keep fractional gains so rounding cannot strand low rolls across repeated upgrades.
     subStats[stat] = scaleUp(value);
     const tier = isToolItem(item)
       ? getToolSubStatTier(stat, subStats[stat], status.nextLevel)
-      : getSubStatTier(stat, subStats[stat], status.nextLevel, item.twoHanded);
+      : getSubStatTier(stat, subStats[stat], status.nextLevel, item.twoHanded, maxStatTier);
     if (tier !== null) subTiers[stat] = tier;
   }
   const upgraded = {
@@ -63,10 +64,12 @@ export function upgradeInventoryItem(itemId) {
     price: item.price + status.cost,
     subStats,
     subTiers,
+    ...(isGatheringToolSlot(item.slot) && item.mainStat?.stat === "gatheringPower"
+      ? { mainStat: { ...item.mainStat, value: Math.min(50, item.mainStat.value + 1) } } : {}),
   };
   if (item.mythicSubStat && Number.isFinite(item.mythicSubStat.value)) {
     const value = scaleUp(item.mythicSubStat.value);
-    const tier = getSubStatTier(item.mythicSubStat.stat, value, status.nextLevel, item.twoHanded);
+    const tier = getSubStatTier(item.mythicSubStat.stat, value, status.nextLevel, item.twoHanded, maxStatTier);
     upgraded.mythicSubStat = { ...item.mythicSubStat, value, ...(tier !== null ? { tier } : {}) };
   }
   inventory[index] = upgraded;

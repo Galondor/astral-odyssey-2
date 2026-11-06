@@ -1,3 +1,5 @@
+import { getGatheringLevel } from "./gathering";
+
 /*
  Crafting professions. The player saves `professions: { [id]: { level, exp, crafts } }`;
  missing entries default to level 1, so older saves need no migration.
@@ -9,8 +11,8 @@ export const PROFESSIONS = {
   weaponry: {
     id: "weaponry",
     name: "Weaponry",
-    description: "Forges weapons, off-hand gear, and Blacksmith's Hammers.",
-    slots: ["weapon", "offhand", "hammer"],
+    description: "Forges weapons, off-hand gear, Blacksmith's Hammers, and gathering tools and heads.",
+    slots: ["weapon", "offhand", "hammer", "pickaxe", "axe"],
     tool: "hammer",
   },
   armor: {
@@ -69,13 +71,17 @@ export const getToolProfessionLevel = (player, slot) =>
     ? Math.max(getProfessionLevel(player, "weaponry"), getProfessionLevel(player, "armor"))
     : slot === "precisionTools"
       ? getProfessionLevel(player, "jewelry")
+      : slot === "pickaxe" || slot === "axe"
+        ? (getGatheringLevel(player, slot === "pickaxe" ? "mining" : "logging") >= 5
+          ? getGatheringLevel(player, slot === "pickaxe" ? "mining" : "logging") : 0)
       : 0;
 
 export const getToolProfessionLabel = (slot) =>
-  slot === "hammer" ? "Weaponry or Armor" : slot === "precisionTools" ? "Jewelry" : "";
+  slot === "hammer" ? "Weaponry or Armor" : slot === "precisionTools" ? "Jewelry"
+    : slot === "pickaxe" ? "Mining" : slot === "axe" ? "Logging" : "";
 
 // Returns the new professions object and the levels gained.
-export const addProfessionExp = (player, id, amount) => {
+export const addProfessionExp = (player, id, amount, { countCraft = true } = {}) => {
   const current = getProfession(player, id);
   let { level, exp } = current;
   exp += Math.max(0, Math.floor(amount));
@@ -88,7 +94,7 @@ export const addProfessionExp = (player, id, amount) => {
   return {
     professions: {
       ...(player?.professions || {}),
-      [id]: { level, exp, crafts: current.crafts + 1 },
+      [id]: { level, exp, crafts: current.crafts + Number(countCraft) },
     },
     levelsGained: level - start,
     level,

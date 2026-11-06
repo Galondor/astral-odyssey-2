@@ -4,7 +4,7 @@ import { auth } from "../../firebase";
 import { createMythicItem } from "../../items/items";
 import { MATERIALS } from "../../items/materials";
 import { createToolItem } from "../../items/tools";
-import { DEFAULT_FILTERS, buyListing, cancelListing, filterListings, listItem } from "../../world/marketplace";
+import { DEFAULT_FILTERS, buyListing, cancelListing, filterListings, getItemStats, listItem } from "../../world/marketplace";
 import { normalizeAttachments } from "../../world/inbox";
 
 jest.mock("../../firebase", () => ({ db: {}, auth: { currentUser: { uid: "seller" } } }));
@@ -21,15 +21,25 @@ jest.mock("firebase/database", () => ({
 let player;
 const hammer = createToolItem({ slot: "hammer", iLevel: 30, rarity: "Epic", condition: "Pristine", holofoil: ["#123456", "#abcdef"] });
 const mythic = createMythicItem({ slot: "ring", iLevel: 60 });
+const pickaxe = createToolItem({ slot: "pickaxe", iLevel: 30, rarity: "Epic", holofoil: ["#123456", "#abcdef"] });
+const axe = createToolItem({ slot: "axe", iLevel: 30, rarity: "Legendary" });
 const listing = (item) => ({ id: "listing", sellerUid: "seller", sellerName: "Seller", item, price: 5000, listedAt: 1 });
 const roundTrip = (value) => JSON.parse(JSON.stringify(value));
+
+test("market stat filters include intrinsic bonuses in addition to rolled stats", () => {
+  const sword = { slot: "weapon", name: "Renamed blade", baseType: "Sword", subStats: { attackPercent: 0.02 } };
+  expect(getItemStats(sword)).toEqual({ attackPercent: 0.05 });
+  const rows = [listing(sword)];
+  expect(filterListings(rows, { ...DEFAULT_FILTERS, stat: "attackPercent", minStat: "5" })).toEqual(rows);
+  expect(filterListings(rows, { ...DEFAULT_FILTERS, stat: "attackPercent", minStat: "6" })).toEqual([]);
+});
 
 beforeEach(() => {
   jest.clearAllMocks();
   getCharacterIdentity.mockReturnValue(null);
   auth.currentUser = { uid: "seller" };
   player = {
-    name: "Seller", level: 25, astra: 100000, inventory: [hammer, mythic],
+    name: "Seller", level: 25, astra: 100000, inventory: [hammer, mythic, pickaxe, axe],
     materials: { warsteel_ingot: 10, mythos_fragment: 2, hammerhead_iii: 1, quicksilver: 4 },
     professions: { weaponry: { level: 10 }, armor: { level: 35 }, jewelry: { level: 5 } },
   };
@@ -53,7 +63,7 @@ test.each(["warsteel_ingot", "mythos_fragment", "hammerhead_iii", "quicksilver"]
   expect(update.mock.calls.at(-1)[1]["inbox/buyer/market-listing"].attachments).toEqual({ materials: { [key]: 1 } });
 });
 
-test.each([["Hammer", hammer], ["Mythic gear", mythic]])("%s can be listed, cancelled, and bought without losing stats", async (_, item) => {
+test.each([["Hammer", hammer], ["Mythic gear", mythic], ["Pickaxe", pickaxe], ["Axe", axe]])("%s can be listed, cancelled, and bought without losing stats", async (_, item) => {
   const index = player.inventory.indexOf(item);
   expect(await listItem(index, 5000)).toMatchObject({ ok: true });
   const stored = update.mock.calls[0][1]["marketplace/listing"];
@@ -71,6 +81,13 @@ test.each([["Hammer", hammer], ["Mythic gear", mythic]])("%s can be listed, canc
   const [delivered] = normalizeAttachments(roundTrip(mail.attachments)).items;
   expect(delivered.subStats).toEqual(item.subStats);
   if (item.mythicSubStat) expect(delivered.mythicSubStat).toEqual(item.mythicSubStat);
+});
+
+test("the market filters gathering tools by matching gathering level, not character or Weaponry level", () => {
+  const rows = [listing(pickaxe), listing(axe)];
+  const gatherer = { ...player, gathering: { mining: { level: 30 }, logging: { level: 29 } } };
+  expect(filterListings(rows, { ...DEFAULT_FILTERS, usable: true }, 100, gatherer)).toEqual([rows[0]]);
+  expect(getItemStats(pickaxe)).toMatchObject({ gatheringPower: pickaxe.mainStat.value });
 });
 
 test("the usable filter checks tool requirements against professions", () => {

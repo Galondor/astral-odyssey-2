@@ -4,6 +4,7 @@ import { getEnemy } from "../combat/combat";
 import { CONSUMABLES } from "./consumables";
 import {
   getCustomSubStatTiers,
+  getItemStatTierCap,
   getSubStatTier,
   getSubStatPool,
   getNextItemQuality,
@@ -65,6 +66,7 @@ export function applyRune(key, itemId, stat) {
   } else {
     const subStats = { ...(item.subStats || {}) };
     const subTiers = { ...(item.subTiers || {}) };
+    const maxStatTier = getItemStatTierCap(item);
     // Runes can cross normal pools, but resistance stats retain their armor/jewelry restriction.
     const availableStats = SUBSTAT_NAMES.filter((candidate) =>
       !["criticalResistance", "statusResistance"].includes(candidate) || getSubStatPool(item.slot).includes(candidate));
@@ -72,13 +74,13 @@ export function applyRune(key, itemId, stat) {
     if (effect === 1 && Object.keys(subStats).length) {
       const currentStat = Object.keys(subStats)[Math.floor(Math.random() * Object.keys(subStats).length)];
       const currentTier = subTiers[currentStat] ?? getSubStatTier(
-        currentStat, subStats[currentStat], item.iLevel, item.twoHanded,
+        currentStat, subStats[currentStat], item.iLevel, item.twoHanded, maxStatTier,
       );
       if (currentTier === null)
         return { ok: false, message: `Could not determine the ${STAT_LABELS[currentStat] || currentStat} substat tier.` };
-      const tiers = currentTier === 0 ? [1] : currentTier === 7 ? [6] : [currentTier - 1, currentTier + 1];
+      const tiers = currentTier === 0 ? [1] : currentTier === maxStatTier ? [currentTier - 1] : [currentTier - 1, currentTier + 1];
       const nextTier = tiers[Math.floor(Math.random() * tiers.length)];
-      const value = rollSubStatAtTier(currentStat, item.iLevel, nextTier, item.twoHanded);
+      const value = rollSubStatAtTier(currentStat, item.iLevel, nextTier, item.twoHanded, maxStatTier);
       if (value === null)
         return { ok: false, message: `Could not roll a ${STAT_LABELS[currentStat] || currentStat} substat at tier ${nextTier}.` };
       subStats[currentStat] = value;
@@ -88,14 +90,14 @@ export function applyRune(key, itemId, stat) {
       const currentStats = Object.keys(subStats);
       const currentStat = currentStats[Math.floor(Math.random() * currentStats.length)];
       const tier = subTiers[currentStat] ?? getSubStatTier(
-        currentStat, subStats[currentStat], item.iLevel, item.twoHanded,
+        currentStat, subStats[currentStat], item.iLevel, item.twoHanded, maxStatTier,
       );
       if (tier === null)
         return { ok: false, message: `Could not determine the ${STAT_LABELS[currentStat] || currentStat} substat tier.` };
       const replacements = availableStats.filter((candidate) => !(candidate in subStats));
       if (replacements.length) {
         const newStat = replacements[Math.floor(Math.random() * replacements.length)];
-        const value = rollSubStatAtTier(newStat, item.iLevel, tier, item.twoHanded);
+        const value = rollSubStatAtTier(newStat, item.iLevel, tier, item.twoHanded, maxStatTier);
         if (value === null)
           return { ok: false, message: `Could not roll a ${STAT_LABELS[newStat] || newStat} substat at tier ${tier}.` };
         delete subStats[currentStat];
@@ -108,10 +110,10 @@ export function applyRune(key, itemId, stat) {
       const additions = availableStats.filter((candidate) => !(candidate in subStats));
       if (additions.length) {
         const newStat = additions[Math.floor(Math.random() * additions.length)];
-        const tiers = getCustomSubStatTiers(newStat, item.iLevel, item.twoHanded);
+        const tiers = getCustomSubStatTiers(newStat, item.iLevel, item.twoHanded, maxStatTier);
         if (tiers.length) {
           const tier = tiers[Math.floor(Math.random() * tiers.length)];
-          subStats[newStat] = rollSubStatAtTier(newStat, item.iLevel, tier, item.twoHanded);
+          subStats[newStat] = rollSubStatAtTier(newStat, item.iLevel, tier, item.twoHanded, maxStatTier);
           subTiers[newStat] = tier;
           effectMessage = `added ${STAT_LABELS[newStat] || newStat} at T${tier}`;
         }

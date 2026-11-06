@@ -1,5 +1,5 @@
 import { isHolofoilColors, rollHolofoil } from "./holofoil";
-import { CRAFTING_STATS, isToolItem, TOOL_MAIN_STAT, TOOL_MAX_ITEM_LEVEL, TOOL_SUBSTATS } from "./craftingStats";
+import { TOOL_STAT_DEFS, getToolSubStats, isGatheringToolSlot, isToolItem, TOOL_MAIN_STAT, TOOL_MAX_ITEM_LEVEL } from "./craftingStats";
 import { getToolProfessionLevel, PROFESSIONS } from "../character/professions";
 
 /*
@@ -9,7 +9,7 @@ import { getToolProfessionLevel, PROFESSIONS } from "../character/professions";
  Weaponry and Armor; Precision Tools use Jewelry). The Hammer boosts Weaponry and Armor crafts and
  Precision Tools boost Jewelry crafts.
 */
-export const TOOL_NAMES = { hammer: "Blacksmith's Hammer", precisionTools: "Precision Tools" };
+export const TOOL_NAMES = { hammer: "Blacksmith's Hammer", precisionTools: "Precision Tools", pickaxe: "Pickaxe", axe: "Logging Axe" };
 export const TOOL_RARITIES = ["Common", "Uncommon", "Rare", "Epic", "Legendary"];
 const TOOL_RARITY_CONFIG = {
   Common: { substats: 1, mainBonus: 1, priceMult: 1 },
@@ -29,6 +29,8 @@ const TOOL_CONDITIONS = {
 const TOOL_PREFIXES = {
   hammer: ["Iron", "Steel", "Mythril"],
   precisionTools: ["Brass", "Silver", "Mythril"],
+  pickaxe: ["Iron", "Steel", "Mythril"],
+  axe: ["Iron", "Steel", "Mythril"],
 };
 const TOOL_MAIN_MAX = 15;
 const MAX_TIER = 7;
@@ -38,12 +40,12 @@ let toolCounter = 0;
 const newToolId = () => `item-${Date.now().toString(36)}-t${(toolCounter++).toString(36)}`;
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 
-const statMax = (stat, iLevel) => CRAFTING_STATS[stat].cap * iLevel;
-const precisionOf = (stat) => CRAFTING_STATS[stat].precision || 1;
+const statMax = (stat, iLevel) => TOOL_STAT_DEFS[stat].cap * iLevel;
+const precisionOf = (stat) => TOOL_STAT_DEFS[stat].precision || 1;
 const roundStat = (stat, value) => Math.round(value * precisionOf(stat)) / precisionOf(stat);
 
 export const getToolSubStatTier = (stat, value, iLevel) => {
-  if (!CRAFTING_STATS[stat]?.cap || !Number.isFinite(value) || !(iLevel >= 1)) return null;
+  if (!TOOL_STAT_DEFS[stat]?.cap || !Number.isFinite(value) || !(iLevel >= 1)) return null;
   return Math.round(Math.min(1, Math.max(0, value / statMax(stat, iLevel))) * MAX_TIER);
 };
 
@@ -67,17 +69,20 @@ export const applyToolHolofoilBonuses = (item) => {
   const subStats = { ...(item.subStats || {}) };
   const subTiers = { ...(item.subTiers || {}) };
   for (const [stat, value] of Object.entries(subStats)) {
-    if (!CRAFTING_STATS[stat]?.cap) continue;
+    if (!getToolSubStats(item.slot).includes(stat)) continue;
     if ((getToolSubStatTier(stat, value, level) ?? 0) < HOLOFOIL_TOOL_MIN_TIER) subStats[stat] = rollToolSubStat(stat, level, HOLOFOIL_TOOL_MIN_TIER);
     subTiers[stat] = getToolSubStatTier(stat, subStats[stat], level);
   }
   const minimumMain = Math.ceil(((HOLOFOIL_TOOL_MIN_TIER - 0.5) / MAX_TIER) * TOOL_MAIN_MAX);
-  const mainValue = Math.max(item.mainStat?.value || 0, minimumMain);
+  const gathering = isGatheringToolSlot(item.slot);
+  const mainValue = gathering
+    ? Math.min(50, Math.max(item.mainStat?.value || 1, level))
+    : Math.max(item.mainStat?.value || 0, minimumMain);
   return {
     ...item,
     subStats,
     subTiers,
-    mainStat: { stat: TOOL_MAIN_STAT, value: mainValue, tier: toolMainTier(mainValue) },
+    mainStat: { stat: gathering ? "gatheringPower" : TOOL_MAIN_STAT, value: mainValue, tier: gathering ? Math.max(5, item.mainStat?.tier || 0) : toolMainTier(mainValue) },
     price: Number.isSafeInteger(item.price) ? item.price * 2 : item.price,
     socketCount: 0,
     holofoilBonusVersion: 1,
@@ -88,15 +93,16 @@ export const applyToolHolofoilBonuses = (item) => {
  spec: { slot, iLevel (1-50), rarity, condition, minTier, guaranteed: [tool stats], holofoil (true/colors forces one) }
 */
 export const createToolItem = ({ slot, iLevel = 1, rarity = "Common", condition = "Average", minTier = 0, guaranteed = [], holofoil } = {}) => {
-  if (!TOOL_NAMES[slot]) throw new Error("Choose a Hammer or Precision Tools.");
+  if (!TOOL_NAMES[slot]) throw new Error("Choose a crafting or gathering tool.");
   const config = TOOL_RARITY_CONFIG[rarity];
   const conditionDef = TOOL_CONDITIONS[condition];
   if (!config || !conditionDef) throw new Error("Tools can be Common to Legendary in any condition.");
   const level = Math.min(TOOL_MAX_ITEM_LEVEL, Math.max(1, Math.floor(Number(iLevel) || 1)));
   const foil = rollHolofoil(holofoil);
   const floor = Math.min(MAX_TIER, Math.floor(minTier) || 0);
-  const chosen = [...new Set(guaranteed)].filter((stat) => TOOL_SUBSTATS.includes(stat)).slice(0, config.substats);
-  const rest = TOOL_SUBSTATS.filter((stat) => !chosen.includes(stat));
+  const pool = getToolSubStats(slot);
+  const chosen = [...new Set(guaranteed)].filter((stat) => pool.includes(stat)).slice(0, config.substats);
+  const rest = pool.filter((stat) => !chosen.includes(stat));
   while (chosen.length < config.substats) chosen.push(rest.splice(Math.floor(Math.random() * rest.length), 1)[0]);
   const subStats = {};
   const subTiers = {};
@@ -106,7 +112,11 @@ export const createToolItem = ({ slot, iLevel = 1, rarity = "Common", condition 
   }
   const rolls = [1, 2, 3, 4, 5].map((roll) => Math.max(0, roll + config.mainBonus + conditionDef.main));
   const allowed = rolls.filter((value) => toolMainTier(value) >= floor);
-  const mainValue = allowed.length ? pick(allowed) : Math.max(...rolls);
+  const gathering = isGatheringToolSlot(slot);
+  const gatheringRollTier = gathering ? Math.max(floor, Math.floor(Math.random() * 8)) : 0;
+  const mainValue = gathering
+    ? Math.min(50, Math.max(1, level + Math.round((gatheringRollTier - 3) / 2) + config.mainBonus - 1 + conditionDef.main))
+    : allowed.length ? pick(allowed) : Math.max(...rolls);
   const prefix = TOOL_PREFIXES[slot][level > 35 ? 2 : level > 20 ? 1 : 0];
   const tierSum = Object.values(subTiers).reduce((sum, tier) => sum + tier, 0);
   const price = Math.max(1, Math.round((10 + level * 4 + mainValue * 3 + tierSum * level) * config.priceMult * conditionDef.value));
@@ -121,7 +131,7 @@ export const createToolItem = ({ slot, iLevel = 1, rarity = "Common", condition 
     iLevel: level,
     price,
     description: "",
-    mainStat: { stat: TOOL_MAIN_STAT, value: mainValue, tier: toolMainTier(mainValue) },
+    mainStat: { stat: gathering ? "gatheringPower" : TOOL_MAIN_STAT, value: mainValue, tier: gathering ? gatheringRollTier : toolMainTier(mainValue) },
     subStats,
     subTiers,
     ability: null,

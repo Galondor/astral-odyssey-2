@@ -10,6 +10,7 @@ import { TUTORIAL_ENEMY } from "../combat/tutorial";
 import { addConsumable, getKeyItemEffect } from "../items/consumables";
 import { MATERIALS, addMaterial, getMaterials, spendMaterials } from "../items/materials";
 import { getPlayer, setPlayer as savePlayer } from "../character/player";
+import { offerGathering } from "./gathering";
 import {
   REGIONS,
   canEnterRegion,
@@ -826,6 +827,15 @@ const globalEvents = [
 ];
 
 export const travelEvents = [
+  {
+    id: "gathering",
+    regions: "all",
+    weight: 6,
+    run: ({ player, region }) => {
+      const result = offerGathering(player, region);
+      return result.ok ? { next: "gathering" } : { reply: result.message, next: "menu" };
+    },
+  },
   {
     id: "quietRoad",
     regions: "all",

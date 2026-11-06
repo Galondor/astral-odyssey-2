@@ -13,9 +13,10 @@ jest.mock("../../world/marketplace", () => ({
 jest.mock("../../ui/ChangelogScreen", () => () => null);
 jest.mock("../../ui/RoadmapScreen", () => () => null);
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { SCREENS } from "../../ui/screens";
 import { createSkillGemstone } from "../../items/items";
+import ProfessionProgress from "../../ui/ProfessionProgress";
 
 const ProgressionScreen = SCREENS.progression.component;
 const player = {
@@ -28,6 +29,31 @@ const player = {
   equippedSkills: [],
   stats: { strength: 1, dexterity: 1, intelligence: 1 },
 };
+
+test("profession stats explain their effects in focusable tooltips", () => {
+  jest.useFakeTimers();
+  render(<ProfessionProgress player={player} profession="weaponry" />);
+
+  const expectedDescriptions = [
+    ["Reagent slots", "extra materials you can add as reagents"],
+    ["Craft quality", "higher-rarity, better-condition, and higher-tier gear"],
+    ["Astra discount", "Reduces the astra cost of crafting"],
+    ["Discovery", "discover the next unknown property"],
+    ["Mythic chance", "Chance for a crafted gear item to be Mythic"],
+  ];
+
+  try {
+    expectedDescriptions.forEach(([label, description]) => {
+      const currentStat = screen.getByLabelText(new RegExp(`^${label}:`));
+      fireEvent.focus(currentStat);
+      act(() => jest.advanceTimersByTime(150));
+      expect(screen.getByRole("tooltip").textContent).toContain(description);
+      fireEvent.blur(currentStat);
+    });
+  } finally {
+    jest.useRealTimers();
+  }
+});
 
 test("Progression provides skill category subtabs and a Subclasses tab", () => {
   render(<ProgressionScreen player={player} inCombat={false} onChange={jest.fn()} />);
@@ -67,7 +93,9 @@ test("Progression provides skill category subtabs and a Subclasses tab", () => {
   expect(within(jewelry).getByRole("region", { name: "Tool blueprints" }).textContent).toContain("Precision Tools");
   expect(jewelry.textContent).toContain("Next unlock · Lv 5");
   fireEvent.click(within(professions).getByRole("tab", { name: "Gathering" }));
-  expect(screen.getByRole("status").textContent).toContain("Gathering progression is coming soon.");
+  expect(screen.getByRole("region", { name: "Mining progression" }).textContent).toContain("Mining level 1");
+  fireEvent.click(screen.getByRole("tab", { name: "Logging" }));
+  expect(screen.getByRole("region", { name: "Logging progression" }).textContent).toContain("Logging level 1");
 });
 
 test("overcapped skills display gem levels without blocking learned-level upgrades", () => {

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import Tooltip, { TooltipContent } from "../../ui/Tooltip";
 import { itemTooltip } from "../../items/items";
-import { getHolofoilStyle } from "../../items/holofoil";
+import { getHolofoilStyle, MYTHIC_HOLOFOIL_EFFECTS, MYTHIC_HOLOFOIL_PALETTES } from "../../items/holofoil";
 
 jest.mock("../../character/player", () => ({ getPlayer: () => ({ level: 1 }) }));
 
@@ -35,6 +35,20 @@ test("equipment tooltip renders its saved holofoil gradient and label", () => {
   act(() => jest.runOnlyPendingTimers());
   expect(screen.getByRole("tooltip").style.getPropertyValue("--holofoil-background")).toBe(getHolofoilStyle(item)["--holofoil-background"]);
   expect(screen.getByRole("tooltip").textContent).toContain("Holofoil Rare");
+});
+
+test.each(MYTHIC_HOLOFOIL_EFFECTS)("Mythic tooltip renders the %s finish and reduced-motion image", effect => {
+  jest.useFakeTimers();
+  const item = {
+    name: "Mythic blade", rarity: "Mythic", slot: "weapon", iLevel: 50, price: 1000,
+    holofoil: MYTHIC_HOLOFOIL_PALETTES[effect][1], holofoilEffect: effect,
+  };
+  render(<Tooltip content={itemTooltip(item)} delay={0}><button>Inspect Mythic</button></Tooltip>);
+  fireEvent.focus(screen.getByRole("button", { name: "Inspect Mythic" }));
+  act(() => jest.runOnlyPendingTimers());
+  const tooltip = screen.getByRole("tooltip");
+  expect(tooltip.style.getPropertyValue("--holofoil-mythic-still")).toBe(getHolofoilStyle(item)["--holofoil-mythic-still"]);
+  expect(tooltip.textContent).toContain("Holofoil Mythic");
 });
 
 test("equipment tooltip separates the main stat from its first substat", () => {

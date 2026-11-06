@@ -9,6 +9,8 @@ import { UNIQUES } from "../world/dungeonData";
 import { CRAFTED_UNIQUES } from "../items/craftingUniques";
 import { TOOL_NAMES, TOOL_RARITIES } from "../items/tools";
 import { TOOL_MAX_ITEM_LEVEL } from "../items/craftingStats";
+import { PROFESSIONS } from "../character/professions";
+import { GATHERING_PROFESSIONS } from "../character/gathering";
 import {
   administerPlayerTimer,
   deleteBroadcast,
@@ -26,6 +28,10 @@ import AdminDataPanel from "./AdminDataPanel";
 const KINDS = {
   astra: { label: "Astra" },
   exp: { label: "Experience" },
+  professionExp: { label: "Profession experience", options: [
+    ...Object.entries(PROFESSIONS).map(([id, profession]) => [id, profession.name]),
+    ...Object.entries(GATHERING_PROFESSIONS).map(([id, profession]) => [id, profession.name]),
+  ] },
   rep: { label: "Reputation" },
   material: { label: "Material", options: Object.entries(MATERIALS).map(([k, v]) => [k, v.name]) },
   consumable: { label: "Consumable", options: Object.entries(CONSUMABLES).map(([k, v]) => [k, v.name]) },
@@ -42,11 +48,12 @@ const KINDS = {
 
 // Collapses the picked rows into the attachments shape stored on a message.
 const buildAttachments = (rows) => {
-  const out = { astra: 0, exp: 0, rep: 0, materials: {}, consumables: {}, keyItems: {}, gear: [], uniques: [], tools: [], gemstones: [], gemstoneItems: [], titles: [], items: [] };
+  const out = { astra: 0, exp: 0, rep: 0, professionExp: {}, materials: {}, consumables: {}, keyItems: {}, gear: [], uniques: [], tools: [], gemstones: [], gemstoneItems: [], titles: [], items: [] };
   for (const r of rows) {
     const foil = r.holofoil ? { holofoil: r.holofoil } : {};
     if (r.kind === "astra") out.astra += r.amount;
     else if (r.kind === "exp") out.exp += r.amount;
+    else if (r.kind === "professionExp") out.professionExp[r.key] = (out.professionExp[r.key] || 0) + r.amount;
     else if (r.kind === "rep") out.rep += r.amount;
     else if (r.kind === "material") out.materials[r.key] = (out.materials[r.key] || 0) + r.amount;
     else if (r.kind === "consumable") out.consumables[r.key] = (out.consumables[r.key] || 0) + r.amount;
@@ -133,6 +140,16 @@ const AdminScreen = () => {
   const isGear = kind === "gear" || kind === "unique" || kind === "tool";
 
   const addRow = () => {
+    if (kind === "professionExp") {
+      const count = Number(amount);
+      if (!Number.isSafeInteger(count) || count < 1) {
+        setNote("Quantity must be a positive whole number.");
+        return;
+      }
+      setRows((rows) => [...rows, { kind, key: selectedKey, amount: count }]);
+      setNote("");
+      return;
+    }
     if (kind === "skillGem") {
       const count = Number(amount);
       if (!Number.isSafeInteger(count) || count < 1) {

@@ -1435,7 +1435,7 @@ function strikeTarget({ s, replies, skill, skillKey, level, type, overcharged, e
       "Vampiric",
     );
   if (ab.surge && ctx.crit && dealt > 0 && s.power < powerCap(s)) {
-    gainPower(s, Math.round((s.maxPower * ab.surge) / 2));
+    gainPower(s, Math.round(s.maxPower * ab.surge));
     replies.push("Arcane Surge: you recover power!");
   }
   if (ctx.crit && dealt > 0 && ab.uniqueEffects.includes("orbitalFocus")) {

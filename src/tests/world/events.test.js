@@ -7,12 +7,14 @@ import {
 import { getRandomEnemy, hasEnemy } from "../../combat/enemies";
 import {
   isEventEligible,
+  pickTravelEvent,
   REGIONS,
   runTravelEvent,
   travelEvents,
 } from "../../world/events";
 import { REGION_ORDER } from "../../world/regions";
 import { getPortalFare, scenes } from "../../world/gameLogic";
+import { forfeitGathering, getGatheringAttempt } from "../../world/gathering";
 
 jest.mock("../../firebase", () => ({ auth: {}, db: {} }));
 jest.mock("../../character/player", () => ({
@@ -38,6 +40,31 @@ beforeEach(() => {
 });
 
 afterEach(() => jest.restoreAllMocks());
+
+test.each(REGION_ORDER)("gathering has increased travel selection weight in %s", (region) => {
+  const ctx = { player: { level: 100 }, region };
+  const eligible = travelEvents.filter((event) => isEventEligible(event, ctx));
+  const total = eligible.reduce((sum, event) =>
+    sum + (typeof event.weight === "function" ? event.weight(ctx) : event.weight ?? 1), 0);
+  expect(travelEvents.find(({ id }) => id === "gathering").weight).toBe(6);
+  expect(pickTravelEvent(ctx, travelEvents, () => 4.5 / total).id).toBe("gathering");
+  expect(pickTravelEvent(ctx, travelEvents, () => 6.5 / total).id).toBe("quietRoad");
+});
+
+test("one generic gathering event is eligible everywhere and randomly selects either activity", () => {
+  const event = travelEvents.find(({ id }) => id === "gathering");
+  expect(event.regions).toBe("all");
+  const player = { level: 100 };
+  for (const region of REGION_ORDER) expect(isEventEligible(event, { player, region })).toBe(true);
+  for (const [roll, activity] of [[0, "mining"], [0.99, "logging"]]) {
+    forfeitGathering();
+    jest.spyOn(Math, "random").mockReturnValue(roll);
+    expect(event.run({ player, region: "Meadowlands" })).toEqual({ next: "gathering" });
+    expect(getGatheringAttempt().activity).toBe(activity);
+  }
+  forfeitGathering();
+  expect(scenes.gathering).toMatchObject({ input: "pointer", screen: "gathering", options: [] });
+});
 
 test.each([
   ["enemyEncounter", "basic", 0.999, ["basic", "basic", "basic", "basic"]],

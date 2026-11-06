@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { getPlayer, setPlayer } from "../../character/player";
+import { CRAFTING_MATERIALS, describeEffect } from "../../items/craftingMaterials";
+import { MATERIALS } from "../../items/materials";
 import { SCREENS } from "../../ui/screens";
 
 jest.mock("../../firebase", () => ({ db: {} }));
@@ -39,12 +41,70 @@ const openCrafting = () => {
   return onChange;
 };
 
+const chooseMaterial = (slot, name) => {
+  fireEvent.click(screen.getByRole("button", { name: slot }));
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: new RegExp(name) }));
+};
+
+test("the preview groups all material effects and keeps reactions readable as more reagents are added", () => {
+  const keys = ["cinderite_ore", "frost_diamond", "stormglass", "venom_sac", "primal_essence", "binding_resin"];
+  player.professions.weaponry.level = 50;
+  player.materials = Object.fromEntries(keys.map((key) => [key, 10]));
+  player.craftingBook = {
+    materials: Object.fromEntries(keys.map((key) => [key, CRAFTING_MATERIALS[key].properties.length])),
+    reactions: ["thermal_shock", "volatile_mixture"],
+  };
+  openCrafting();
+  fireEvent.click(within(screen.getByRole("region", { name: "Blueprints" })).getByRole("button", { name: /^Sword/ }));
+  chooseMaterial("Base material slot", MATERIALS[keys[0]].name);
+  keys.slice(1, -1).forEach((key, index) => chooseMaterial(`Reagent slot ${index + 1}`, MATERIALS[key].name));
+
+  const reactions = screen.getByRole("region", { name: "Reactions" });
+  const thermalShock = within(reactions).getByText("Thermal Shock").closest("li");
+  expect(within(thermalShock).getAllByRole("listitem").map((item) => item.textContent))
+    .toEqual(["All substats roll T3 or higher", "+10 craft quality"]);
+  expect(within(reactions).getByText("Volatile Mixture").closest("li").classList.contains("crafting-warning")).toBe(true);
+  expect(within(reactions).getAllByText(/These materials will react in an unknown way/).length).toBeGreaterThan(0);
+  expect(within(reactions).queryByText("Storm Forged")).toBeNull();
+
+  chooseMaterial("Reagent slot 5", MATERIALS.binding_resin.name);
+  expect(within(reactions).queryByText("Volatile Mixture")).toBeNull();
+  expect(within(reactions).getByText("Volatile Mixture is held in check.")).toBeTruthy();
+  const effects = screen.getByRole("region", { name: "Known effects" });
+  const cards = effects.querySelectorAll(".crafting-effect-cards > li");
+  expect(cards).toHaveLength(keys.length);
+  keys.forEach((key, index) => {
+    expect(within(cards[index]).getByText(MATERIALS[key].name)).toBeTruthy();
+    expect(within(cards[index]).getAllByRole("listitem").map((item) => item.textContent))
+      .toEqual(CRAFTING_MATERIALS[key].properties.map(describeEffect));
+  });
+});
+
+test("locked effects show their requirement separately without revealing undiscovered properties", () => {
+  player.materials.living_thatch = 1;
+  player.craftingBook = { materials: { living_thatch: 2 }, reactions: [] };
+  openCrafting();
+  fireEvent.click(within(screen.getByRole("region", { name: "Blueprints" })).getByRole("button", { name: /^Sword/ }));
+  chooseMaterial("Base material slot", "Metal Scraps");
+  chooseMaterial("Reagent slot 1", "Living Thatch");
+  const effects = screen.getByRole("region", { name: "Known effects" });
+  const locked = within(effects).getByText("Needs Infusion").closest("li");
+  expect(locked.classList.contains("crafting-inactive")).toBe(true);
+  expect(locked.firstElementChild.textContent).toBe(describeEffect(CRAFTING_MATERIALS.living_thatch.properties[1]));
+  expect(within(effects).getByText("??? (2 undiscovered)")).toBeTruthy();
+  CRAFTING_MATERIALS.metal_scraps.properties.forEach((effect) => {
+    expect(within(effects).queryByText(describeEffect(effect))).toBeNull();
+  });
+});
+
 test("Material Crafting is available in the Forge and crafts with chosen materials", () => {
   const onChange = openCrafting();
+  expect(within(screen.getByRole("tablist", { name: "Forge" })).getAllByRole("tab").map((tab) => tab.textContent))
+    .toEqual(["Material Crafting", "Relic Crafting", "Upgrading"]);
   expect(screen.getByRole("tab", { name: "Material Crafting" }).getAttribute("aria-selected")).toBe("true");
   expect(screen.getByRole("tab", { name: "Weaponry" }).getAttribute("aria-selected")).toBe("true");
   const blueprints = screen.getByRole("region", { name: "Blueprints" });
-  expect(within(blueprints).getByRole("button", { name: /Greatsword/ }).disabled).toBe(true);
+  expect(within(blueprints).getByRole("button", { name: /^Greatsword/ }).disabled).toBe(true);
   expect(within(blueprints).getByText("Unlocks at level 14")).toBeTruthy();
 
   fireEvent.click(within(blueprints).getByRole("button", { name: /^Sword/ }));
@@ -59,6 +119,8 @@ test("Material Crafting is available in the Forge and crafts with chosen materia
   fireEvent.click(within(screen.getByRole("dialog", { name: "Choose reagent 1" })).getByRole("button", { name: /Slime Gel/ }));
 
   const preview = screen.getByRole("region", { name: "Craft preview" });
+  expect(within(preview).getByText("Intrinsic (Sword): +3% Increased attack")).toBeTruthy();
+  expect(within(preview).getByText("10 - 15")).toBeTruthy();
   expect(within(preview).getAllByText(/\?\?\? \(2 undiscovered\)/)).toHaveLength(2);
   expect(within(preview).getByRole("region", { name: "Craft odds" }).textContent).toContain("Mythic");
   fireEvent.click(screen.getByRole("button", { name: "Craft" }));
@@ -109,4 +171,113 @@ test("switching professions resets the bench and shows the tool requirement", ()
   expect(screen.getByText("No Precision Tools equipped")).toBeTruthy();
   expect(screen.getByText("Jewelry level 1")).toBeTruthy();
   expect(screen.getByRole("button", { name: /Precision Tools/ }).disabled).toBe(true);
+});
+
+test("Weaponry crafts gathering heads as materials rather than gear", () => {
+  player.professions.weaponry.level = 5;
+  openCrafting();
+  const blueprints = screen.getByRole("region", { name: "Blueprints" });
+  expect(within(blueprints).getByRole("button", { name: /^Pickaxe Crafting/ }).disabled).toBe(false);
+  fireEvent.click(within(blueprints).getByRole("button", { name: /^Crude Pickaxe Head Tool Part/ }));
+  expect(screen.queryByRole("button", { name: "Reagent slot 1" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Base material slot" }));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Choose base material" })).getByRole("button", { name: /Metal Scraps/ }));
+  expect(screen.getByRole("region", { name: "Craft preview" }).textContent).toContain("1 Crude Pickaxe Head");
+  fireEvent.click(screen.getByRole("button", { name: "Craft" }));
+  expect(player.inventory).toEqual([]);
+  expect(player.materials.pickaxehead_i).toBe(1);
+  expect(player.materials.metal_scraps).toBe(3);
+  expect(screen.getByRole("dialog", { name: "Crafted tool part" }).textContent).toContain("Crude Pickaxe Head");
+});
+
+test.each([
+  ["Pickaxe", "pickaxehead_i", "mining"],
+  ["Logging Axe", "axehead_i", "logging"],
+])("%s preview shows the equip-profession roll range", (name, head, profession) => {
+  player.professions.weaponry.level = 15;
+  player.gathering = { [profession]: { level: 5 } };
+  player.materials = { metal_scraps: 6, [head]: 1, haft_i: 1 };
+  openCrafting();
+  fireEvent.click(within(screen.getByRole("region", { name: "Blueprints" }))
+    .getByRole("button", { name: new RegExp(`^${name} Crafting`) }));
+  chooseMaterial("Base material slot", MATERIALS.metal_scraps.name);
+  chooseMaterial("Reagent slot 1", MATERIALS[head].name);
+  chooseMaterial("Reagent slot 2", MATERIALS.haft_i.name);
+  expect(within(screen.getByRole("region", { name: "Craft preview" })).getByText("1 - 5")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Craft" }).disabled).toBe(false);
+});
+
+test("crafting dialogs shrink their scroll area without squeezing material cards or controls", () => {
+  player.materials = { ...player.materials, wolf_pelt: 2, primal_essence: 2 };
+  player.craftingBook = { materials: { slime_gel: 2, wolf_pelt: 2, primal_essence: 3 }, reactions: [] };
+  const fs = require("fs");
+  const path = require("path");
+  const style = document.createElement("style");
+  style.textContent = fs.readFileSync(path.join(process.cwd(), "src", "App.css"), "utf8");
+  document.head.append(style);
+  try {
+    openCrafting();
+    fireEvent.click(screen.getByRole("button", { name: "Crafting Book" }));
+    const book = screen.getByRole("dialog", { name: "Crafting Book" });
+    const tabs = within(book).getByRole("tablist", { name: "Crafting book sections" });
+    expect(getComputedStyle(tabs).flexShrink).toBe("0");
+    expect(getComputedStyle(within(book).getByRole("searchbox")).flexShrink).toBe("0");
+    const entries = within(book).getByRole("region", { name: "Materials entries" });
+    expect(getComputedStyle(entries).flexShrink).toBe("1");
+    expect(getComputedStyle(entries).minHeight).toBe("0");
+    expect(getComputedStyle(entries).overflowY).toBe("auto");
+    const bookEntry = entries.querySelector(".crafting-book-entry");
+    expect(getComputedStyle(bookEntry).flexShrink).toBe("0");
+    expect(getComputedStyle(bookEntry).overflowWrap).toBe("anywhere");
+    fireEvent.click(within(book).getByRole("button", { name: "Close Crafting Book" }));
+
+    const blueprintGrid = screen.getByRole("region", { name: "Available blueprints" });
+    expect(blueprintGrid.tabIndex).toBe(0);
+    expect(getComputedStyle(blueprintGrid).display).toBe("grid");
+    expect(getComputedStyle(blueprintGrid).overflowY).toBe("auto");
+    expect(getComputedStyle(screen.getByRole("region", { name: "Crafting bench" })).display).toBe("grid");
+    fireEvent.click(within(screen.getByRole("region", { name: "Blueprints" })).getByRole("button", { name: /^Sword/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Base material slot" }));
+    const picker = screen.getByRole("dialog", { name: "Choose base material" });
+    expect(getComputedStyle(within(picker).getByRole("searchbox")).flexShrink).toBe("0");
+    expect(getComputedStyle(picker.querySelector(".item-popup-actions")).flexShrink).toBe("0");
+    const options = picker.querySelector(".crafting-picker-list");
+    expect(getComputedStyle(options).flexShrink).toBe("1");
+    expect(getComputedStyle(options).minHeight).toBe("0");
+    expect(getComputedStyle(picker).boxSizing).toBe("border-box");
+    fireEvent.click(within(picker).getByRole("button", { name: /Metal Scraps/ }));
+    const preview = screen.getByRole("region", { name: "Craft preview" });
+    expect(getComputedStyle(preview).overflowWrap).toBe("anywhere");
+    expect(getComputedStyle(preview.querySelector(".crafting-effect-card > strong")).textAlign).toBe("left");
+    expect(getComputedStyle(preview.querySelector(".crafting-effect-list > li")).textAlign).toBe("left");
+    expect(getComputedStyle(preview.querySelector(".crafting-stats dd")).textAlign).toBe("right");
+    expect(getComputedStyle(preview.querySelector(".crafting-odds-row > :last-child")).textAlign).toBe("right");
+    fireEvent.click(screen.getByRole("button", { name: "Reagent slot 1" }));
+    const reagents = screen.getByRole("dialog", { name: "Choose reagent 1" });
+    const reagentOptions = reagents.querySelectorAll(".crafting-picker-option");
+    expect(reagentOptions.length).toBeGreaterThan(1);
+    reagentOptions.forEach((card) => {
+      expect(getComputedStyle(card).flexShrink).toBe("0");
+      expect(getComputedStyle(card).overflowWrap).toBe("anywhere");
+      Array.from(card.children).forEach((text) => {
+        expect(getComputedStyle(text).maxWidth).toBe("100%");
+        expect(getComputedStyle(text).textAlign).toBe("left");
+      });
+    });
+  } finally {
+    style.remove();
+  }
+});
+
+test("all crafting profession subtabs remain available when switching disciplines", () => {
+  openCrafting();
+  const tabs = screen.getByRole("tablist", { name: "Crafting professions" });
+  for (const name of ["Armor", "Jewelry", "Weaponry"]) {
+    fireEvent.click(within(tabs).getByRole("tab", { name }));
+    expect(within(tabs).getByRole("tab", { name }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText(`${name} level 1`)).toBeTruthy();
+    for (const label of ["Weaponry", "Armor", "Jewelry"]) {
+      expect(within(tabs).getByRole("tab", { name: label })).toBeTruthy();
+    }
+  }
 });

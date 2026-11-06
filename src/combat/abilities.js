@@ -50,9 +50,9 @@ export const ABILITIES = [
   },
   {
     name: "Arcane Surge",
-    description: "Restore 25% of your max power when landing a critical hit.",
+    description: "Restore 12.5% of your max power when landing a critical hit.",
     slots: ["weapon", "offhand", "ring", "necklace"],
-    effects: { surge: 0.25 },
+    effects: { surge: 0.125 },
   },
   {
     name: "Protective",
@@ -191,13 +191,13 @@ export const UNIQUE_ABILITIES = [
   },
   {
     name: "Undertow Ward",
-    description: "Reflect 15% of damage taken and reduce damage taken by 8%.",
-    effects: { reflect: 0.15, damageReduction: 0.08 },
+    description: "Reduce damage taken by 30%.",
+    effects: { damageReduction: 0.3 },
   },
   {
     name: "Starforged Edge",
-    description: "Deal 20% more damage, ignore 30% of enemy defense, and restore 15% of your max power on critical hits.",
-    effects: { damageBonus: 0.2, pierce: 0.3, surge: 0.15 },
+    description: "Deal 20% more damage and ignore 30% of enemy defense.",
+    effects: { damageBonus: 0.2, pierce: 0.3 },
   },
   {
     name: "Rimeshell",
@@ -211,13 +211,13 @@ export const UNIQUE_ABILITIES = [
   },
   {
     name: "Unbroken Line",
-    description: "Reduce damage taken by 15% and reflect 15% of it. Once per combat, recover 25% health when falling below 10% health.",
-    effects: { damageReduction: 0.15, reflect: 0.15, secondWind: 0.25 },
+    description: "Reduce damage taken by 10%.",
+    effects: { damageReduction: 0.1 },
   },
   {
     name: "Tidal Fortune",
-    description: "Increase astra gain by 20% and restore 15% of your max power on critical hits.",
-    effects: { astraBonus: 0.2, surge: 0.15 },
+    description: "Increase astra gain by 20% and restore 30% of your max power on critical hits.",
+    effects: { astraBonus: 0.2, surge: 0.3 },
   },
   {
     name: "Venomkiss",
@@ -226,8 +226,8 @@ export const UNIQUE_ABILITIES = [
   },
   {
     name: "Sovereign's Due",
-    description: "Deal 15% more damage, heal for 6% of damage dealt, and gain 15% more astra.",
-    effects: { damageBonus: 0.15, lifesteal: 0.06, astraBonus: 0.15 },
+    description: "Deal 15% more damage and heal for 6% of damage dealt.",
+    effects: { damageBonus: 0.15, lifesteal: 0.06 },
   },
 ];
 

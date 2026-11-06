@@ -46,6 +46,8 @@ import { applyPrismaticAlloy, canApplyPrismaticAlloy } from "../items/prismaticA
 import { getItemUpgradeStatus, upgradeInventoryItem } from "../items/upgrades";
 import MaterialCrafting from "./MaterialCrafting";
 import ProfessionProgress from "./ProfessionProgress";
+import GatheringEvent from "./GatheringEvent";
+import GatheringProgress from "./GatheringProgress";
 import { getItemStats, MARKET_RARITIES, MARKET_SLOTS, MARKET_STATS } from "../world/marketplace";
 import {
   CONSUMABLES,
@@ -706,8 +708,8 @@ const ForgeScreen = ({ onChange }) => {
         </div>
       </header>
       <div className='inventory-tabs' role='tablist' aria-label='Forge'>
-        <button type='button' role='tab' aria-selected={tab === "relic"} className={`inventory-tab ${tab === "relic" ? "active" : ""}`} onClick={() => { setTab("relic"); setNote(""); setSelectedUpgradeId(null); }}>Relic Crafting</button>
         <button type='button' role='tab' aria-selected={tab === "crafting"} className={`inventory-tab ${tab === "crafting" ? "active" : ""}`} onClick={() => { setTab("crafting"); setNote(""); setSelectedUpgradeId(null); }}>Material Crafting</button>
+        <button type='button' role='tab' aria-selected={tab === "relic"} className={`inventory-tab ${tab === "relic" ? "active" : ""}`} onClick={() => { setTab("relic"); setNote(""); setSelectedUpgradeId(null); }}>Relic Crafting</button>
         <button type='button' role='tab' aria-selected={tab === "upgrading"} className={`inventory-tab ${tab === "upgrading" ? "active" : ""}`} onClick={() => { setTab("upgrading"); setNote(""); }}>Upgrading</button>
       </div>
       {tab === "crafting" && <MaterialCrafting onChange={onChange} />}
@@ -2837,6 +2839,7 @@ const ProgressionScreen = ({ player: initial, inCombat, onChange }) => {
   const [tab, setTab] = useState("points");
   const [professionCategory, setProfessionCategory] = useState("crafting");
   const [craftingDiscipline, setCraftingDiscipline] = useState("weaponry");
+  const [gatheringDiscipline, setGatheringDiscipline] = useState("mining");
   if (!player) return <div className='panel'>No character yet.</div>;
   const refresh = () => {
     setPlayerState(getPlayer());
@@ -2929,9 +2932,16 @@ const ProgressionScreen = ({ player: initial, inCombat, onChange }) => {
               <ProfessionProgress player={player} profession={craftingDiscipline} />
             </>
           ) : (
-            <div className='equip-empty' role='status'>
-              Gathering progression is coming soon.
-            </div>
+            <>
+              <div className='inventory-tabs' role='tablist' aria-label='Gathering disciplines'>
+                {[["mining", "Mining"], ["logging", "Logging"]].map(([key, label]) => (
+                  <button key={key} type='button' role='tab' aria-selected={gatheringDiscipline === key}
+                    className={`inventory-tab ${gatheringDiscipline === key ? "active" : ""}`}
+                    onClick={() => setGatheringDiscipline(key)}>{label}</button>
+                ))}
+              </div>
+              <GatheringProgress player={player} profession={gatheringDiscipline} />
+            </>
           )}
         </>
       )}
@@ -3036,6 +3046,7 @@ const QuestBoardScreen = ({ onChange }) => {
 const QuestsScreen = ({ onChange }) => {
   const [, setTick] = useState(0);
   const [tab, setTab] = useState("active");
+  const [note, setNote] = useState("");
   const player = getPlayer();
   if (!player) return <div className='panel'>No character yet.</div>;
   const rep = getRep(player);
@@ -3050,6 +3061,12 @@ const QuestsScreen = ({ onChange }) => {
   ];
   const abandon = (quest) => {
     abandonQuest(quest.id);
+    setTick((t) => t + 1);
+    onChange?.();
+  };
+  const turnIn = (quest) => {
+    const result = turnInQuest(quest.id);
+    setNote(result.ok ? result.messages.join(" ") : "That quest isn't finished yet.");
     setTick((t) => t + 1);
     onChange?.();
   };
@@ -3096,15 +3113,25 @@ const QuestsScreen = ({ onChange }) => {
                   {q.status === "active" ? `${questHeldText(q, player) || `Progress ${obj.progress}/${obj.count}`} • ` : ""}Reward: {rewardText(q.reward)}
                 </div>
                 {q.status === "active" && (
-                  <button type='button' className='buttons input-button' onClick={() => abandon(q)}>
-                    Abandon
-                  </button>
+                  <>
+                    <button type='button' className='buttons input-button' disabled={!obj.done} onClick={() => turnIn(q)}>
+                      Turn in
+                    </button>
+                    <button type='button' className='buttons input-button' onClick={() => abandon(q)}>
+                      Abandon
+                    </button>
+                  </>
                 )}
               </div>
             </Tooltip>
           );
         })}
       </div>
+      {note && (
+        <div className='recipe-note'>
+          <RichText text={note} />
+        </div>
+      )}
     </div>
   );
 };
@@ -3224,6 +3251,7 @@ export const SCREENS = {
   bugReport: { label: "Feedback / Issues", sidebarGroup: "community", link: true, component: BugReportScreen },
   admin: { label: "Admin", link: true, adminOnly: true, component: AdminScreen },
   combat: { label: "Combat", component: CombatScreen, hideUnlessActive: true },
+  gathering: { label: "Gathering", component: GatheringEvent, hideUnlessActive: true },
   dungeonRun: { label: "Dungeon", component: DungeonRunScreen, hideUnlessActive: true },
   groupRun: { label: "Group Dungeon", component: GroupRunScreen, hideUnlessActive: true },
   crafting: {

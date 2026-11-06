@@ -49,7 +49,7 @@ const foil = (value) => ({ type: "holofoil", value });
 const ilvl = (value) => ({ type: "iLevel", value });
 const myth = (value) => ({ type: "mythic", value });
 const exp = (value) => ({ type: "exp", value });
-const toolSub = (stat) => ({ type: "toolSub", stat });
+const toolSub = (stat, tools) => ({ type: "toolSub", stat, ...(tools ? { tools } : {}) });
 
 const m = (family, tier, tags, properties, extra = {}) => ({ family, tier, tags, properties, ...extra });
 
@@ -169,9 +169,15 @@ export const CRAFTING_MATERIALS = {
   hammerhead_i: m("part", 1, ["earth"], [toolSub("craftQuality"), q(4)], { part: { tool: "hammer", type: "hammerhead", cap: 20 } }),
   hammerhead_ii: m("part", 3, ["fire"], [toolSub("rarityChance"), q(8)], { part: { tool: "hammer", type: "hammerhead", cap: 35 } }),
   hammerhead_iii: m("part", 5, ["war"], [toolSub("mythicChance"), q(12)], { part: { tool: "hammer", type: "hammerhead", cap: 50 } }),
-  haft_i: m("part", 1, ["life"], [toolSub("materialPreservation"), q(2)], { part: { tool: "hammer", type: "haft", cap: 20 } }),
-  haft_ii: m("part", 3, ["earth"], [toolSub("astraDiscount"), q(4)], { part: { tool: "hammer", type: "haft", cap: 35 } }),
-  haft_iii: m("part", 5, ["time"], [toolSub("craftExp"), q(8)], { part: { tool: "hammer", type: "haft", cap: 50 } }),
+  haft_i: m("part", 1, ["life"], [toolSub("materialPreservation", ["hammer"]), q(2), toolSub("gatheringTiming", ["pickaxe", "axe"])], { part: { tool: "hammer", tools: ["hammer", "pickaxe", "axe"], type: "haft", cap: 20 } }),
+  haft_ii: m("part", 3, ["earth"], [toolSub("astraDiscount", ["hammer"]), q(4), toolSub("gatheringYield", ["pickaxe", "axe"])], { part: { tool: "hammer", tools: ["hammer", "pickaxe", "axe"], type: "haft", cap: 35 } }),
+  haft_iii: m("part", 5, ["time"], [toolSub("craftExp", ["hammer"]), q(8), toolSub("gatheringRarity", ["pickaxe", "axe"])], { part: { tool: "hammer", tools: ["hammer", "pickaxe", "axe"], type: "haft", cap: 50 } }),
+  pickaxehead_i: m("part", 1, ["earth"], [toolSub("gatheringTiming"), q(4)], { craftOnly: true, part: { tool: "pickaxe", type: "pickaxehead", cap: 20 } }),
+  pickaxehead_ii: m("part", 3, ["fire"], [toolSub("gatheringYield"), q(8)], { craftOnly: true, part: { tool: "pickaxe", type: "pickaxehead", cap: 35 } }),
+  pickaxehead_iii: m("part", 5, ["war"], [toolSub("gatheringRarity"), q(12)], { craftOnly: true, part: { tool: "pickaxe", type: "pickaxehead", cap: 50 } }),
+  axehead_i: m("part", 1, ["life"], [toolSub("gatheringPerfect"), q(4)], { craftOnly: true, part: { tool: "axe", type: "axehead", cap: 20 } }),
+  axehead_ii: m("part", 3, ["earth"], [toolSub("gatheringYield"), q(8)], { craftOnly: true, part: { tool: "axe", type: "axehead", cap: 35 } }),
+  axehead_iii: m("part", 5, ["time"], [toolSub("gatheringRarity"), q(12)], { craftOnly: true, part: { tool: "axe", type: "axehead", cap: 50 } }),
   lens_i: m("part", 1, ["arcane"], [toolSub("discoveryChance"), q(2)], { part: { tool: "precisionTools", type: "lens", cap: 20 } }),
   lens_ii: m("part", 3, ["sea"], [toolSub("rarityChance"), q(4)], { part: { tool: "precisionTools", type: "lens", cap: 35 } }),
   lens_iii: m("part", 5, ["void"], [toolSub("mythicChance"), q(8)], { part: { tool: "precisionTools", type: "lens", cap: 50 } }),
@@ -191,6 +197,9 @@ export const CRAFTING_MATERIALS = {
   mythos_fragment: m("shard", 5, ["arcane"], [myth(0.003), q(10)]),
   primordial_spark: m("shard", 6, ["time", "void"], [myth(0.005), boost(20)]),
 };
+
+export const isCompatibleToolPart = (part, slot, type) =>
+  !!part && part.type === type && (part.tools || [part.tool]).includes(slot);
 
 /*
  Reactions trigger when every selector is matched by a different material in the craft.
@@ -283,7 +292,7 @@ export const describeEffect = (effect) => {
     case "stabilize": return "Prevents harmful reactions and negative effects";
     case "potency": return `+${pct(effect.value)} reaction potency`;
     case "echo": return "Repeats the effects of the first other reagent";
-    case "toolSub": return `Tools: guarantees a ${label(effect.stat)} substat`;
+    case "toolSub": return `${effect.tools ? effect.tools.join("/") : "Tools"}: guarantees a ${label(effect.stat)} substat`;
     default: return effect.type;
   }
 };

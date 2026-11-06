@@ -2,11 +2,12 @@ import { getClassForStats } from "./classes";
 import { getItemGearScore } from "../items/gearScore";
 import { getItemGemstones, isSkillGemstone } from "../items/sockets";
 import { isToolItem } from "../items/craftingStats";
+import { getItemIntrinsicBonuses } from "../items/intrinsics";
 
 /*
  Central stat calculation. Every derived stat is computed here from:
    - player.baseStats  { strength, dexterity, intelligence }  (the points chosen at character creation)
-   - equipped items    (item.mainStat + item.subStats, summed per stat key)
+   - equipped items    (main stats, substats, gemstones and fixed base-type intrinsics, summed per stat key)
    - player.bonusStats permanent flat bonuses on any final stat key, e.g. { attackMax: 1 } from crafting
  Call recalculateStats(player) after anything that changes those inputs. Current health/stamina/power,
  exp and expToLevel are carried over from player.stats (clamped to the new maximums).
@@ -38,6 +39,8 @@ const getGearSources = (equipment = {}) => {
   for (const item of Object.values(equipment)) {
     // Crafting tools only affect Material Crafting.
     if (!item || isToolItem(item)) continue;
+    for (const [key, value] of Object.entries(getItemIntrinsicBonuses(item)))
+      add(key, `${item.name} (Intrinsic)`, value);
     for (const gemstone of getItemGemstones(item))
       if (!isSkillGemstone(gemstone))
         add(gemstone.stat, `${item.name} (${gemstone.name})`, gemstone.value);

@@ -1,10 +1,12 @@
 /*
  Gear score: a single number for the power of an item (and the sum for everything equipped).
-   itemScore = round( Σ(statValue × STAT_WEIGHTS[stat]) × RARITY_MULT[rarity] × (twoHanded ? 1.5 : 1) ) + (ability ? 25 : 0)
- Both the main stat and the substats count. Percent stats (fractional values) are weighted per 1.00, so 1% = weight / 100.
+   itemScore = round(rolledStats × (twoHanded ? 2 : 1) + intrinsicStats) + (ability ? 25 : 0)
+ Main stats, substats and gemstones count; fixed intrinsics are not multiplied again for two-handed gear.
+ Percent stats (fractional values) are weighted per 1.00, so 1% = weight / 100.
 */
 import { getItemGemstones } from "./sockets";
 import { isToolItem } from "./craftingStats";
+import { getItemIntrinsicBonuses } from "./intrinsics";
 
 export const GEAR_SCORE_STAT_WEIGHTS = {
   strength: 3,
@@ -45,7 +47,9 @@ export const getItemGearScore = (item) => {
   for (const [k, v] of Object.entries(item.subStats || {})) raw += v * weight(k);
   if (item.mythicSubStat) raw += item.mythicSubStat.value * weight(item.mythicSubStat.stat);
   const mult = (item.twoHanded ? GEAR_SCORE_TWO_HANDED_MULT : 1);
-  return Math.max(0, Math.round(raw * mult)) + (item.ability ? GEAR_SCORE_ABILITY_BONUS : 0);
+  const intrinsic = Object.entries(getItemIntrinsicBonuses(item))
+    .reduce((sum, [stat, value]) => sum + value * weight(stat), 0);
+  return Math.max(0, Math.round(raw * mult + intrinsic)) + (item.ability ? GEAR_SCORE_ABILITY_BONUS : 0);
 };
 
 export const getTotalGearScore = (equipment = {}) =>

@@ -6,13 +6,13 @@ import {
   getProfessionMythicChance,
   getProfessionRates,
   getReagentSlots,
+  getToolProfessionLevel,
   hasProfessionEffect,
   MYTHIC_CHANCE_CAP,
   MYTHIC_MATERIAL_CAP,
   PROFESSIONS,
   TIER_EXP_MULT,
 } from "../character/professions";
-import { REGIONS } from "../world/regions";
 import { BLUEPRINTS } from "./craftingBlueprints";
 import {
   CRAFTING_MATERIALS,
@@ -21,9 +21,9 @@ import {
   getMaterialCraftLevel,
   isBaseMaterial,
   isHarmfulEffect,
+  isCompatibleToolPart,
   isReagentMaterial,
   REACTIONS,
-  REGION_TIERS,
 } from "./craftingMaterials";
 import { CONDITION_NAMES, createCraftedItem, createMythicItem, createUniqueItem } from "./items";
 import { getMaterialCount, MATERIALS, spendMaterials } from "./materials";
@@ -42,6 +42,7 @@ const BASE_CONDITION_WEIGHTS = [10, 20, 35, 20, 10, 5];
 const QUALITY_PER_TIER = 40;
 const QUALITY_TIER_CAP = 5;
 const BASE_HOLOFOIL_CHANCE = 0.01;
+const MAX_GEAR_LEVEL_BONUS = 5;
 const POTENT_EFFECTS = ["quality", "rarityBoost", "holofoil", "mythic"];
 
 export const getCraftingBook = (player) => {
@@ -76,8 +77,6 @@ const rollIndex = (odds) => {
   return 0;
 };
 
-const regionForTier = (tier) => REGIONS[REGION_TIERS[Math.min(REGION_TIERS.length, Math.max(1, tier)) - 1]];
-
 const fail = (message) => ({ ok: false, message });
 
 export const analyzeCraft = (player, selection = {}) => {
@@ -100,6 +99,7 @@ export const analyzeCraft = (player, selection = {}) => {
   if (getMaterialCraftLevel(baseKey) > level)
     return fail(`${MATERIALS[baseKey].name} requires ${professionName} level ${getMaterialCraftLevel(baseKey)}.`);
   const reagents = (Array.isArray(selection.reagents) ? selection.reagents : []).filter(Boolean);
+  if (blueprint.kind === "part" && reagents.length) return fail("Head recipes use ore only; clear the reagent slots.");
   const slots = getReagentSlots(level);
   if (reagents.length > slots) return fail(`You have ${slots} reagent slot${slots === 1 ? "" : "s"}.`);
   for (const key of reagents) {
@@ -109,7 +109,7 @@ export const analyzeCraft = (player, selection = {}) => {
   }
   if (blueprint.kind === "tool") {
     for (const type of blueprint.parts) {
-      if (!reagents.some((key) => CRAFTING_MATERIALS[key].part?.tool === blueprint.slot && CRAFTING_MATERIALS[key].part.type === type))
+      if (!reagents.some((key) => isCompatibleToolPart(CRAFTING_MATERIALS[key].part, blueprint.slot, type)))
         return fail(`${blueprint.name} needs a ${type} tool part in a reagent slot.`);
     }
   }
@@ -174,24 +174,27 @@ export const analyzeCraft = (player, selection = {}) => {
   const subTierMins = {};
   for (const effect of effectsOf("subTier")) subTierMins[effect.stat] = Math.max(subTierMins[effect.stat] || 0, effect.min);
   const guaranteed = [...new Set(effectsOf("substat").map((effect) => effect.stat))];
-  const toolGuaranteed = [...new Set(effectsOf("toolSub").map((effect) => effect.stat))];
+  const toolGuaranteed = [...new Set(effectsOf("toolSub")
+    .filter((effect) => !effect.tools || effect.tools.includes(blueprint.slot)).map((effect) => effect.stat))];
   const mainStatEffects = effectsOf("mainStat");
   const mainStat = mainStatEffects.length ? mainStatEffects[mainStatEffects.length - 1].stat : blueprint.stat;
   const mainBoost = sum("mainBoost") + (hasProfessionEffect(level, "attunement") ? 2 : 0);
   const abilityChance = sum("ability");
   const socket = effectsOf("socket").length > 0 || hasProfessionEffect(level, "socketcraft");
   const holofoilChance = Math.min(1, BASE_HOLOFOIL_CHANCE + sum("holofoil") + (hasProfessionEffect(level, "socketcraft") ? 0.01 : 0));
-  const region = regionForTier(base.tier);
   let iLevel;
+  let maxILevel;
   if (blueprint.kind === "tool") {
     const caps = blueprint.parts.map((type) => Math.max(...reagents
       .map((key) => CRAFTING_MATERIALS[key].part)
-      .filter((part) => part?.tool === blueprint.slot && part.type === type)
+      .filter((part) => isCompatibleToolPart(part, blueprint.slot, type))
       .map((part) => part.cap)));
-    iLevel = Math.max(1, Math.min(TOOL_MAX_ITEM_LEVEL, level, ...caps) + sum("iLevel"));
-    iLevel = Math.min(TOOL_MAX_ITEM_LEVEL, level, iLevel);
+    iLevel = 1;
+    maxILevel = Math.max(1, Math.min(TOOL_MAX_ITEM_LEVEL, getToolProfessionLevel(player, blueprint.slot), ...caps));
   } else {
-    iLevel = Math.min(100, Math.min(region.maxLevel, Math.max(region.minLevel, player.level || 1)) + sum("iLevel"));
+    const playerLevel = Math.max(1, Math.floor(player.level || 1));
+    maxILevel = Math.min(105, playerLevel + MAX_GEAR_LEVEL_BONUS);
+    iLevel = Math.min(maxILevel, playerLevel + sum("iLevel"));
   }
   const materialMythic = Math.min(MYTHIC_MATERIAL_CAP, sum("mythic"));
   const mythicChance = blueprint.kind === "tool"
@@ -205,7 +208,7 @@ export const analyzeCraft = (player, selection = {}) => {
   );
   const discount = Math.min(0.6, rates.astraDiscount + tool.astraDiscount);
   const astraCost = Math.max(1, Math.round(
-    50 * TIER_EXP_MULT[base.tier - 1] ** 1.4 * (1 + 0.2 * reagents.length) * (blueprint.kind === "unique" ? 5 : 1) * (1 - discount),
+    (blueprint.astra || 50 * TIER_EXP_MULT[base.tier - 1] ** 1.4 * (1 + 0.2 * reagents.length) * (blueprint.kind === "unique" ? 5 : 1)) * (1 - discount),
   ));
 
   const analysis = {
@@ -214,7 +217,7 @@ export const analyzeCraft = (player, selection = {}) => {
     active, inactive, reactions, suppressed, stabilized,
     quality, rarityQuality, rarityOdds, conditionOdds, conditionShift, minTier, subTierMins,
     guaranteed, toolGuaranteed, mainStat, mainBoost, abilityChance, socket, holofoilChance,
-    iLevel, mythicChance, exp, lowTierPenalty, discoveryChance: Math.min(1, rates.discoveryChance + tool.discoveryChance),
+    iLevel, maxILevel, mythicChance, exp, lowTierPenalty, discoveryChance: Math.min(1, rates.discoveryChance + tool.discoveryChance),
   };
   if (missing.length)
     return { ...analysis, ok: false, message: `You need more ${missing.map(([key]) => MATERIALS[key]?.name || key).join(", ")}.` };
@@ -232,30 +235,50 @@ export const craftItem = (player, selection) => {
   const a = analyzeCraft(player, selection);
   if (!a.ok) return a;
   const { blueprint } = a;
+  if (blueprint.kind === "part") {
+    const progress = addProfessionExp(player, blueprint.profession, a.exp);
+    const materials = spendMaterials(player, a.cost);
+    materials[blueprint.output] = (materials[blueprint.output] || 0) + 1;
+    const book = getCraftingBook(player);
+    const known = book.materials[a.baseKey] || 0;
+    const properties = CRAFTING_MATERIALS[a.baseKey].properties;
+    const discoveries = known < properties.length && (known === 0 || Math.random() < a.discoveryChance)
+      ? [{ key: a.baseKey, effect: properties[known] }] : [];
+    if (discoveries.length) book.materials[a.baseKey] = known + 1;
+    return {
+      ok: true, material: blueprint.output, count: 1, exp: a.exp, levelsGained: progress.levelsGained,
+      discoveries, newReactions: [], preserved: [],
+      message: `You crafted ${MATERIALS[blueprint.output].name}! +${a.exp} Weaponry exp.`,
+      patch: { materials, astra: (player.astra || 0) - a.astraCost, professions: progress.professions, craftingBook: book },
+    };
+  }
+  const iLevel = blueprint.kind === "tool"
+    ? a.iLevel + Math.floor(Math.random() * (a.maxILevel - a.iLevel + 1))
+    : Math.min(a.maxILevel, a.iLevel + Math.floor(Math.random() * (MAX_GEAR_LEVEL_BONUS + 1)));
   let item;
   if (blueprint.kind !== "tool" && Math.random() < a.mythicChance) {
     item = createMythicItem({
       slot: blueprint.slot,
       baseName: blueprint.baseName,
       stat: a.mainStat,
-      iLevel: a.iLevel,
+      iLevel,
       unique: blueprint.kind === "unique" ? { ...blueprint.unique, stat: a.mainStat } : undefined,
     });
   } else if (blueprint.kind === "unique") {
-    item = createUniqueItem({ ...blueprint.unique, stat: a.mainStat }, a.iLevel, Math.random() < a.holofoilChance ? true : undefined);
+    item = createUniqueItem({ ...blueprint.unique, stat: a.mainStat }, iLevel, Math.random() < a.holofoilChance ? true : undefined);
   } else {
     const rarity = a.rarityOdds[rollIndex(a.rarityOdds.map((entry) => entry.chance))].rarity;
     const condition = rollCondition(a);
     const holofoil = Math.random() < a.holofoilChance ? true : undefined;
     item = blueprint.kind === "tool"
-      ? createToolItem({ slot: blueprint.slot, iLevel: a.iLevel, rarity, condition, minTier: a.minTier, guaranteed: a.toolGuaranteed, holofoil })
+      ? createToolItem({ slot: blueprint.slot, iLevel, rarity, condition, minTier: a.minTier, guaranteed: a.toolGuaranteed, holofoil })
       : createCraftedItem({
         slot: blueprint.slot,
         baseName: blueprint.baseName,
         stat: a.mainStat,
         rarity,
         condition,
-        iLevel: a.iLevel,
+        iLevel,
         minTier: a.minTier,
         subTierMins: a.subTierMins,
         guaranteed: a.guaranteed,

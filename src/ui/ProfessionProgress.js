@@ -13,6 +13,7 @@ import {
 import { getBlueprints } from "../items/craftingBlueprints";
 import { REGION_TIERS } from "../items/craftingMaterials";
 import { REGIONS } from "../world/regions";
+import Tooltip from "./Tooltip";
 
 const formatPercent = (value, digits = 1) => `${Math.round(value * 100 * 10 ** digits) / 10 ** digits}%`;
 
@@ -38,6 +39,11 @@ export const buildUnlockGroups = (profession) => {
       id: "tools",
       title: "Tool blueprints",
       entries: blueprints.filter((blueprint) => blueprint.kind === "tool").map((blueprint) => ({ level: blueprint.level, name: blueprint.name })),
+    },
+    {
+      id: "parts",
+      title: "Tool head recipes",
+      entries: blueprints.filter((blueprint) => blueprint.kind === "part").map((blueprint) => ({ level: blueprint.level, name: blueprint.name })),
     },
     {
       id: "uniques",
@@ -71,11 +77,11 @@ export default function ProfessionProgress({ player, profession }) {
   const trackLevels = [...new Set(milestones.map((entry) => entry.level))].sort((a, b) => a - b);
   const trackPosition = (at) => `${((at - 1) / (MAX_PROFESSION_LEVEL - 1)) * 100}%`;
   const stats = [
-    { label: "Reagent slots", value: `${getReagentSlots(level)} / ${REAGENT_SLOT_LEVELS.length}` },
-    { label: "Craft quality", value: `+${rates.quality}` },
-    { label: "Astra discount", value: formatPercent(rates.astraDiscount) },
-    { label: "Discovery", value: formatPercent(rates.discoveryChance) },
-    { label: "Mythic chance", value: formatPercent(getProfessionMythicChance(level), 3), mythic: true },
+    { label: "Reagent slots", value: `${getReagentSlots(level)} / ${REAGENT_SLOT_LEVELS.length}`, description: "The number of extra materials you can add as reagents to each craft." },
+    { label: "Craft quality", value: `+${rates.quality}`, description: "Improves the odds of crafting higher-rarity, better-condition, and higher-tier gear." },
+    { label: "Astra discount", value: formatPercent(rates.astraDiscount), description: "Reduces the astra cost of crafting." },
+    { label: "Discovery", value: formatPercent(rates.discoveryChance), description: "Chance to discover the next unknown property of each used material. The first property is always discovered the first time a material is used." },
+    { label: "Mythic chance", value: formatPercent(getProfessionMythicChance(level), 3), description: "Chance for a crafted gear item to be Mythic. This does not apply to tools.", mythic: true },
   ];
 
   return (
@@ -137,10 +143,12 @@ export default function ProfessionProgress({ player, profession }) {
 
       <div className='profession-stat-grid'>
         {stats.map((stat) => (
-          <div key={stat.label} className={`profession-stat ${stat.mythic ? "mythic" : ""}`}>
-            <span>{stat.label}</span>
-            <strong>{stat.value}</strong>
-          </div>
+          <Tooltip key={stat.label} content={{ title: stat.label, description: stat.description }}>
+            <div className={`profession-stat ${stat.mythic ? "mythic" : ""}`} tabIndex={0} aria-label={`${stat.label}: ${stat.value}`}>
+              <span>{stat.label}</span>
+              <strong>{stat.value}</strong>
+            </div>
+          </Tooltip>
         ))}
       </div>
 

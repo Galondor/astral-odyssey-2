@@ -96,6 +96,41 @@ test("reputation attachments are normalized, described, sent, and claimed", asyn
   });
 });
 
+test("profession experience attachments advance crafting and gathering without counting work", async () => {
+  const attachments = { professionExp: { weaponry: 200, mining: 200, unknown: 500, armor: -1 } };
+  expect(normalizeAttachments(attachments).professionExp).toEqual({ weaponry: 200, mining: 200 });
+  expect(hasAttachments(attachments)).toBe(true);
+  expect(describeAttachments(attachments)).toEqual(["200 Weaponry exp", "200 Mining exp"]);
+  await sendMessage({ to: "alice", subject: "Profession training", body: "A boost!", attachments });
+  expect(set).toHaveBeenCalledWith("inbox/alice/sent", expect.objectContaining({
+    attachments: { professionExp: { weaponry: 200, mining: 200 } },
+  }));
+
+  player = {
+    ...player,
+    professions: { weaponry: { level: 1, exp: 0, crafts: 3 } },
+    gathering: { mining: { level: 1, exp: 0, attempts: 4 } },
+  };
+  stop();
+  onValue.mockImplementation((path, callback) => {
+    callback({ val: () => path === "inbox/alice"
+      ? { profession: { subject: "Profession training", attachments } }
+      : {} });
+    return () => {};
+  });
+  stop = startInbox("alice", () => {});
+
+  expect(await claimMessage("profession")).toEqual({
+    ok: true,
+    lines: [
+      "200 Weaponry exp", "Weaponry reached level 2!",
+      "200 Mining exp", "Mining reached level 2!",
+    ],
+  });
+  expect(player.professions.weaponry).toEqual({ level: 2, exp: 20, crafts: 3 });
+  expect(player.gathering.mining).toEqual({ level: 2, exp: 68, attempts: 4 });
+});
+
 test.each([false, true])("admin Colosseum resets preserve progress and bump save revisions (character=%s)", async (character) => {
   stop();
   get.mockImplementation(async (path) => ({

@@ -161,8 +161,8 @@ test.each([
 test("all gemstone bonuses appear in stats, gear score, comparisons, filters and lookups", () => {
   const item = { ...gear, gemstones: [ruby, emerald] };
   player.inventory = [item];
-  expect(getItemGearScore(item)).toBe(21);
-  expect(getItemStats(item)).toEqual({ strength: 3, dexterity: 4 });
+  expect(getItemGearScore(item)).toBe(29);
+  expect(getItemStats(item)).toEqual({ strength: 3, dexterity: 4, attackPercent: 0.03 });
   expect(itemTooltip(item).stats.map((stat) => stat.value)).toEqual(["+3", "+4"]);
   player.equipment = { mainHand: { ...gear, id: "comparison" } };
   expect(itemComparisonTooltip(item).sections[0].stats).toEqual(expect.arrayContaining([

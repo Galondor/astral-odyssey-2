@@ -1,6 +1,7 @@
 import { getPlayer, setPlayer } from "../character/player";
 import { getEnemy } from "../combat/combat";
 import { validateItemName } from "../shared/names";
+import { getItemBaseType } from "./intrinsics";
 
 export const canRenameItem = (item) => !!item?.id && !!item.slot && !item.twoHandedOf;
 
@@ -23,7 +24,8 @@ export function renameItem(itemId, input) {
     return { ok: false, message: "Choose an equipment item to rename." };
   if (item.name === name) return { ok: false, message: "Choose a different item name." };
 
-  const renamed = { ...item, name };
+  const baseType = getItemBaseType(item);
+  const renamed = { ...item, ...(baseType ? { baseType } : {}), name };
   const consumables = { ...player.consumables, itemCertificate: player.consumables.itemCertificate - 1 };
   if (!consumables.itemCertificate) delete consumables.itemCertificate;
   const patch = { consumables };

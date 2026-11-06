@@ -1,3 +1,6 @@
+import { getMythicHolofoilStyle, MYTHIC_HOLOFOIL_EFFECTS, MYTHIC_HOLOFOIL_PALETTES } from "./mythicHolofoil";
+export { MYTHIC_HOLOFOIL_EFFECTS, MYTHIC_HOLOFOIL_PALETTES } from "./mythicHolofoil";
+
 export const HOLOFOIL_CHANCE = 0.01;
 export const HOLOFOIL_EFFECTS = [
   "aurora",
@@ -14,8 +17,7 @@ export const isHolofoilColors = (colors) =>
   Array.isArray(colors) && colors.length === 2 &&
   colors.every((color) => typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color));
 
-const rollEffect = () =>
-  HOLOFOIL_EFFECTS[Math.floor(Math.random() * HOLOFOIL_EFFECTS.length)];
+const pick = (pool) => pool[Math.floor(Math.random() * pool.length)];
 
 export const validateHolofoil = (holofoil) => {
   if (holofoil !== undefined && holofoil !== true && !isHolofoilColors(holofoil)) {
@@ -23,15 +25,41 @@ export const validateHolofoil = (holofoil) => {
   }
 };
 
-export const rollHolofoil = (holofoil) => {
+export const rollHolofoil = (holofoil, rarity) => {
   validateHolofoil(holofoil);
-  if (holofoil === undefined && Math.random() >= HOLOFOIL_CHANCE) return {};
+  const mythic = rarity === "Mythic";
+  if (!mythic && holofoil === undefined && Math.random() >= HOLOFOIL_CHANCE) return {};
   const randomColor = () =>
     `#${Math.floor(Math.random() * 0x1000000).toString(16).padStart(6, "0")}`;
+  if (mythic) {
+    const effect = pick(MYTHIC_HOLOFOIL_EFFECTS);
+    return {
+      holofoil: [...(isHolofoilColors(holofoil) ? holofoil : pick(MYTHIC_HOLOFOIL_PALETTES[effect]))],
+      holofoilEffect: effect,
+    };
+  }
   return {
     holofoil: isHolofoilColors(holofoil) ? [...holofoil] : [randomColor(), randomColor()],
-    holofoilEffect: rollEffect(),
+    holofoilEffect: pick(HOLOFOIL_EFFECTS),
   };
+};
+
+const getItemEffect = (item) => {
+  const effect = item.holofoilEffect;
+  if (item.rarity !== "Mythic")
+    return MYTHIC_HOLOFOIL_EFFECTS.includes(effect) ? "aurora" : effect || "aurora";
+  if (MYTHIC_HOLOFOIL_EFFECTS.includes(effect)) return effect;
+  // Legacy items get a stable selection, even before ownership migration runs.
+  const identity = String(item.id || item.holofoil.join(""));
+  const hash = [...identity].reduce((value, char) => (value * 31 + char.charCodeAt(0)) >>> 0, 0);
+  return MYTHIC_HOLOFOIL_EFFECTS[hash % MYTHIC_HOLOFOIL_EFFECTS.length];
+};
+
+export const normalizeHolofoilEffect = (item) => {
+  if (!item || item.twoHandedOf || !isHolofoilColors(item.holofoil)) return item;
+  const effect = getItemEffect(item);
+  if (effect === item.holofoilEffect || (item.rarity !== "Mythic" && !item.holofoilEffect)) return item;
+  return { ...item, holofoilEffect: effect };
 };
 
 const getEffectStyle = (effect, color1, color2) => {
@@ -80,7 +108,11 @@ const getEffectStyle = (effect, color1, color2) => {
 export const getHolofoilStyle = (item) => {
   if (!isHolofoilColors(item?.holofoil)) return undefined;
   const [color1, color2] = item.holofoil;
-  const effect = item.holofoilEffect || "aurora";
+  const effect = getItemEffect(item);
+  if (item.rarity === "Mythic") return {
+    "--holofoil-background": `linear-gradient(135deg, ${color1}66, ${color2}66)`,
+    ...getMythicHolofoilStyle(effect, item.holofoil),
+  };
   const baseEffect = effect.replace(/-animated$/, "");
   const isAnimated = effect.endsWith("-animated");
   return {

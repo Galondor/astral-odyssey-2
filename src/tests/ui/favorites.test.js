@@ -4,7 +4,7 @@ import { getPlayer, setPlayer } from "../../character/player";
 import { recalculateStats } from "../../character/stats";
 import { CONSUMABLES, KEY_ITEMS } from "../../items/consumables";
 import { MATERIALS } from "../../items/materials";
-import { getHolofoilStyle } from "../../items/holofoil";
+import { getHolofoilStyle, MYTHIC_HOLOFOIL_EFFECTS } from "../../items/holofoil";
 import { listItem, subscribeListings } from "../../world/marketplace";
 import MarketplaceScreen from "../../ui/MarketplaceScreen";
 import { SCREENS } from "../../ui/screens";
@@ -55,8 +55,8 @@ const renderCharacter = () => {
 const cards = () => Array.from(document.querySelectorAll(".inventory-panel .inventory-list .inventory-item"));
 const filter = (value) => fireEvent.change(screen.getByRole("combobox", { name: "Filter favorites" }), { target: { value } });
 
-test("holofoil gradients appear in inventory and equipment without changing saved colors", () => {
-  const foil = { ...sword, holofoil: ["#ff0000", "#0000ff"] };
+test.each([undefined, ...MYTHIC_HOLOFOIL_EFFECTS])("holofoil %s appears in inventory and equipment without changing saved colors", effect => {
+  const foil = { ...sword, ...(effect ? { rarity: "Mythic", holofoilEffect: effect } : {}), holofoil: ["#ff0000", "#0000ff"] };
   player.inventory = [foil];
   renderCharacter();
   const gradient = getHolofoilStyle(foil)["--holofoil-background"];
@@ -64,7 +64,12 @@ test("holofoil gradients appear in inventory and equipment without changing save
   fireEvent.click(screen.getByRole("button", { name: sword.name }));
   fireEvent.click(screen.getByRole("button", { name: "Equip" }));
   expect(player.equipment.mainHand.holofoil).toEqual(foil.holofoil);
-  expect(screen.getByRole("button", { name: `Main Hand ${sword.name}` }).style.getPropertyValue("--holofoil-background")).toBe(gradient);
+  const equipped = screen.getByRole("button", { name: `Main Hand ${sword.name}` });
+  expect(equipped.style.getPropertyValue("--holofoil-background")).toBe(gradient);
+  if (effect) {
+    expect(player.equipment.mainHand.holofoilEffect).toBe(effect);
+    expect(equipped.style.getPropertyValue("--holofoil-mythic-still")).toBe(getHolofoilStyle(foil)["--holofoil-mythic-still"]);
+  }
 });
 
 test("Titles inventory equips an owned title and clicking it again unequips it", () => {

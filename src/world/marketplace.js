@@ -9,6 +9,7 @@ import { getItemGemstones } from "../items/sockets";
 import { CONSUMABLES } from "../items/consumables";
 import { MATERIALS, MATERIAL_TIERS, addToMaterials } from "../items/materials";
 import { isFavorite } from "../items/favorites";
+import { getItemIntrinsicBonuses } from "../items/intrinsics";
 
 /*
  Player marketplace. Listings live in the database so every player sees them:
@@ -292,7 +293,7 @@ export const DEFAULT_FILTERS = {
 };
 
 export const getItemStats = (item) => {
-  const out = {};
+  const out = getItemIntrinsicBonuses(item);
   if (item.mainStat?.stat) out[item.mainStat.stat] = (out[item.mainStat.stat] || 0) + (Number(item.mainStat.value) || 0);
   for (const [k, v] of Object.entries(item.subStats || {})) out[k] = (out[k] || 0) + (Number(v) || 0);
   if (item.mythicSubStat?.stat) out[item.mythicSubStat.stat] = (out[item.mythicSubStat.stat] || 0) + (Number(item.mythicSubStat.value) || 0);

@@ -11,7 +11,7 @@ import {
   REAGENT_SLOT_LEVELS,
 } from "../character/professions";
 import { analyzeCraft, craftItem, getCraftingBook, getKnownProperties } from "../items/crafting";
-import { BLUEPRINTS, getBlueprints } from "../items/craftingBlueprints";
+import { BLUEPRINTS, getBlueprintIntrinsicDescription, getBlueprints } from "../items/craftingBlueprints";
 import {
   CRAFTING_MATERIALS,
   describeEffect,
@@ -81,79 +81,95 @@ function MaterialPicker({ player, blueprint, slot, used, level, onPick, onClear,
 function CraftPreview({ analysis, book, level, materialsUsed }) {
   if (!analysis?.blueprint) return null;
   const { blueprint } = analysis;
+  if (blueprint.kind === "part") return (
+    <dl className='crafting-stats'>
+      <dt>Output</dt><dd>1 {materialName(blueprint.output)}</dd>
+      <dt>Profession exp</dt><dd>{analysis.exp}</dd>
+      <dt>Astra cost</dt><dd>{analysis.astraCost}</dd>
+    </dl>
+  );
   return (
     <>
-      <section className='crafting-preview-section'>
-        <h4>Known effects</h4>
-        <ul>
-          {materialsUsed.map((key) => {
-            const known = getKnownProperties(book, key);
-            const unknown = CRAFTING_MATERIALS[key].properties.length - known.length;
-            return (
-              <li key={key}>
-                <strong style={{ color: materialColor(key) }}>{materialName(key)}</strong>
-                <ul>
-                  {known.map((effect, index) => {
-                    const gate = GATED_EFFECTS[effect.type];
-                    const inactive = gate && !hasProfessionEffect(level, gate);
-                    return (
-                      <li key={index} className={inactive ? "crafting-inactive" : ""}>
-                        {describeEffect(effect)}{inactive ? ` — needs ${PROFESSION_EFFECTS[gate].name}` : ""}
-                      </li>
-                    );
-                  })}
-                  {unknown > 0 && <li className='crafting-unknown'>??? ({unknown} undiscovered)</li>}
-                </ul>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
-      {(analysis.reactions.length > 0 || analysis.suppressed.length > 0) && (
-        <section className='crafting-preview-section'>
-          <h4>Reactions</h4>
-          <ul>
-            {analysis.reactions.map((id) => (book.reactions.includes(id) ? (
-              <li key={id} className={REACTIONS[id].harmful ? "crafting-warning" : ""}>
-                <strong>{REACTIONS[id].name}</strong>: {REACTIONS[id].effects.map(describeEffect).join(", ")}
-              </li>
-            ) : (
-              <li key={id} className='crafting-unknown'>??? These materials will react in an unknown way.</li>
-            )))}
-            {analysis.suppressed.map((id) => (
-              <li key={id} className='crafting-muted'>
-                {book.reactions.includes(id) ? REACTIONS[id].name : "A harmful reaction"} is held in check.
-              </li>
-            ))}
-          </ul>
+      {getBlueprintIntrinsicDescription(blueprint) && <p className='crafting-preview-intrinsic'>{getBlueprintIntrinsicDescription(blueprint)}</p>}
+      <div className='crafting-preview-content'>
+        <div className='crafting-preview-effects'>
+          <section className='crafting-preview-section' aria-label='Known effects'>
+            <h4>Known effects</h4>
+            <ul className='crafting-effect-cards'>
+              {materialsUsed.map((key) => {
+                const known = getKnownProperties(book, key);
+                const unknown = CRAFTING_MATERIALS[key].properties.length - known.length;
+                return (
+                  <li key={key} className='crafting-effect-card'>
+                    <strong style={{ color: materialColor(key) }}>{materialName(key)}</strong>
+                    <ul className='crafting-effect-list'>
+                      {known.map((effect, index) => {
+                        const gate = GATED_EFFECTS[effect.type];
+                        const inactive = gate && !hasProfessionEffect(level, gate);
+                        return (
+                          <li key={index} className={inactive ? "crafting-inactive" : ""}>
+                            <span>{describeEffect(effect)}</span>
+                            {inactive && <span className='crafting-effect-requirement'>Needs {PROFESSION_EFFECTS[gate].name}</span>}
+                          </li>
+                        );
+                      })}
+                      {unknown > 0 && <li className='crafting-unknown'>??? ({unknown} undiscovered)</li>}
+                    </ul>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+          {(analysis.reactions.length > 0 || analysis.suppressed.length > 0) && (
+            <section className='crafting-preview-section' aria-label='Reactions'>
+              <h4>Reactions</h4>
+              <ul className='crafting-reaction-list'>
+                {analysis.reactions.map((id) => (book.reactions.includes(id) ? (
+                  <li key={id} className={`crafting-effect-card ${REACTIONS[id].harmful ? "crafting-warning" : ""}`}>
+                    <strong>{REACTIONS[id].name}</strong>
+                    <ul className='crafting-effect-list'>
+                      {REACTIONS[id].effects.map((effect, index) => <li key={index}>{describeEffect(effect)}</li>)}
+                    </ul>
+                  </li>
+                ) : (
+                  <li key={id} className='crafting-effect-card crafting-unknown'>??? These materials will react in an unknown way.</li>
+                )))}
+                {analysis.suppressed.map((id) => (
+                  <li key={id} className='crafting-effect-card crafting-muted'>
+                    {book.reactions.includes(id) ? REACTIONS[id].name : "A harmful reaction"} is held in check.
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
+        <section className='crafting-preview-section crafting-odds' aria-label='Craft odds'>
+          <h4>Outcome</h4>
+          {blueprint.kind === "unique" ? (
+            <div className='crafting-odds-row compact'><span style={{ color: RARITY_COLORS.Unique }}>Unique</span><span>{percent(1 - analysis.mythicChance, 2)}</span></div>
+          ) : analysis.rarityOdds.map(({ rarity, chance }) => (
+            <div key={rarity} className='crafting-odds-row'>
+              <span style={{ color: RARITY_COLORS[rarity] }}>{rarity}</span>
+              <span className='crafting-odds-bar'><span style={{ width: `${Math.round(chance * 100)}%`, background: RARITY_COLORS[rarity] }} /></span>
+              <span>{percent(chance)}</span>
+            </div>
+          ))}
+          {blueprint.kind !== "tool" && (
+            <div className='crafting-odds-row compact'>
+              <span style={{ color: RARITY_COLORS.Mythic }}>Mythic</span>
+              <span>{percent(analysis.mythicChance, 3)}</span>
+            </div>
+          )}
+          <dl className='crafting-stats'>
+            <dt>Craft quality</dt><dd>{analysis.quality}</dd>
+            <dt>Item level</dt><dd>{analysis.iLevel === analysis.maxILevel ? analysis.iLevel : `${analysis.iLevel} - ${analysis.maxILevel}`}</dd>
+            <dt>Minimum substat tier</dt><dd>T{analysis.minTier}</dd>
+            <dt>Holofoil chance</dt><dd>{percent(analysis.holofoilChance)}</dd>
+            <dt>Profession exp</dt><dd>{analysis.exp}{analysis.lowTierPenalty < 1 ? " (low-tier base)" : ""}</dd>
+            <dt>Astra cost</dt><dd>{analysis.astraCost}</dd>
+          </dl>
         </section>
-      )}
-      <section className='crafting-preview-section crafting-odds' aria-label='Craft odds'>
-        <h4>Outcome</h4>
-        {blueprint.kind === "unique" ? (
-          <div className='crafting-odds-row compact'><span style={{ color: RARITY_COLORS.Unique }}>Unique</span><span>{percent(1 - analysis.mythicChance, 2)}</span></div>
-        ) : analysis.rarityOdds.map(({ rarity, chance }) => (
-          <div key={rarity} className='crafting-odds-row'>
-            <span style={{ color: RARITY_COLORS[rarity] }}>{rarity}</span>
-            <span className='crafting-odds-bar'><span style={{ width: `${Math.round(chance * 100)}%`, background: RARITY_COLORS[rarity] }} /></span>
-            <span>{percent(chance)}</span>
-          </div>
-        ))}
-        {blueprint.kind !== "tool" && (
-          <div className='crafting-odds-row compact'>
-            <span style={{ color: RARITY_COLORS.Mythic }}>Mythic</span>
-            <span>{percent(analysis.mythicChance, 3)}</span>
-          </div>
-        )}
-        <dl className='crafting-stats'>
-          <dt>Craft quality</dt><dd>{analysis.quality}</dd>
-          <dt>Item level</dt><dd>{analysis.iLevel}</dd>
-          <dt>Minimum substat tier</dt><dd>T{analysis.minTier}</dd>
-          <dt>Holofoil chance</dt><dd>{percent(analysis.holofoilChance)}</dd>
-          <dt>Profession exp</dt><dd>{analysis.exp}{analysis.lowTierPenalty < 1 ? " (low-tier base)" : ""}</dd>
-          <dt>Astra cost</dt><dd>{analysis.astraCost}</dd>
-        </dl>
-      </section>
+      </div>
     </>
   );
 }
@@ -198,6 +214,7 @@ export default function MaterialCrafting({ onChange }) {
   };
   const chooseBlueprint = (entry) => {
     setBlueprintId(entry.id);
+    if (entry.kind === "part") setReagents([]);
     if (base && (!entry.families.includes(CRAFTING_MATERIALS[base].family) || CRAFTING_MATERIALS[base].tier < (entry.minTier || 1))) setBase(null);
     setNote("");
   };
@@ -265,7 +282,7 @@ export default function MaterialCrafting({ onChange }) {
         <section className='crafting-blueprints' aria-label='Blueprints'>
           <h4>Blueprints</h4>
           <input className='input-field' type='search' aria-label='Search blueprints' placeholder='Search blueprints…' value={blueprintQuery} onChange={(event) => setBlueprintQuery(event.target.value)} />
-          <div className='crafting-blueprint-list'>
+          <div className='crafting-blueprint-list' role='region' aria-label='Available blueprints' tabIndex={0}>
             {blueprints.map((entry) => {
               const locked = progress.level < entry.level;
               return (
@@ -278,8 +295,9 @@ export default function MaterialCrafting({ onChange }) {
                   onClick={() => chooseBlueprint(entry)}
                 >
                   <strong>{entry.name}</strong>
+                  {getBlueprintIntrinsicDescription(entry) && <span className='crafting-muted'>{getBlueprintIntrinsicDescription(entry)}</span>}
                   <span className='crafting-muted'>
-                    {locked ? `Unlocks at level ${entry.level}` : entry.kind === "tool" ? "Crafting tool" : entry.kind === "unique" ? `Unique ${entry.slotLabel}` : entry.slotLabel}
+                    {locked ? `Unlocks at level ${entry.level}` : entry.kind === "tool" ? "Crafting / Gathering tool" : entry.kind === "unique" ? `Unique ${entry.slotLabel}` : entry.slotLabel}
                   </span>
                 </button>
               );
@@ -296,7 +314,7 @@ export default function MaterialCrafting({ onChange }) {
                   ? <strong style={{ color: materialColor(base) }}>{materialName(base)} <span className='crafting-muted'>(own {getMaterialCount(player, base)})</span></strong>
                   : <span className='crafting-muted'>Choose a base material</span>}
               </button>
-              {REAGENT_SLOT_LEVELS.map((unlock, index) => (index < slots ? (
+              {blueprint.kind !== "part" && REAGENT_SLOT_LEVELS.map((unlock, index) => (index < slots ? (
                 <button key={index} type='button' className='crafting-slot' aria-label={`Reagent slot ${index + 1}`} onClick={() => setPicker(index)}>
                   <span className='crafting-slot-label'>Reagent {index + 1}</span>
                   {reagents[index]
@@ -309,7 +327,7 @@ export default function MaterialCrafting({ onChange }) {
                   <span className='crafting-muted'>Unlocks at level {unlock}</span>
                 </div>
               )))}
-              {blueprint.parts && <p className='crafting-muted'>Place a {blueprint.parts.join(" and a ")} in your reagent slots. Better parts raise the tool's item level cap.</p>}
+              {blueprint.parts && <p className='crafting-muted'>Place a {blueprint.parts.join(" and a ")} in your reagent slots. Tools roll from item level 1 up to your equip profession level, capped by the parts used.</p>}
               {blueprint.requires && (
                 <div className='crafting-requires'>
                   <span className='crafting-slot-label'>Recipe materials</span>
@@ -346,7 +364,15 @@ export default function MaterialCrafting({ onChange }) {
         />
       )}
       {bookOpen && <CraftingBook player={player} onClose={() => setBookOpen(false)} />}
-      {result && (
+      {result?.material && (
+        <CraftingDialog label='Crafted tool part' onClose={() => setResult(null)}>
+          <h3>{result.count} {materialName(result.material)}</h3>
+          <p>{result.message}</p>
+          {result.discoveries.map(({ key, effect }) => <p key={key}>New discovery: {materialName(key)} - {describeEffect(effect)}</p>)}
+          <button type='button' className='buttons' onClick={() => setResult(null)}>Close</button>
+        </CraftingDialog>
+      )}
+      {result?.item && (
         <ItemPopup item={result.item} onClose={() => setResult(null)}>
           <div className='crafting-result'>
             {result.exp > 0 && <p>+{result.exp} {PROFESSIONS[profession].name} exp{result.levelsGained ? ` · Level up!` : ""}</p>}

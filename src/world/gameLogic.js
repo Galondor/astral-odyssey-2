@@ -318,6 +318,13 @@ export const scenes = {
       ];
     },
   },
+  gathering: {
+    input: "pointer",
+    screen: "gathering",
+    clearLog: true,
+    text: "You discover an opportunity to gather resources.",
+    options: [],
+  },
   travel: {
     input: INPUT_MODES[0],
     clearLog: true,

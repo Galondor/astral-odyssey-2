@@ -215,7 +215,7 @@ export const GROUP_DUNGEONS = {
     name: "The Starless Throne",
     level: 80,
     scale: { hp: 1.5, atk: 1.4 },
-    soloScale: { hp: 3.05, atk: 1.25 },
+    soloScale: { hp: 3.1, atk: 1.3 },
     color: "#9b5cff",
     description: "Beyond the last star sits a throne of nothing. Nyx'thara, the Star-Eater, waits there, hungry for the light you carry.",
     materials: { basic: "starless_void_shard", elite: "starless_eclipse_ichor", boss: "starless_eater_fang" },

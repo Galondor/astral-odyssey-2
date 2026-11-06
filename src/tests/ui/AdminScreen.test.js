@@ -219,6 +219,31 @@ test.each(["broadcast", "individual"])("admins can attach reputation to a %s mes
   })));
 });
 
+test.each(["broadcast", "individual"])("admins can attach profession experience to a %s message", async (mode) => {
+  getDirectory.mockResolvedValue([{ uid: "player-1", name: "Nova", level: 20 }]);
+  sendMessage.mockResolvedValue();
+  render(<AdminScreen />);
+  if (mode === "individual") {
+    fireEvent.click(screen.getByRole("tab", { name: "Individual Message" }));
+    fireEvent.change(screen.getByRole("combobox", { name: /player/i }), { target: { value: "Nova" } });
+    fireEvent.mouseDown(await screen.findByRole("option", { name: /Nova/ }));
+  }
+  fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "Profession training" } });
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "A boost!" } });
+  fireEvent.change(screen.getByLabelText("Attachment type"), { target: { value: "professionExp" } });
+  const professionSelect = screen.getByRole("option", { name: "Weaponry" }).parentElement;
+  for (const profession of ["weaponry", "mining"]) {
+    fireEvent.change(professionSelect, { target: { value: profession } });
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "200" } });
+    fireEvent.click(screen.getByRole("button", { name: "Attach" }));
+  }
+  fireEvent.click(screen.getByRole("button", { name: /send/i }));
+  await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+    to: mode === "broadcast" ? "all" : "player-1",
+    attachments: expect.objectContaining({ professionExp: { weaponry: 200, mining: 200 } }),
+  })));
+});
+
 test.each(["broadcast", "individual"])("admins can choose exact regular and ultimate Skill Gems for a %s", async (mode) => {
   getDirectory.mockResolvedValue([{ uid: "player-1", name: "Nova", level: 25 }]);
   sendMessage.mockResolvedValue();
@@ -403,7 +428,7 @@ test.each(["broadcast", "individual"])("admins can build exact custom gear for a
   fireEvent.change(screen.getByLabelText("Main stat"), { target: { value: "dexterity" } });
   expect(screen.queryByLabelText("Main stat value")).toBeNull();
   fireEvent.change(screen.getByLabelText("Main stat tier"), { target: { value: "7" } });
-  fireEvent.change(screen.getByLabelText("Critical damage"), { target: { value: "4" } });
+  fireEvent.change(screen.getByLabelText("Critical Damage"), { target: { value: "4" } });
   fireEvent.change(screen.getByLabelText("Ability"), { target: { value: "Piercing" } });
   fireEvent.click(screen.getByLabelText("Two-handed"));
   fireEvent.click(screen.getByLabelText("Force holofoil"));

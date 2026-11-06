@@ -5,12 +5,14 @@ import { SKILLS } from "../character/skills";
 import { ABILITIES, UNIQUE_ABILITIES, findAbility } from "../combat/abilities";
 import { getItemGearScore } from "./gearScore";
 import { isFavorite } from "./favorites";
-import { getHolofoilStyle, isHolofoilColors, rollHolofoil, validateHolofoil } from "./holofoil";
+import { getHolofoilStyle, isHolofoilColors, normalizeHolofoilEffect, rollHolofoil, validateHolofoil } from "./holofoil";
 import { RARITY_COLORS } from "./rarities";
 import { getItemBaseSocketCount, getItemGemstones, getItemSocketCount, isSkillGemstone, rollItemSocketCount } from "./sockets";
-import { CRAFTING_PERCENT_STATS, CRAFTING_STAT_LABELS, isToolItem, isToolSlot, TOOL_MAX_ITEM_LEVEL, TOOL_SUBSTATS } from "./craftingStats";
+import { CRAFTING_PERCENT_STATS, CRAFTING_STAT_LABELS, getToolSubStats, isGatheringToolSlot, isToolItem, isToolSlot, TOOL_MAX_ITEM_LEVEL } from "./craftingStats";
+import { getGatheringTier } from "../character/gathering";
 import { getToolProfessionLabel, getToolProfessionLevel } from "../character/professions";
 import { applyToolHolofoilBonuses } from "./tools";
+import { getItemBaseType, getItemIntrinsicBonuses } from "./intrinsics";
 export { RARITY_COLORS } from "./rarities";
 
 /*
@@ -25,9 +27,11 @@ export { RARITY_COLORS } from "./rarities";
  `socketCount` stores base capacity rolled at creation, excluding the Holofoil bonus; `gemstones` stores socketed gems in order. Legacy `gemstone` saves remain readable until the next socket change.
  `upgrades` stores permanent Forge upgrades used (0 when absent), limited to 10 and item level 100.
  Holofoil bonuses raise low stats to T5+, double value once, and are tracked by `holofoilBonusVersion`.
- Mythic items (crafting only) roll every stat at T7, are always Holofoil, and carry a wildcard
- `mythicSubStat: { stat, value, tier }` that may be any substat, even one already on the item.
+ Mythic items (crafting only) guarantee T7 substats, have a 50% chance for T8 on each substat line,
+ are always Holofoil, and carry a wildcard `mythicSubStat: { stat, value, tier }`.
  Hammers and Precision Tools (src/items/tools.js) are crafting-only, never socketed, and ignored by combat stats.
+ `baseType` preserves standard gear identity through renaming and material stat overrides. Intrinsic bonuses
+ are looked up live in intrinsics.js, separate from rolls; Unique gear uses its `unique` id instead.
 */
 export const SLOTS = [
   { key: "mainHand", label: "Main Hand", type: "weapon" },
@@ -42,13 +46,15 @@ export const SLOTS = [
   { key: "ring2", label: "Ring 2", type: "ring" },
   { key: "hammer", label: "Hammer", type: "hammer", category: "crafting-gathering" },
   { key: "precisionTools", label: "Precision Tools", type: "precisionTools", category: "crafting-gathering" },
+  { key: "pickaxe", label: "Pickaxe", type: "pickaxe", category: "crafting-gathering" },
+  { key: "axe", label: "Logging Axe", type: "axe", category: "crafting-gathering" },
 ];
 
 export const ITEMS = {};
 
 export const STARTER_ITEMS = [];
 
-// T0 (common gray) up to T7 (red)
+// T8 is Mythic-only; T9 is reserved for future Artifact gear.
 export const TIER_COLORS = [
   "#b0b0b0",
   "#1eff00",
@@ -58,7 +64,17 @@ export const TIER_COLORS = [
   "#ff8000",
   "#ff4d1a",
   "#ff2020",
+  "#ff00ff",
+  "#ffe033",
 ];
+
+export const MAX_GEAR_STAT_TIER = 7;
+export const MYTHIC_STAT_TIER = 8;
+export const ARTIFACT_STAT_TIER = 9;
+export const getItemStatTierCap = (item) =>
+  item?.rarity === "Mythic" ? MYTHIC_STAT_TIER
+    : item?.rarity === "Artifact" ? ARTIFACT_STAT_TIER
+      : MAX_GEAR_STAT_TIER;
 
 let itemCounter = 0;
 const newId = () =>
@@ -75,7 +91,7 @@ export const createItem = (key) => {
     mainStat: { ...t.mainStat },
     subStats: { ...t.subStats },
     ability: t.ability ? { ...t.ability } : null,
-    ...rollHolofoil(),
+    ...rollHolofoil(undefined, t.rarity),
   });
 };
 
@@ -127,7 +143,9 @@ export const STAT_LABELS = {
   agility: "Agility",
   vitality: "Vitality",
   luck: "Luck",
-  criticalDamage: "Critical damage",
+  criticalHitChance: "Critical Chance",
+  evasion: "Evasion",
+  criticalDamage: "Critical Damage",
   attackPercent: "Increased attack",
   magicAttackPercent: "Increased magic attack",
   attack: "Attack",
@@ -221,7 +239,7 @@ const CONDITIONS = [
   { name: "Perfect", mainStatModifier: 5, valueMultiplier: 2 },
 ];
 
-// Per-level substat caps (a roll is 1..cap * iLevel). Percent stats are fractional.
+// Per-level T7 base caps; Mythic T8 and future Artifact T9 extend these without changing lower tiers.
 const SUBSTAT_CAPS = { // DO NOT CHANGE
   defense: 0.48, // Maximum Roll: 50.40
   speed: 0.77, // Maximum Roll: 80.85
@@ -385,7 +403,7 @@ export const getSubStatPool = (slot) => [...(SUBSTAT_POOLS[slot] || [])];
 
 export const restrictItemSubStats = (item) => {
   if (isToolItem(item)) {
-    const allowed = new Set(TOOL_SUBSTATS);
+    const allowed = new Set(getToolSubStats(item.slot));
     return {
       ...item,
       subStats: Object.fromEntries(Object.entries(item.subStats || {}).filter(([stat]) => allowed.has(stat))),
@@ -603,16 +621,17 @@ const rollRarity = (minRarity = 0, weights) => {
   return pool[0];
 };
 
-const getSubStatRollRange = (key, iLevel) => {
+const SUBSTAT_MAX_TIER = MAX_GEAR_STAT_TIER;
+const getSubStatRollRange = (key, iLevel, maxTier = SUBSTAT_MAX_TIER) => {
   const precision = getSubStatPrecision(key);
   const cap = SUBSTAT_CAPS[key] * iLevel;
   const min = getSubStatMin(key);
-  const max = Math.max(min, Math.ceil(cap * precision) / precision);
-  return { min, max };
+  const baseMax = Math.max(min, Math.ceil(cap * precision) / precision);
+  const tierWidth = Math.max(1 / precision, (baseMax - min) / SUBSTAT_MAX_TIER);
+  const max = Math.ceil((baseMax + tierWidth * (maxTier - SUBSTAT_MAX_TIER)) * precision) / precision;
+  return { min, baseMax, max };
 };
 
-// T0 is the lowest possible roll and T7 the highest, based on where the roll sits in its range.
-const SUBSTAT_MAX_TIER = 7;
 // Main-stat tiers use the final value on one shared scale; 22 is the highest current unique roll.
 const MAIN_STAT_MAX_VALUE = 22;
 const getMainStatTier = (value) =>
@@ -625,22 +644,26 @@ const scaleValue = (key, value, scale) =>
     ? round(value * scale, Math.log10(getSubStatPrecision(key)))
     : Math.round(value * scale);
 
-const rollTier = (key, value, iLevel, scale = 1) => {
-  const { min, max } = getSubStatRollRange(key, iLevel);
+const rollTier = (key, value, iLevel, scale = 1, maxTier = SUBSTAT_MAX_TIER) => {
+  const { min, baseMax } = getSubStatRollRange(key, iLevel, maxTier);
   const scaledMin = scaleValue(key, min, scale);
-  const scaledMax = scaleValue(key, max, scale);
+  const scaledBaseMax = scaleValue(key, baseMax, scale);
   const scaledValue = scaleValue(key, value, scale);
-  if (scaledMax <= scaledMin) return SUBSTAT_MAX_TIER;
+  const tierStep = scaleValue(key, 1 / getSubStatPrecision(key), scale);
+  const tierWidth = Math.max(tierStep, (scaledBaseMax - scaledMin) / SUBSTAT_MAX_TIER);
+  if (scaledValue > scaledBaseMax)
+    return Math.min(maxTier, SUBSTAT_MAX_TIER + Math.round((scaledValue - scaledBaseMax) / tierWidth));
+  if (scaledBaseMax <= scaledMin) return SUBSTAT_MAX_TIER;
   const fraction = Math.min(
     1,
-    Math.max(0, (scaledValue - scaledMin) / (scaledMax - scaledMin)),
+    Math.max(0, (scaledValue - scaledMin) / (scaledBaseMax - scaledMin)),
   );
   return Math.round(fraction * SUBSTAT_MAX_TIER);
 };
 
-const rollSubStatValue = (key, iLevel, minTier = 0, scale = 1) => {
+const rollSubStatValue = (key, iLevel, minTier = 0, scale = 1, maxTier = SUBSTAT_MAX_TIER) => {
   const cap = SUBSTAT_CAPS[key] * iLevel;
-  const { min: minRoll, max } = getSubStatRollRange(key, iLevel);
+  const { min: minRoll, max } = getSubStatRollRange(key, iLevel, maxTier);
   if (minTier > 0) {
     const precision = getSubStatPrecision(key);
     const firstRoll = Math.ceil(minRoll * precision);
@@ -648,7 +671,7 @@ const rollSubStatValue = (key, iLevel, minTier = 0, scale = 1) => {
     let firstAllowedRoll = firstRoll;
     while (
       firstAllowedRoll < lastRoll &&
-      rollTier(key, firstAllowedRoll / precision, iLevel, scale) < minTier
+      rollTier(key, firstAllowedRoll / precision, iLevel, scale, maxTier) < minTier
     ) {
       firstAllowedRoll++;
     }
@@ -674,6 +697,7 @@ export const HOLOFOIL_MIN_TIER = 5;
 
 // The marker prevents reapplying value/stat bonuses on color rerolls or reloads.
 export const applyHolofoilBonuses = (item) => {
+  item = normalizeHolofoilEffect(item);
   if (isToolItem(item)) return applyToolHolofoilBonuses(item);
   if (!item || item.twoHandedOf || !isHolofoilColors(item.holofoil) || item.holofoilBonusVersion === 1)
     return item;
@@ -687,21 +711,29 @@ export const applyHolofoilBonuses = (item) => {
       const minimum = Math.ceil(((HOLOFOIL_MIN_TIER - 0.5) / SUBSTAT_MAX_TIER) * MAIN_STAT_MAX_VALUE);
       value = minimum + randInt(MAIN_STAT_MAX_VALUE - minimum + 1) - 1;
     }
-    upgraded.mainStat = { ...item.mainStat, value, tier: getMainStatTier(value) };
+    upgraded.mainStat = {
+      ...item.mainStat,
+      value,
+      tier: Math.max(
+        item.mainStat.tier || 0,
+        item.rarity === "Mythic" ? MYTHIC_STAT_TIER : getMainStatTier(value),
+      ),
+    };
   }
   if (item.subStats) {
     const iLevel = item.iLevel || 1;
     const scale = item.twoHanded ? TWO_HANDED_MULT : 1;
+    const maxTier = getItemStatTierCap(item);
     upgraded.subStats = { ...item.subStats };
     upgraded.subTiers = { ...item.subTiers };
     for (const [stat, current] of Object.entries(item.subStats)) {
       if (!SUBSTAT_NAMES.includes(stat))
         throw new Error(`Cannot apply Holofoil bonuses to unsupported substat ${stat}.`);
-      const value = rollTier(stat, current / scale, iLevel, scale) < HOLOFOIL_MIN_TIER
-        ? scaleValue(stat, rollSubStatValue(stat, iLevel, HOLOFOIL_MIN_TIER, scale), scale)
+      const value = rollTier(stat, current / scale, iLevel, scale, maxTier) < HOLOFOIL_MIN_TIER
+        ? scaleValue(stat, rollSubStatValue(stat, iLevel, HOLOFOIL_MIN_TIER, scale, maxTier), scale)
         : current;
       upgraded.subStats[stat] = value;
-      upgraded.subTiers[stat] = rollTier(stat, value / scale, iLevel, scale);
+      upgraded.subTiers[stat] = rollTier(stat, value / scale, iLevel, scale, maxTier);
     }
   }
   return upgraded;
@@ -845,6 +877,7 @@ const generateItem = (
     id: newId(),
     name,
     slot,
+    baseType: base.name,
     twoHanded,
     rarity: rarity.name,
     socketCount: rollItemSocketCount(rarity.name),
@@ -856,7 +889,7 @@ const generateItem = (
     subStats,
     subTiers,
     ability,
-    ...rollHolofoil(quality.holofoil),
+    ...rollHolofoil(quality.holofoil, rarity.name),
   });
 };
 
@@ -962,7 +995,7 @@ export const createCraftedItem = (spec) => {
   const base = config?.bases.find((candidate) => candidate.name === spec.baseName);
   const rarity = RARITIES.find((candidate) => candidate.name === spec.rarity);
   const condition = CONDITIONS.find((candidate) => candidate.name === spec.condition);
-  const iLevel = Math.min(100, Math.max(1, Math.floor(Number(spec.iLevel) || 1)));
+  const iLevel = Math.min(105, Math.max(1, Math.floor(Number(spec.iLevel) || 1)));
   if (!config || !base || !rarity || !condition)
     throw new Error("Cannot craft that item.");
   const twoHanded = !!base.twoHanded;
@@ -1006,6 +1039,7 @@ export const createCraftedItem = (spec) => {
     id: newId(),
     name,
     slot: spec.slot,
+    baseType: base.name,
     twoHanded,
     rarity: rarity.name,
     socketCount: Number.isInteger(spec.socketCount) ? spec.socketCount : rollItemSocketCount(rarity.name),
@@ -1017,7 +1051,7 @@ export const createCraftedItem = (spec) => {
     subStats,
     subTiers,
     ability,
-    ...rollHolofoil(spec.holofoil ? true : undefined),
+    ...rollHolofoil(spec.holofoil ? true : undefined, rarity.name),
   });
 };
 
@@ -1025,8 +1059,9 @@ const MYTHIC_PREFIXES = ["Mythbound", "Worldforged", "Everlasting", "Godwrought"
 const MYTHIC_SUBSTATS = 6;
 
 /*
- Mythic gear: every stat rolls at T7, it is always Holofoil, and it adds a wildcard 7th substat that may be any
- substat (even one this slot can't roll, or a duplicate). `unique` crafts a Mythic version of a Unique definition.
+ Mythic gear guarantees T7 substats with a 50% chance for T8 on each line. Its main stat is T8, it is always
+ Holofoil, and it adds a wildcard 7th substat that may be any stat, including off-slot or duplicate stats.
+ `unique` crafts a Mythic version of a Unique definition. T9 remains reserved for future Artifact gear.
 */
 export const createMythicItem = ({ slot, baseName, stat, iLevel = 1, unique, name } = {}) => {
   const itemSlot = unique?.slot || slot;
@@ -1037,13 +1072,13 @@ export const createMythicItem = ({ slot, baseName, stat, iLevel = 1, unique, nam
     : config.bases.find((candidate) => candidate.name === baseName) || pick(config.bases);
   const rarity = RARITIES.find((candidate) => candidate.name === "Mythic");
   const condition = CONDITIONS.find((candidate) => candidate.name === "Perfect");
-  const level = Math.min(100, Math.max(1, Math.floor(Number(iLevel) || 1)));
+  const level = Math.min(105, Math.max(1, Math.floor(Number(iLevel) || 1)));
   const twoHanded = !!base.twoHanded;
   const scale = twoHanded ? TWO_HANDED_MULT : 1;
   const mainValue = twoHanded ? Math.round((randInt(5) + rarity.mainStatBonus) * scale) + condition.mainStatModifier : 20 + randInt(2);
   const mainStat = {
     stat: MAIN_STAT_NAMES.includes(stat) ? stat : base.stat,
-    tier: getMainStatTier(mainValue),
+    tier: MYTHIC_STAT_TIER,
     value: mainValue,
   };
   const pool = [...SUBSTAT_POOLS[itemSlot]];
@@ -1054,8 +1089,11 @@ export const createMythicItem = ({ slot, baseName, stat, iLevel = 1, unique, nam
   while (chosen.length < Math.min(MYTHIC_SUBSTATS, pool.length))
     chosen.push(rest.splice(Math.floor(Math.random() * rest.length), 1)[0]);
   const rollTopTier = (key) => {
-    const roll = rollSubStatValue(key, level, SUBSTAT_MAX_TIER, scale);
-    return { value: scaleValue(key, roll, scale), tier: rollTier(key, roll, level, scale) };
+    const tier = Math.random() < 0.5 ? MYTHIC_STAT_TIER : SUBSTAT_MAX_TIER;
+    const value = rollSubStatAtTier(key, level, tier, twoHanded, MYTHIC_STAT_TIER);
+    if (value === null)
+      throw new Error(`Could not roll ${key} at T${tier} for a Mythic item.`);
+    return { value, tier };
   };
   const subStats = {};
   const subTiers = {};
@@ -1073,6 +1111,7 @@ export const createMythicItem = ({ slot, baseName, stat, iLevel = 1, unique, nam
     id: newId(),
     name: name || (unique ? unique.name : `${pick(MYTHIC_PREFIXES)} ${base.name}`),
     slot: itemSlot,
+    ...(!unique ? { baseType: base.name } : {}),
     twoHanded,
     rarity: rarity.name,
     socketCount: rollItemSocketCount(rarity.name),
@@ -1086,7 +1125,7 @@ export const createMythicItem = ({ slot, baseName, stat, iLevel = 1, unique, nam
     subTiers,
     mythicSubStat,
     ability,
-    ...rollHolofoil(true),
+    ...rollHolofoil(true, rarity.name),
   });
 };
 
@@ -1155,7 +1194,9 @@ export const upgradeItemQuality = (item, field) => {
 export const MAIN_STAT_NAMES = Object.values(GEMSTONES).map((g) => g.stat);
 export const SUBSTAT_NAMES = Object.keys(SUBSTAT_CAPS);
 
-export const STAT_TIERS = TIER_COLORS.map((_, tier) => tier);
+export const STAT_TIERS = TIER_COLORS
+  .map((_, tier) => tier)
+  .filter((tier) => tier <= MAX_GEAR_STAT_TIER);
 
 const getTierRollRange = (first, last, tier, getTier) => {
   const lowerBound = (target) => {
@@ -1173,47 +1214,54 @@ const getTierRollRange = (first, last, tier, getTier) => {
   return min <= max ? { min, max } : null;
 };
 
-const getCustomSubStatRange = (stat, iLevel, tier, scale) => {
-  const { min, max } = getSubStatRollRange(stat, iLevel);
+const getCustomSubStatRange = (stat, iLevel, tier, scale, maxTier = SUBSTAT_MAX_TIER) => {
+  const { min, max } = getSubStatRollRange(stat, iLevel, maxTier);
   const precision = getSubStatPrecision(stat);
   const range = getTierRollRange(
     Math.round(min * precision),
     Math.round(max * precision),
     tier,
-    (value) => rollTier(stat, value / precision, iLevel, scale),
+    (value) => rollTier(stat, value / precision, iLevel, scale, maxTier),
   );
   return range ? { ...range, precision } : null;
 };
 
-export const getCustomSubStatTiers = (stat, iLevel, twoHanded = false) => {
+export const getCustomSubStatTiers = (stat, iLevel, twoHanded = false, maxTier = SUBSTAT_MAX_TIER) => {
   if (
     !SUBSTAT_NAMES.includes(stat) ||
     !Number.isSafeInteger(iLevel) ||
-    iLevel < 1
+    iLevel < 1 ||
+    !Number.isInteger(maxTier) ||
+    maxTier < SUBSTAT_MAX_TIER ||
+    maxTier > ARTIFACT_STAT_TIER
   )
     return [];
-  return STAT_TIERS.filter((tier) =>
-    getCustomSubStatRange(stat, iLevel, tier, twoHanded ? TWO_HANDED_MULT : 1),
+  return Array.from({ length: maxTier + 1 }, (_, tier) => tier).filter((tier) =>
+    getCustomSubStatRange(stat, iLevel, tier, twoHanded ? TWO_HANDED_MULT : 1, maxTier),
   );
 };
 
-export const getSubStatTier = (stat, value, iLevel, twoHanded = false) => {
+export const getSubStatTier = (stat, value, iLevel, twoHanded = false, maxTier = SUBSTAT_MAX_TIER) => {
   if (
     !SUBSTAT_NAMES.includes(stat) ||
     !Number.isFinite(value) ||
     !Number.isSafeInteger(iLevel) ||
-    iLevel < 1
+    iLevel < 1 ||
+    !Number.isInteger(maxTier) ||
+    maxTier < SUBSTAT_MAX_TIER ||
+    maxTier > ARTIFACT_STAT_TIER
   )
     return null;
   const scale = twoHanded ? TWO_HANDED_MULT : 1;
-  return rollTier(stat, value / scale, iLevel, scale);
+  return rollTier(stat, value / scale, iLevel, scale, maxTier);
 };
 
-export const rollSubStatAtTier = (stat, iLevel, tier, twoHanded = false) => {
-  if (!STAT_TIERS.includes(tier) || !getCustomSubStatTiers(stat, iLevel, twoHanded).includes(tier))
+export const rollSubStatAtTier = (stat, iLevel, tier, twoHanded = false, maxTier = SUBSTAT_MAX_TIER) => {
+  if (!Number.isInteger(tier) || tier < 0 || tier > maxTier ||
+      !getCustomSubStatTiers(stat, iLevel, twoHanded, maxTier).includes(tier))
     return null;
   const scale = twoHanded ? TWO_HANDED_MULT : 1;
-  const range = getCustomSubStatRange(stat, iLevel, tier, scale);
+  const range = getCustomSubStatRange(stat, iLevel, tier, scale, maxTier);
   return scaleValue(
     stat,
     (range.min + randInt(range.max - range.min + 1) - 1) / range.precision,
@@ -1326,7 +1374,7 @@ export const createCustomItem = ({
     ability: ability
       ? { name: ability.name, description: ability.description }
       : null,
-    ...(holofoil !== undefined ? rollHolofoil(holofoil) : {}),
+    ...(holofoil !== undefined || rarity === "Mythic" ? rollHolofoil(holofoil, rarity) : {}),
   });
 };
 
@@ -1412,6 +1460,14 @@ export const formatValue = (stat, v) => {
   return `${v < 0 ? "-" : "+"}${n}`;
 };
 
+export const getItemIntrinsicDescription = (item) => {
+  const bonuses = Object.entries(getItemIntrinsicBonuses(item));
+  return bonuses.length
+    ? `Intrinsic (${getItemBaseType(item)}): ${bonuses.map(([stat, value]) =>
+      `${formatValue(stat, value)} ${STAT_LABELS[stat] || stat}`).join(", ")}`
+    : "";
+};
+
 export const itemTooltip = (item, extra) => {
   if (!item) return null;
   const slot = SLOTS.find((s) => s.type === item.slot);
@@ -1426,12 +1482,16 @@ export const itemTooltip = (item, extra) => {
     });
   }
   if (item.mainStat) {
+    const storedTierIsAuthoritative = isGatheringToolSlot(item.slot) ||
+      item.rarity === "Mythic" || item.rarity === "Artifact";
+    const mainTier = storedTierIsAuthoritative && item.mainStat.tier !== undefined
+      ? item.mainStat.tier : getMainStatTier(item.mainStat.value);
     stats.push({
       label: STAT_LABELS[item.mainStat.stat] || item.mainStat.stat,
       value: formatValue(item.mainStat.stat, item.mainStat.value),
       color: "#ffd479",
-      tier: `T${getMainStatTier(item.mainStat.value)}`,
-      tierColor: TIER_COLORS[getMainStatTier(item.mainStat.value)],
+      tier: `T${mainTier}`,
+      tierColor: TIER_COLORS[mainTier],
     });
   }
   for (const [index, [k, v]] of Object.entries(item.subStats || {}).entries()) {
@@ -1467,7 +1527,7 @@ export const itemTooltip = (item, extra) => {
     item.crafted && "Crafted",
     ...(item.usedRunes || []),
     item.prismatic && "Prismatic",
-    tool ? "Crafting tool" : `Gear score ${getItemGearScore(item)}`,
+    tool ? (isGatheringToolSlot(item.slot) ? `Gathering tool • Material tier ${getGatheringTier(item.mainStat?.value)}` : "Crafting tool") : `Gear score ${getItemGearScore(item)}`,
     item.originalOwner && `Original Owner: ${item.originalOwner}`,
   ].filter(Boolean);
   const abilityText = item.ability
@@ -1479,7 +1539,10 @@ export const itemTooltip = (item, extra) => {
     titleColor: RARITY_COLORS[item.rarity],
     subtitle: `${item.holofoil ? "Holofoil " : ""}${item.rarity}${item.condition ? `, ${item.condition}` : ""}, Item Level ${item.iLevel} • ${requirement}`,
     upgrades: item.upgrades ?? 0,
-    description: [abilityText].filter(Boolean),
+    description: [
+      getItemIntrinsicDescription(item),
+      abilityText,
+    ].filter(Boolean),
     stats,
     footer: [
       extra,
@@ -1517,6 +1580,8 @@ const getComparedItems = (item) => {
 const sumStats = (items) => {
   const out = {};
   for (const it of items) {
+    for (const [stat, value] of Object.entries(getItemIntrinsicBonuses(it)))
+      out[stat] = (out[stat] || 0) + value;
     for (const gemstone of getItemGemstones(it))
       if (!isSkillGemstone(gemstone))
         out[gemstone.stat] = (out[gemstone.stat] || 0) + gemstone.value;
@@ -1575,7 +1640,7 @@ export const itemComparisonTooltip = (item, extra) => {
 // Always derived, so items saved under an older formula stay consistent.
 // Tools instead require a profession level equal to their item level.
 export const getEquipLevel = (item) => {
-  if (isToolItem(item)) return Math.min(TOOL_MAX_ITEM_LEVEL, Math.max(1, item.iLevel || 1));
+  if (isToolItem(item)) return Math.min(TOOL_MAX_ITEM_LEVEL, Math.max(isGatheringToolSlot(item.slot) ? 5 : 1, item.iLevel || 1));
   const level = (item?.iLevel || 1) - 1;
   return Math.min(
     100,

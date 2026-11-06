@@ -691,7 +691,7 @@ function attackAction(c, actor, intent, log, env, options = {}) {
     damageEnemy(c, enemy, burst, log, env, actor);
   }
   if (ab.lifesteal) healMember(actor, Math.max(1, Math.round(dealt * ab.lifesteal)), log, "Vampiric");
-  if (ab.surge && ctx.crit) gainMemberPower(actor, Math.round((s.maxPower * ab.surge) / 2));
+  if (ab.surge && ctx.crit) gainMemberPower(actor, Math.round(s.maxPower * ab.surge));
   if (ctx.crit && ab.uniqueEffects.includes("orbitalFocus") && !enemy.dead) {
     const shard = Math.max(1, Math.round(dealt * 0.35));
     log.push(`Orbital Focus launches a shard for ${red(shard)} damage.`);

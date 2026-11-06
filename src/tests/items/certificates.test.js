@@ -26,7 +26,7 @@ beforeEach(() => {
 
 test("renames carried gear without changing its identity, stats, or other properties", () => {
   expect(renameItem("sword", "  Nova Blade 42  ").ok).toBe(true);
-  expect(player.inventory[0]).toEqual({ ...sword, name: "Nova Blade 42" });
+  expect(player.inventory[0]).toEqual({ ...sword, baseType: "Sword", name: "Nova Blade 42" });
   expect(player.consumables).toEqual({ itemCertificate: 1, healthPotion: 3 });
   expect(player.stats).toEqual({ health: 10, maxHealth: 100 });
 });
@@ -39,7 +39,7 @@ test("renames equipped two-handed gear and its placeholder, spending the last ce
   };
   player.consumables.itemCertificate = 1;
   expect(renameItem("sword", "123").ok).toBe(true);
-  expect(player.equipment.mainHand).toEqual({ ...sword, twoHanded: true, name: "123" });
+  expect(player.equipment.mainHand).toEqual({ ...sword, baseType: "Sword", twoHanded: true, name: "123" });
   expect(player.equipment.offHand.name).toBe("123");
   expect(player.consumables).toEqual({ healthPotion: 3 });
 });

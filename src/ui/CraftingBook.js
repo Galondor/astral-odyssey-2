@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getProfessionLevel, MATERIAL_TIER_LEVELS, PROFESSIONS } from "../character/professions";
 import { getCraftingBook, getKnownProperties } from "../items/crafting";
-import { getBlueprints } from "../items/craftingBlueprints";
+import { getBlueprintIntrinsicDescription, getBlueprints } from "../items/craftingBlueprints";
 import {
   CRAFTING_MATERIALS,
   describeEffect,
@@ -140,14 +140,16 @@ export default function CraftingBook({ player, onClose }) {
               <header>
                 <strong className={blueprint.kind === "unique" ? "crafting-unique" : ""}>{blueprint.name}</strong>
                 <span className='crafting-muted'>
-                  {PROFESSIONS[blueprint.profession].name} {blueprint.level} · {blueprint.kind === "tool" ? "Crafting tool" : blueprint.kind === "unique" ? `Unique ${blueprint.slotLabel}` : blueprint.slotLabel}
+                  {PROFESSIONS[blueprint.profession].name} {blueprint.level} · {blueprint.kind === "tool" ? "Crafting / Gathering tool" : blueprint.kind === "unique" ? `Unique ${blueprint.slotLabel}` : blueprint.slotLabel}
                 </span>
               </header>
+              {getBlueprintIntrinsicDescription(blueprint) && <p>{getBlueprintIntrinsicDescription(blueprint)}</p>}
               <span>
                 Base: {blueprint.baseQty}× {blueprint.families.map((family) => MATERIAL_FAMILIES[family].label).join(" or ")}
                 {blueprint.minTier ? ` (tier ${blueprint.minTier}+)` : ""}
               </span>
               {blueprint.parts && <span>Tool parts: {blueprint.parts.join(" and ")}</span>}
+              {blueprint.kind === "part" && <span>Output: 1 {MATERIALS[blueprint.output].name}. Base cost: {blueprint.astra} astra before crafting discounts.</span>}
               {blueprint.requires && (
                 <span>Requires: {Object.entries(blueprint.requires).map(([key, qty]) => `${qty}× ${MATERIALS[key].name}`).join(", ")}</span>
               )}
