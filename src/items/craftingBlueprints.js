@@ -1,5 +1,6 @@
 import { getItemIntrinsicDescription, getSlotBases, SLOTS } from "./items";
 import { CRAFTED_UNIQUES } from "./craftingUniques";
+import { MATERIALS } from "./materials";
 import { TOOL_NAMES } from "./tools";
 
 /*
@@ -73,13 +74,18 @@ const buildBlueprints = () => {
       families: [recipe.family], minTier: recipe.minTier, baseQty: recipe.baseQty, requires: recipe.requires, unique,
     };
   }
-  for (const [type, name] of [["pickaxehead", "Pickaxe Head"], ["axehead", "Axe Head"]]) {
+  for (const [type, family] of [
+    ["hammerhead", "ore"],
+    ["haft", "wood"],
+    ["pickaxehead", "ore"],
+    ["axehead", "ore"],
+  ]) {
     ["i", "ii", "iii"].forEach((suffix, index) => {
       const output = `${type}_${suffix}`;
       out[`part:${output}`] = {
         id: `part:${output}`, profession: "weaponry", kind: "part",
-        name: `${["Crude", "Tempered", "Masterwork"][index]} ${name}`,
-        level: [5, 20, 35][index], families: ["ore"], minTier: [1, 3, 5][index],
+        name: MATERIALS[output].name,
+        level: [5, 20, 35][index], families: [family], minTier: [1, 3, 5][index],
         baseQty: [3, 5, 7][index], astra: [100, 500, 1500][index], output,
         slotLabel: "Tool Part",
       };

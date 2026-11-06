@@ -134,6 +134,25 @@ describe("blueprints", () => {
     for (const unique of Object.values(CRAFTED_UNIQUES)) expect(findAbility({ name: unique.ability })?.effects).toBeTruthy();
   });
 
+  test.each([
+    ["hammerhead", "ore"],
+    ["haft", "wood"],
+  ])("%s recipes use the matching base material family and three progression tiers", (type, family) => {
+    for (const [index, suffix] of ["i", "ii", "iii"].entries()) {
+      const blueprint = BLUEPRINTS[`part:${type}_${suffix}`];
+      expect(blueprint).toMatchObject({
+        kind: "part",
+        profession: "weaponry",
+        families: [family],
+        level: [5, 20, 35][index],
+        minTier: [1, 3, 5][index],
+        baseQty: [3, 5, 7][index],
+        output: `${type}_${suffix}`,
+        name: MATERIALS[`${type}_${suffix}`].name,
+      });
+    }
+  });
+
   test("crafted unique abilities use the updated effects", () => {
     const abilityEffects = (id) => findAbility({ name: CRAFTED_UNIQUES[id].ability }).effects;
     expect(abilityEffects("starforgedGreatblade")).toEqual({ damageBonus: 0.2, pierce: 0.3 });
@@ -318,6 +337,26 @@ describe("crafting", () => {
     expect(result.item).toMatchObject({ slot: "hammer", iLevel: 11, socketCount: 0, crafted: true });
     expect(result.item.subStats).toHaveProperty("craftQuality");
     expect(result.item.subStats).toHaveProperty("materialPreservation");
+  });
+
+  test.each([
+    ["hammerhead_i", "metal_scraps", 5, 3],
+    ["hammerhead_ii", "cinderite_ore", 20, 5],
+    ["hammerhead_iii", "rimesteel_ore", 35, 7],
+    ["haft_i", "meadow_oak", 5, 3],
+    ["haft_ii", "charred_ironwood", 20, 5],
+    ["haft_iii", "frostpine_log", 35, 7],
+  ])("crafts %s from the appropriate base material", (output, base, level, baseCost) => {
+    const player = makePlayer({
+      professions: professions(level),
+      materials: { [base]: 10 },
+    });
+    const result = craftItem(player, { blueprintId: `part:${output}`, base });
+
+    expect(result.ok).toBe(true);
+    expect(result.material).toBe(output);
+    expect(result.patch.materials[output]).toBe(1);
+    expect(result.patch.materials[base]).toBe(10 - baseCost);
   });
 
   test.each([

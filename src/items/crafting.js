@@ -99,7 +99,7 @@ export const analyzeCraft = (player, selection = {}) => {
   if (getMaterialCraftLevel(baseKey) > level)
     return fail(`${MATERIALS[baseKey].name} requires ${professionName} level ${getMaterialCraftLevel(baseKey)}.`);
   const reagents = (Array.isArray(selection.reagents) ? selection.reagents : []).filter(Boolean);
-  if (blueprint.kind === "part" && reagents.length) return fail("Head recipes use ore only; clear the reagent slots.");
+  if (blueprint.kind === "part" && reagents.length) return fail("Tool-part recipes don't use reagents; clear the reagent slots.");
   const slots = getReagentSlots(level);
   if (reagents.length > slots) return fail(`You have ${slots} reagent slot${slots === 1 ? "" : "s"}.`);
   for (const key of reagents) {
