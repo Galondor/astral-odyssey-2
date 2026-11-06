@@ -20,7 +20,7 @@ test("acquisition power has seven exact tier boundaries and progressive mileston
   });
   expect(getGatheringTier(999)).toBe(7);
   expect(getGatheringRates(9).bonusHarvest).toBe(0);
-  expect(getGatheringRates(10).bonusHarvest).toBe(0.2);
+  expect(getGatheringRates(10).bonusHarvest).toBe(0.5);
   expect(getGatheringRates(20).perfect).toBe(0.2);
   expect(getGatheringRates(30).comboRoll).toBe(true);
   expect(getGatheringRates(40).rarity).toBeGreaterThan(0);

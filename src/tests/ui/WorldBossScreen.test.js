@@ -16,6 +16,7 @@ jest.mock("../../world/inbox", () => ({ isAdmin: () => false }));
 jest.mock("../../world/worldBoss", () => ({
   clearWorldBossError: jest.fn(),
   finishWorldBossAttempt: jest.fn(() => Promise.resolve()),
+  getWorldBossDailyResetAt: (now = Date.now()) => (Math.floor(now / 86_400_000) + 1) * 86_400_000,
   getWorldBossError: () => "",
   getWorldBossUniqueDropChance: () => 15,
   hasPendingWorldBossAttempt: () => false,
@@ -64,6 +65,7 @@ test("shows shared boss health and current rankings without tentative rewards", 
   expect(screen.getByRole("heading", { name: "World Boss: The Astral Colossus" })).toBeTruthy();
   expect(screen.getByText("975,000 / 1,000,000 health")).toBeTruthy();
   expect(screen.getByRole("row", { name: /#1 Alice 25,000 2.50%/ })).toBeTruthy();
+  expect(screen.getByText(/daily attempts reset in .* \(UTC\)/i)).toBeTruthy();
   expect(screen.queryByText("Tentative reward")).toBeNull();
   expect(screen.queryByText("First-place reward")).toBeNull();
   expect(screen.getByText(/three attempts per day/i)).toBeTruthy();

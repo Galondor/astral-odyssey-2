@@ -373,7 +373,7 @@ export default function MaterialCrafting({ onChange }) {
         </CraftingDialog>
       )}
       {result?.item && (
-        <ItemPopup item={result.item} onClose={() => setResult(null)}>
+        <ItemPopup item={result.item} onClose={() => setResult(null)} allowDismantle onDismantled={() => onChange?.()}>
           <div className='crafting-result'>
             {result.exp > 0 && <p>+{result.exp} {PROFESSIONS[profession].name} exp{result.levelsGained ? ` · Level up!` : ""}</p>}
             {result.discoveries.map(({ key, effect }) => (

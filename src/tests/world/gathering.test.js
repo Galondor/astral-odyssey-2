@@ -44,8 +44,8 @@ test("region preference, performance and rarity alter actual reward weights", ()
   expect(front[6].weight / front[0].weight).toBeGreaterThan(meadow[6].weight / meadow[0].weight);
   const skilled = getGatheringPool("mining", "Meadowlands", { ...config, rarity: config.rarity + 0.5 }, 1);
   expect(skilled[6].weight / skilled[0].weight).toBeGreaterThan(meadow[6].weight / meadow[0].weight);
-  const good = rollGatheringRewards(hero(), "mining", "Meadowlands", config, [1, 1, 1, 1, 1], () => 0);
-  const rough = rollGatheringRewards(hero(), "mining", "Meadowlands", config, [0.2, 0, 0, 0, 0], () => 0);
+  const good = rollGatheringRewards(hero(), "mining", "Meadowlands", config, Array(config.count).fill(1), () => 0);
+  const rough = rollGatheringRewards(hero(), "mining", "Meadowlands", config, Array(config.count).fill(0.2), () => 0);
   expect(good.materials.metal_scraps).toBeGreaterThan(rough.materials.metal_scraps);
   expect(good.exp).toBeGreaterThan(rough.exp);
   expect(good.grade).toBe("Perfect");
@@ -57,9 +57,9 @@ test("bare hands, unmet equip requirements, bonus caps and practice rewards", ()
   const capped = getGatheringConfig(hero("logging", 50, 50, {
     gatheringTiming: 99, gatheringSlowdown: 99, gatheringPerfect: 99,
   }), "logging");
-  expect(capped.window).toBe(420);
-  expect(capped.interval).toBe(1400);
-  const missed = rollGatheringRewards({}, "mining", "Meadowlands", config, [0, 0, 0, 0, 0]);
+  expect(capped.window).toBe(227.5);
+  expect(capped.interval).toBe(980);
+  const missed = rollGatheringRewards({}, "mining", "Meadowlands", config, Array(config.count).fill(0));
   expect(missed).toMatchObject({ materials: {}, exp: 2, grade: "Missed" });
 });
 
@@ -67,9 +67,9 @@ test.each(["mining", "logging"])("%s grants substantially more XP with accelerat
   const config = getGatheringConfig({}, activity);
   const rewards = [0, 0.2, 0.5, 0.8, 1].map((score) =>
     rollGatheringRewards({}, activity, "Meadowlands", config, Array(config.count).fill(score), () => 0));
-  expect(rewards.map(({ exp }) => exp)).toEqual([2, 32, 69, 137, 200]);
+  expect(rewards.map(({ exp }) => exp)).toEqual(activity === "mining" ? [2, 38, 83, 164, 240] : [3, 40, 86, 171, 250]);
   expect(rewards[3].exp - rewards[2].exp).toBeGreaterThan(rewards[2].exp - rewards[1].exp);
-  expect(rewards[4].gathering[activity]).toMatchObject({ level: 2, exp: 68, attempts: 1 });
+  expect(rewards[4].gathering[activity]).toMatchObject({ level: 2, exp: activity === "mining" ? 108 : 118, attempts: 1 });
 });
 
 test.each(["mining", "logging"])("%s XP retains material tier scaling, tool bonuses and under-tier penalties", (activity) => {
@@ -78,11 +78,12 @@ test.each(["mining", "logging"])("%s XP retains material tier scaling, tool bonu
     const config = getGatheringConfig(player, activity);
     return rollGatheringRewards(player, activity, "Meadowlands", config, Array(config.count).fill(1), () => 0).exp;
   };
-  expect(earned(8, 8)).toBe(300);
-  expect(earned(8, 8, { gatheringExp: 0.5 })).toBe(450);
-  expect(earned(8, 8, { gatheringExp: 1 })).toBe(600);
-  expect(earned(8, 1)).toBe(160);
-  expect(earned(43, 43)).toBe(800);
+  const scale = activity === "mining" ? 6 / 5 : 10 / 8;
+  expect(earned(8, 8)).toBe(Math.round(300 * scale));
+  expect(earned(8, 8, { gatheringExp: 0.5 })).toBe(Math.round(450 * scale));
+  expect(earned(8, 8, { gatheringExp: 1 })).toBe(Math.round(600 * scale));
+  expect(earned(8, 1)).toBe(Math.round(160 * scale));
+  expect(earned(43, 43)).toBe(Math.round(800 * scale));
 });
 
 test("Mining records one timed strike per round and settles exactly once against latest player data", () => {
@@ -121,7 +122,7 @@ test("Logging requires alternating sides, penalizes wrong/early inputs and expir
   expect(recordGatheringInput(id, "right", c.countdown + 2 * c.interval).score).toBe(1);
   expect(recordGatheringInput(id, "left", c.countdown + 3 * c.interval - c.window - 1).score).toBe(0);
   expect(advanceGathering(id, getGatheringDuration(c) + 1).complete).toBe(true);
-  expect(getGatheringAttempt().scores).toEqual([0, 1, 0, 0, 0, 0, 0, 0]);
+  expect(getGatheringAttempt().scores).toEqual([0, 1, ...Array(c.count - 2).fill(0)]);
 });
 
 test("tool configuration is snapshotted and a forfeit never grants XP/materials", () => {
@@ -138,10 +139,10 @@ test("tool configuration is snapshotted and a forfeit never grants XP/materials"
 
 test.each([
   [0, 1],
-  [65, 1],
-  [66, 0.9954285714285714],
-  [240, 0],
-  [241, 0],
+  [28, 1],
+  [29, 1 - 0.8 / 102],
+  [130, 0],
+  [131, 0],
 ])("Logging timing boundary at %i ms produces score %s", (distance, expected) => {
   const { id } = offerGathering({}, "Meadowlands", "logging");
   startGathering(id, {}, 0);
@@ -166,10 +167,71 @@ test("bare-handed successes can reach the tool unlock without advanced resources
   let count = 0;
   while ((player.gathering?.mining.level || 1) < 5 && count < 60) {
     const c = getGatheringConfig(player, "mining");
-    const result = rollGatheringRewards(player, "mining", "Meadowlands", c, [1, 1, 1, 1, 1], () => 0);
+    const result = rollGatheringRewards(player, "mining", "Meadowlands", c, Array(c.count).fill(1), () => 0);
     player = { gathering: result.gathering };
     count++;
   }
   expect(player.gathering.mining.level).toBe(5);
   expect(count).toBeLessThan(60);
+});
+
+test.each([
+  ["mining", 6, 10],
+  ["logging", 10, 16],
+])("%s rolls the full hit range once and scales materials and XP with length", (activity, min, max) => {
+  const player = hero(activity);
+  const low = offerGathering(player, "Meadowlands", activity, () => 0);
+  expect(getGatheringAttempt().config.count).toBe(min);
+  startGathering(low.id, player, 0);
+  expect(getGatheringAttempt().scores).toHaveLength(min);
+  const short = getGatheringAttempt().config;
+  forfeitGathering(low.id);
+  const high = offerGathering(player, "Meadowlands", activity, () => 0.99999);
+  expect(getGatheringAttempt().config.count).toBe(max);
+  startGathering(high.id, player, 0);
+  const long = getGatheringAttempt().config;
+  expect(long.count).toBe(max);
+  expect(getGatheringAttempt().scores).toHaveLength(max);
+  const reward = (config) => rollGatheringRewards(player, activity, "Meadowlands", config, Array(config.count).fill(1), () => 0);
+  expect(reward(long).exp).toBeGreaterThan(reward(short).exp);
+  expect(Object.values(reward(long).materials).reduce((a, b) => a + b, 0))
+    .toBeGreaterThan(Object.values(reward(short).materials).reduce((a, b) => a + b, 0));
+});
+
+test.each(["mining", "logging"])("%s guarantees T1 with usable tools even on misses and can also award every unlocked tier", (activity) => {
+  const player = hero(activity);
+  const c = getGatheringConfig(player, activity);
+  const key = activity === "mining" ? "metal_scraps" : "meadow_oak";
+  for (const region of REGION_TIERS) {
+    const missed = rollGatheringRewards(player, activity, region, c, Array(c.count).fill(0), () => 0.99999);
+    expect(missed.materials[key]).toBeGreaterThanOrEqual(1);
+    expect(Object.keys(missed.materials)).toEqual([key]);
+    const pool = getGatheringPool(activity, region, c, 1);
+    const total = pool.reduce((sum, { weight }) => sum + weight, 0);
+    let before = 0;
+    for (const entry of pool) {
+      const rng = () => (before + entry.weight / 2) / total;
+      const result = rollGatheringRewards(player, activity, region, c, Array(c.count).fill(1), rng);
+      expect(result.materials[key]).toBeGreaterThanOrEqual(1);
+      expect(result.materials[entry.key]).toBeGreaterThanOrEqual(1);
+      before += entry.weight;
+    }
+  }
+});
+
+test("base QTE tuning tightens perfect and good windows, with a larger change for logging", () => {
+  expect(getGatheringConfig({}, "mining")).toMatchObject({ interval: 1850, window: 0.14, perfect: 0.027 });
+  expect(getGatheringConfig({}, "logging")).toMatchObject({ interval: 700, window: 130, perfect: 28 });
+});
+
+test.each(["mining", "logging"])("%s Rich harvest grants an extra T1 resource on exactly the lower half of rolls", (activity) => {
+  const player = hero(activity, 10, 1);
+  const c = getGatheringConfig(player, activity);
+  const scores = Array(c.count).fill(1);
+  const key = activity === "mining" ? "metal_scraps" : "meadow_oak";
+  const harvest = (roll) => rollGatheringRewards(player, activity, "Meadowlands", c, scores, () => roll).materials[key];
+  expect(c.bonusHarvest).toBe(0.5);
+  expect(harvest(0)).toBe(harvest(0.5) + 1);
+  expect(harvest(0.49999)).toBe(harvest(0.5) + 1);
+  expect(harvest(0.99999)).toBe(harvest(0.5));
 });

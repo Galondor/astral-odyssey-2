@@ -6,6 +6,7 @@ import {
   clearWorldBossError,
   forceWorldBossRespawn,
   getWorldBossError,
+  getWorldBossDailyResetAt,
   hasPendingWorldBossAttempt,
   retryWorldBossAttempt,
   startWorldBossAttempt,
@@ -117,7 +118,7 @@ const WorldBossScreen = ({ player, goToScene, onChange, inCombat }) => {
   return (
     <section className='panel world-boss'>
       <h2>World Boss: The Astral Colossus</h2>
-      <p>A shared 1,000,000-health encounter. Each attempt is a solo fight; damage is added to the global contribution leaderboard.</p>
+      <p>A united effort against a massive foe. Each attempt is a solo fight; damage is added to the global contribution leaderboard.</p>
       <div className='world-boss-status'>
         <strong>{boss.defeated ? "Defeated" : `${boss.health.toLocaleString()} / ${WORLD_BOSS_HEALTH.toLocaleString()} health`}</strong>
         <div className='progress-track' role='progressbar' aria-label='World Boss health' aria-valuemin='0' aria-valuemax={WORLD_BOSS_HEALTH} aria-valuenow={boss.health}>
@@ -138,6 +139,7 @@ const WorldBossScreen = ({ player, goToScene, onChange, inCombat }) => {
       <p>
         Attempts today: {attemptsUsed}/{WORLD_BOSS_DAILY_ATTEMPTS}. You can make three attempts per day.
       </p>
+      <p>Daily attempts reset in {formatWorldBossDuration(getWorldBossDailyResetAt(now) - now)}.</p>
       <p>
         Rewards require at least {(WORLD_BOSS_REWARD_THRESHOLD / WORLD_BOSS_HEALTH * 100).toFixed(0)}% damage ({WORLD_BOSS_REWARD_THRESHOLD.toLocaleString()} damage), except placement prizes for the top three.
       </p>

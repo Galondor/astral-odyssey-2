@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import GatheringEvent from "../../ui/GatheringEvent";
 import { getPlayer, setPlayer } from "../../character/player";
-import { forfeitGathering, getGatheringAttempt, offerGathering } from "../../world/gathering";
+import { forfeitGathering, getGatheringAttempt, getGatheringDuration, offerGathering } from "../../world/gathering";
 
 jest.mock("../../character/player", () => ({ getPlayer: jest.fn(), setPlayer: jest.fn() }));
 jest.mock("../../combat/combat", () => ({ getEnemy: jest.fn(() => null) }));
@@ -52,12 +52,13 @@ test("Logging uses pointer input with alternating targets, finishes once and sho
   offerGathering({}, "Darkwood", "logging");
   render(<GatheringEvent goToScene={jest.fn()} onChange={jest.fn()} />);
   fireEvent.pointerDown(screen.getByRole("button", { name: "Start Logging" }));
-  act(() => jest.advanceTimersByTime(2000));
+  const c = getGatheringAttempt().config;
+  act(() => jest.advanceTimersByTime(c.countdown + c.interval));
   fireEvent.pointerDown(screen.getByRole("button", { name: "Left chop" }));
   expect(getGatheringAttempt().scores[0]).toBe(1);
   fireEvent.click(screen.getByRole("button", { name: "Right chop" }));
   expect(getGatheringAttempt().scores[1]).toBeNull();
-  act(() => jest.advanceTimersByTime(10000));
+  act(() => jest.advanceTimersByTime(getGatheringDuration(c)));
   expect(screen.getByText(/Best combo 1/)).toBeTruthy();
   expect(setPlayer).toHaveBeenCalledTimes(1);
   act(() => jest.advanceTimersByTime(10000));

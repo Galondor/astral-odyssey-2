@@ -2,9 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { itemTooltip, itemComparisonTooltip } from "../items/items";
 import { consumableTooltip } from "../items/consumables";
 import { TooltipContent } from "./Tooltip";
+import { getPlayer } from "../character/player";
+import { getEnemy } from "../combat/combat";
+import { isFavorite } from "../items/favorites";
+import { dismantleOwnedItem, getDismantleResources } from "../items/dismantling";
+import { MATERIALS } from "../items/materials";
 
-export default function ItemPopup({ item, onClose, actions = [], comparison, message, onDelete, deleteDisabled, children }) {
+export default function ItemPopup({ item, onClose, actions = [], comparison, message, onDelete, deleteDisabled, allowDismantle = false, dismantleDisabled, onDismantled, children }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingDismantle, setConfirmingDismantle] = useState(false);
+  const [dismantleResult, setDismantleResult] = useState(null);
   const dialog = useRef(null);
   const close = useRef(onClose);
   close.current = onClose;
@@ -12,6 +19,9 @@ export default function ItemPopup({ item, onClose, actions = [], comparison, mes
     ? consumableTooltip(item.key, `${item.count} available`)
     : itemTooltip(item);
   const comparisonDetails = comparison?.open ? itemComparisonTooltip(item) : null;
+  const resources = allowDismantle ? getDismantleResources(item) : null;
+  const cannotDismantle = dismantleDisabled || (resources && (!!getEnemy() || isFavorite(getPlayer(), "gear", item)));
+  const confirming = confirmingDelete || confirmingDismantle;
 
   useEffect(() => {
     const element = dialog.current;
@@ -73,6 +83,13 @@ export default function ItemPopup({ item, onClose, actions = [], comparison, mes
         <TooltipContent data={details} />
         {children}
         {message && <div className='gemstone-message' role='status'>{message}</div>}
+        {dismantleResult && <div className='gemstone-message' role='status'>{dismantleResult.message}</div>}
+        {confirmingDismantle && (
+          <p role='alert'>
+            Dismantle {item.name} for {resources.min}-{resources.max} {MATERIALS[resources.key].name}?
+            {" "}This cannot be undone. Any socketed gemstones will also be destroyed.
+          </p>
+        )}
         {confirmingDelete && (
           <p role='alert'>
             Delete {item.kind === "consumable" ? "one " : ""}{item.name}?
@@ -80,13 +97,13 @@ export default function ItemPopup({ item, onClose, actions = [], comparison, mes
             {item.kind !== "consumable" && " Any socketed gemstones will also be deleted."}
           </p>
         )}
-        {!confirmingDelete && comparison?.open && comparisonDetails && (
+        {!confirming && !dismantleResult?.ok && comparison?.open && comparisonDetails && (
           <div className='item-popup-comparison'>
             <TooltipContent data={{ sections: comparisonDetails.sections }} />
           </div>
         )}
         <div className='item-popup-actions'>
-          {!confirmingDelete && comparison && (
+          {!confirming && !dismantleResult?.ok && comparison && (
             <button
               type='button'
               className='buttons'
@@ -96,12 +113,25 @@ export default function ItemPopup({ item, onClose, actions = [], comparison, mes
               {comparison.open ? "Hide comparison" : "Compare"}
             </button>
           )}
-          {!confirmingDelete && actions.map(({ label, onClick, disabled }) => (
+          {!confirming && !dismantleResult?.ok && actions.map(({ label, onClick, disabled }) => (
             <button key={label} type='button' className='buttons' disabled={disabled} onClick={onClick}>
               {label}
             </button>
           ))}
-          {onDelete && (confirmingDelete ? (
+          {resources && !dismantleResult?.ok && !confirmingDelete && (confirmingDismantle ? (
+            <>
+              <button type='button' className='buttons' disabled={cannotDismantle} onClick={() => {
+                const result = dismantleOwnedItem(item);
+                setDismantleResult(result);
+                setConfirmingDismantle(false);
+                if (result.ok) onDismantled?.(result);
+              }}>Confirm dismantle</button>
+              <button type='button' className='buttons' onClick={() => setConfirmingDismantle(false)}>Cancel</button>
+            </>
+          ) : (
+            <button type='button' className='buttons' disabled={cannotDismantle} onClick={() => setConfirmingDismantle(true)}>Dismantle</button>
+          ))}
+          {onDelete && !confirmingDismantle && !dismantleResult?.ok && (confirmingDelete ? (
             <>
               <button type='button' className='buttons' disabled={deleteDisabled} onClick={onDelete}>
                 Confirm delete

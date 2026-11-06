@@ -165,6 +165,7 @@ export const getWorldBossSnapshot = async () => {
 
 const playerRecordRef = (cycle, uid) => ref(db, `worldBoss/cycles/${cycle}/players/${uid}`);
 const dailyWindow = (now) => Math.floor(now / DAY_MS) * DAY_MS;
+export const getWorldBossDailyResetAt = (now = Date.now()) => dailyWindow(now) + DAY_MS;
 let heartbeat = null;
 let activeAttempt = null;
 

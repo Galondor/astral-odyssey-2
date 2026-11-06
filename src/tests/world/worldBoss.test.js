@@ -4,6 +4,7 @@ import {
   deliverWorldBossResetNotice,
   deliverWorldBossRewards,
   finishWorldBossAttempt,
+  getWorldBossDailyResetAt,
   getWorldBossCycleId,
   getWorldBossTentativeRewards,
   getWorldBossUniqueDropChance,
@@ -66,6 +67,12 @@ test("the cycle rolls over every 72 hours and an admin override anchors the sche
   const interval = 72 * 60 * 60 * 1000;
   expect(getWorldBossCycleId(interval * 2 + 1)).toBe(String(interval * 2));
   expect(getWorldBossCycleId(interval * 2 + 1, 500)).toBe(String(500 + interval));
+});
+
+test("daily attempt reset time is the next UTC midnight", () => {
+  expect(getWorldBossDailyResetAt(1)).toBe(86_400_000);
+  expect(getWorldBossDailyResetAt(86_400_000)).toBe(2 * 86_400_000);
+  expect(getWorldBossDailyResetAt(86_400_001)).toBe(2 * 86_400_000);
 });
 
 test("shared health is derived from all players' damage and ranked by contribution", () => {

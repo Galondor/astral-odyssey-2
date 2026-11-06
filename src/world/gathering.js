@@ -12,6 +12,7 @@ const clock = () => performance.now();
 let sequence = 0;
 let attempt = null;
 let notice = "";
+export const GATHERING_HIT_RANGES = { mining: [6, 10], logging: [10, 16] };
 
 export const getGatheringConfig = (player, activity) => {
   const definition = GATHERING_PROFESSIONS[activity];
@@ -26,12 +27,12 @@ export const getGatheringConfig = (player, activity) => {
   const timing = Math.min(0.75, rates.timing + sub("gatheringTiming"));
   const slowdown = Math.min(0.4, sub("gatheringSlowdown"));
   const perfect = Math.min(0.75, rates.perfect + sub("gatheringPerfect"));
-  const interval = Math.round((activity === "mining" ? 2100 : 1000) * (1 + slowdown));
+  const interval = Math.round((activity === "mining" ? 1850 : 700) * (1 + slowdown));
   return {
-    activity, level, toolName: tool?.name || "Bare hands", power, maxTier: getGatheringTier(power),
-    count: activity === "mining" ? 5 : 8, countdown: 1000, interval,
-    window: activity === "mining" ? 0.18 * (1 + timing) : 240 * (1 + timing),
-    perfect: activity === "mining" ? 0.035 * (1 + perfect) : 65 * (1 + perfect),
+    activity, level, toolName: tool?.name || "Bare hands", hasTool: !!tool, power, maxTier: getGatheringTier(power),
+    count: GATHERING_HIT_RANGES[activity][0], countdown: 1000, interval,
+    window: activity === "mining" ? 0.14 * (1 + timing) : 130 * (1 + timing),
+    perfect: activity === "mining" ? 0.027 * (1 + perfect) : 28 * (1 + perfect),
     yield: rates.yield + Math.min(1, sub("gatheringYield")),
     rarity: rates.rarity + Math.min(1, sub("gatheringRarity")),
     expBonus: Math.min(1, sub("gatheringExp")),
@@ -60,15 +61,20 @@ export const gatheringGrade = (score) =>
 
 export const rollGatheringRewards = (player, activity, region, config, scores, rng = Math.random) => {
   const performance = scores.reduce((sum, value) => sum + clamp(value || 0, 0, 1), 0) / config.count;
+  const lengthBonus = config.count / (activity === "mining" ? 5 : 8);
   const materials = {};
   const pool = getGatheringPool(activity, region, config, performance);
   let combo = 0;
   let bestCombo = 0;
   scores.forEach((value) => { combo = value >= 0.5 ? combo + 1 : 0; bestCombo = Math.max(bestCombo, combo); });
-  if (performance > 0 && pool.length) {
-    const key = weightedMaterial(pool, rng);
-    materials[key] = Math.max(1, Math.floor((1 + 5 * performance) * (1 + config.yield)));
+  if ((config.hasTool || performance > 0) && pool.length) {
+    const key = pool.find(({ tier }) => tier === 1).key;
+    materials[key] = Math.max(1, Math.floor((1 + 5 * performance) * lengthBonus * (1 + config.yield)));
     if (rng() < config.bonusHarvest) materials[key]++;
+    if (performance > 0 && config.maxTier > 1) {
+      const bonus = weightedMaterial(pool, rng);
+      materials[bonus] = (materials[bonus] || 0) + Math.max(1, Math.floor(3 * performance * lengthBonus));
+    }
     if (config.comboRoll && bestCombo >= 4) {
       const bonus = weightedMaterial(pool, rng);
       materials[bonus] = (materials[bonus] || 0) + 1;
@@ -76,9 +82,8 @@ export const rollGatheringRewards = (player, activity, region, config, scores, r
   }
   const onLevelTier = getGatheringTier(config.level);
   const penalty = Math.max(0.1, 1 - Math.max(0, onLevelTier - config.maxTier) * 0.2);
-  const exp = performance === 0 ? 2 : Math.max(2, Math.round(
-    100 * (1 + (config.maxTier - 1) * 0.5) * (0.25 + 1.75 * performance ** 2) * penalty * (1 + config.expBonus),
-  ));
+  const exp = Math.max(2, Math.round(lengthBonus * (performance === 0 ? 2 :
+    100 * (1 + (config.maxTier - 1) * 0.5) * (0.25 + 1.75 * performance ** 2) * penalty * (1 + config.expBonus))));
   const progress = addGatheringExp(player, activity, exp);
   return { materials, exp, performance, grade: gatheringGrade(performance), bestCombo, ...progress };
 };
@@ -94,17 +99,19 @@ export const getGatheringAttempt = () => attempt ? {
   scores: [...attempt.scores], targets: [...attempt.targets],
 } : null;
 
-export const offerGathering = (player, region, activity = Math.random() < 0.5 ? "mining" : "logging") => {
+export const offerGathering = (player, region, activity = Math.random() < 0.5 ? "mining" : "logging", rng = Math.random) => {
   if (!GATHERING_PROFESSIONS[activity] || !REGIONS[region]) return fail("That gathering opportunity is unavailable.");
   if (attempt?.state === "active") return fail("Finish or leave your current gathering attempt first.");
   notice = "";
-  attempt = { id: `gather-${++sequence}`, activity, region, state: "offered", scores: [], targets: [], config: getGatheringConfig(player, activity) };
+  const [min, max] = GATHERING_HIT_RANGES[activity];
+  const config = { ...getGatheringConfig(player, activity), count: min + Math.floor(rng() * (max - min + 1)) };
+  attempt = { id: `gather-${++sequence}`, activity, region, state: "offered", scores: [], targets: [], config };
   return { ok: true, id: attempt.id };
 };
 export const startGathering = (id, player = getPlayer(), now = clock(), rng = Math.random) => {
   if (!player) return fail("No character loaded.");
   if (attempt?.id !== id || attempt.state !== "offered") return fail("This gathering opportunity is no longer available.");
-  const config = getGatheringConfig(player, attempt.activity);
+  const config = { ...getGatheringConfig(player, attempt.activity), count: attempt.config.count };
   attempt = {
     ...attempt, config, state: "active", startedAt: now,
     scores: Array(config.count).fill(null),

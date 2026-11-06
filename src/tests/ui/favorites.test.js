@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { getPlayer, setPlayer } from "../../character/player";
+import { getPlayer, markInventoryItemViewed, setPlayer } from "../../character/player";
 import { recalculateStats } from "../../character/stats";
 import { CONSUMABLES, KEY_ITEMS } from "../../items/consumables";
 import { MATERIALS } from "../../items/materials";
@@ -440,4 +440,73 @@ test("trader can mass-sell selected gems while leaving favorites untouched", () 
   expect(player.gemstones).toEqual([ruby]);
   expect(player.astra).toBe(1600);
   expect(screen.getByText("1 gem sold for 600 astra.")).toBeInTheDocument();
+});
+
+test.each(["inventory", "equipment", "trader"])("%s popup confirms dismantling and displays the awarded materials", (location) => {
+  if (location === "equipment") {
+    player.inventory = [];
+    player.equipment = { mainHand: sword };
+  }
+  if (location === "trader") {
+    const Trader = SCREENS.gearTrader.component;
+    render(<Trader />);
+  } else renderCharacter();
+  fireEvent.click(screen.getByRole("button", { name: location === "equipment" ? `Main Hand ${sword.name}` : new RegExp(sword.name) }));
+  let dialog = screen.getByRole("dialog", { name: `${sword.name} details` });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Dismantle" }));
+  expect(player.inventory).toEqual(location === "equipment" ? [] : [sword, helmet]);
+  expect(within(dialog).getByRole("alert")).toHaveTextContent("socketed gemstones");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Dismantle" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm dismantle" }));
+  dialog = screen.getByRole("dialog", { name: `${sword.name} details` });
+  expect(within(dialog).getByRole("status")).toHaveTextContent(/Dismantled Alpha Sword:/);
+  expect(within(dialog).queryByRole("button", { name: "Dismantle" })).not.toBeInTheDocument();
+  expect(player.inventory.some(({ id }) => id === sword.id)).toBe(false);
+  expect(player.equipment.mainHand).toBeUndefined();
+  expect(player.materials.metal_scraps).toBeGreaterThan(0);
+  expect(player.astra).toBe(1000);
+});
+
+test("favorited gear cannot be dismantled until unfavorited in the popup", () => {
+  player.favoriteInventoryItems = { gear: [sword.id] };
+  renderCharacter();
+  fireEvent.click(screen.getByRole("button", { name: sword.name }));
+  expect(screen.getByRole("button", { name: "Dismantle" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Unfavorite" }));
+  expect(screen.getByRole("button", { name: "Dismantle" })).toBeEnabled();
+});
+
+test("combat locks dismantling in the item popup", () => {
+  const Character = SCREENS.character.component;
+  render(<Character player={player} inCombat />);
+  fireEvent.click(screen.getByRole("button", { name: sword.name }));
+  expect(screen.getByRole("button", { name: "Dismantle" })).toBeDisabled();
+});
+
+test.each(["hover", "focus"])("viewing a gear tooltip by %s clears its notification without opening a popup", (method) => {
+  jest.useFakeTimers();
+  try {
+    player.unseenInventoryItems = { gear: [sword.id] };
+    markInventoryItemViewed.mockImplementation((category, key) => {
+      setPlayer({ unseenInventoryItems: {
+        ...player.unseenInventoryItems,
+        [category]: player.unseenInventoryItems[category].filter((entry) => entry !== key),
+      } });
+    });
+    renderCharacter();
+    const card = screen.getByRole("button", { name: /Alpha Sword/ });
+    expect(within(card).getByLabelText("New item")).toBeInTheDocument();
+    if (method === "hover") fireEvent.mouseEnter(card);
+    else fireEvent.focus(card);
+    act(() => jest.advanceTimersByTime(150));
+    expect(markInventoryItemViewed).toHaveBeenCalledWith("gear", sword.id);
+    expect(screen.queryByLabelText("New item")).not.toBeInTheDocument();
+    expect(screen.getByRole("tooltip")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  } finally {
+    markInventoryItemViewed.mockReset();
+    jest.useRealTimers();
+  }
 });

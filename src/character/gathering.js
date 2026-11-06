@@ -6,7 +6,7 @@ export const GATHERING_PROFESSIONS = {
 };
 export const GATHERING_UNLOCKS = [
   { level: 5, name: "Tools of the trade", description: "Equip Pickaxes or Axes up to your gathering level." },
-  { level: 10, name: "Rich harvest", description: "20% chance to harvest one extra resource." },
+  { level: 10, name: "Rich harvest", description: "50% chance to harvest one extra resource." },
   { level: 20, name: "Steady hands", description: "Perfect timing windows are 20% wider." },
   { level: 30, name: "Flow", description: "A combo of four good inputs grants an extra material roll." },
   { level: 40, name: "Prospector", description: "Higher-tier eligible resources are more likely." },
@@ -32,7 +32,7 @@ export const getGatheringRates = (level) => ({
   timing: (level - 1) * 0.003,
   perfect: level >= 20 ? 0.2 : 0,
   rarity: (level >= 40 ? 0.3 : 0) + (level >= 50 ? 0.2 : 0),
-  bonusHarvest: level >= 10 ? 0.2 : 0,
+  bonusHarvest: level >= 10 ? 0.5 : 0,
   comboRoll: level >= 30,
 });
 export const addGatheringExp = (player, id, amount, { countAttempt = true } = {}) => {

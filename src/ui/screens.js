@@ -743,7 +743,8 @@ const ForgeScreen = ({ onChange }) => {
           </div>
           <div className='recipe-note' role='status'>{note || "Choose an unequipped item from your inventory to upgrade."}</div>
           {selectedUpgradeItem && (
-            <ItemPopup item={selectedUpgradeItem} onClose={() => setSelectedUpgradeId(null)} />
+            <ItemPopup item={selectedUpgradeItem} onClose={() => setSelectedUpgradeId(null)}
+              allowDismantle onDismantled={(result) => { setNote(result.message); onChange?.(); }} />
           )}
         </div>
       )}
@@ -1265,6 +1266,8 @@ const GearTraderScreen = ({ data, onChange }) => {
         <ItemPopup
           item={selectedGear.item}
           onClose={() => setSelectedGear(null)}
+          allowDismantle={selectedGear.canFavorite}
+          onDismantled={(result) => { setNote(result.message); refresh(); }}
           comparison={{ open: compareSelected, onToggle: () => setCompareSelected((open) => !open) }}
           actions={[
             ...(selectedGear.canFavorite ? [{
@@ -1399,6 +1402,9 @@ const Equipment = ({ player, onChange, locked }) => {
         <ItemPopup
           item={selectedGear.item}
           message={gemMessage}
+          allowDismantle
+          dismantleDisabled={locked}
+          onDismantled={onChange}
           deleteDisabled={locked || isFavorite(player, "gear", selectedGear.item)}
           onDelete={() => {
             const result = deleteOwnedItem(selectedGear.item, { kind: "equipment", slotKey: gemSlotKey });
@@ -2091,7 +2097,8 @@ const Inventory = ({ player, onChange, locked }) => {
                 <div className='equip-empty'>No gear matches these filters.</div>
               )}
               {sortedGear.map(({ item, index }) => (
-                <Tooltip disableOnMobile key={item.id || index} content={itemTooltip(item)}>
+                <Tooltip disableOnMobile key={item.id || index} content={itemTooltip(item)}
+                  onView={() => viewItem("gear", getInventoryItemKey(item))}>
                   <button
                     type='button'
                     className={`inventory-item gear-card ${canEquip(item, player.level, player) ? "" : "too-high"} ${favoriteClass("gear", item)}`}
@@ -2450,6 +2457,9 @@ const Inventory = ({ player, onChange, locked }) => {
         <ItemPopup
           item={selectedGear.item}
           message={gemstoneMessage}
+          allowDismantle
+          dismantleDisabled={locked}
+          onDismantled={onChange}
           deleteDisabled={locked || isFavorite(player, "gear", selectedGear.item)}
           onDelete={() => {
             const result = deleteOwnedItem(selectedGear.item, { kind: "inventory" });
