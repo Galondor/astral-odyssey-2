@@ -27,7 +27,7 @@ export const getGatheringConfig = (player, activity) => {
   const timing = Math.min(0.75, rates.timing + sub("gatheringTiming"));
   const slowdown = Math.min(0.4, sub("gatheringSlowdown"));
   const perfect = Math.min(0.75, rates.perfect + sub("gatheringPerfect"));
-  const interval = Math.round((activity === "mining" ? 1850 : 700) * (1 + slowdown));
+  const interval = Math.round((activity === "mining" ? 1850 : 700 / 0.8) * (1 + slowdown));
   return {
     activity, level, toolName: tool?.name || "Bare hands", hasTool: !!tool, power, maxTier: getGatheringTier(power),
     count: GATHERING_HIT_RANGES[activity][0], countdown: 1000, interval,
@@ -56,6 +56,12 @@ const weightedMaterial = (pool, rng) => {
   let roll = rng() * pool.reduce((sum, entry) => sum + entry.weight, 0);
   return pool.find((entry) => (roll -= entry.weight) < 0)?.key || pool[pool.length - 1].key;
 };
+export const getGatheringTierChance = (tier, region, config) => {
+  if (tier === 1) return 1;
+  const base = tier === 2 ? 0.8 : tier === 3 ? 0.6 : 0.5;
+  const regionalBonus = REGION_TIERS.indexOf(region) + 1 === tier ? 0.05 : 0;
+  return Math.min(1, base + regionalBonus + config.rarity * 0.1);
+};
 export const gatheringGrade = (score) =>
   score === 0 ? "Missed" : score < 0.4 ? "Rough" : score < 0.7 ? "Good" : score < 0.9 ? "Great" : "Perfect";
 
@@ -64,16 +70,21 @@ export const rollGatheringRewards = (player, activity, region, config, scores, r
   const lengthBonus = config.count / (activity === "mining" ? 5 : 8);
   const materials = {};
   const pool = getGatheringPool(activity, region, config, performance);
+  const exceptional = performance >= 0.95 - Number.EPSILON * config.count;
+  const quantityBonus = exceptional ? 1.5 : 1;
   let combo = 0;
   let bestCombo = 0;
   scores.forEach((value) => { combo = value >= 0.5 ? combo + 1 : 0; bestCombo = Math.max(bestCombo, combo); });
   if ((config.hasTool || performance > 0) && pool.length) {
     const key = pool.find(({ tier }) => tier === 1).key;
-    materials[key] = Math.max(1, Math.floor((1 + 5 * performance) * lengthBonus * (1 + config.yield)));
+    materials[key] = Math.max(1, Math.floor((1 + 5 * performance) * lengthBonus * (1 + config.yield) * quantityBonus));
     if (rng() < config.bonusHarvest) materials[key]++;
     if (performance > 0 && config.maxTier > 1) {
-      const bonus = weightedMaterial(pool, rng);
-      materials[bonus] = (materials[bonus] || 0) + Math.max(1, Math.floor(3 * performance * lengthBonus));
+      for (const { key: bonus, tier } of pool.filter(({ tier }) => tier > 1)) {
+        if (exceptional || rng() < getGatheringTierChance(tier, region, config)) {
+          materials[bonus] = Math.max(1, Math.floor(3 * performance * lengthBonus * (1 + config.yield) * quantityBonus));
+        }
+      }
     }
     if (config.comboRoll && bestCombo >= 4) {
       const bonus = weightedMaterial(pool, rng);

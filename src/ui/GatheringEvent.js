@@ -94,8 +94,6 @@ export default function GatheringEvent({ goToScene, onChange }) {
         ? "Tap Strike as the moving marker crosses the weak point. Aim for its bright center."
         : "Tap the left and right chopping targets in an alternating rhythm as the beat reaches the center."}</p>
       <p className='gathering-tool'>{c.toolName} · Gathering Power {c.power} · Maximum material tier {c.maxTier}</p>
-      <p>{c.count} {view.activity === "mining" ? "strikes" : "chops"} · Longer attempts grant more materials and exp.</p>
-      {c.hasTool && <p>Completed attempts guarantee T1 materials. Successful hits can also uncover other tool-unlocked tiers.</p>}
       {view.state === "offered" && (
         <>
           <h3>Possible resources</h3>

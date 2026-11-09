@@ -10,7 +10,10 @@ import {
   PROFESSIONS,
   REAGENT_SLOT_LEVELS,
 } from "../character/professions";
-import { analyzeCraft, craftItem, getCraftingBook, getKnownProperties } from "../items/crafting";
+import {
+  analyzeCraft, analyzeMaterialUpgrade, craftItem, getCraftingBook, getKnownProperties,
+  MATERIAL_UPGRADE_RECIPES, upgradeMaterial,
+} from "../items/crafting";
 import { BLUEPRINTS, getBlueprintIntrinsicDescription, getBlueprints } from "../items/craftingBlueprints";
 import {
   CRAFTING_MATERIALS,
@@ -177,6 +180,8 @@ function CraftPreview({ analysis, book, level, materialsUsed }) {
 export default function MaterialCrafting({ onChange }) {
   const player = getPlayer() || {};
   const [profession, setProfession] = useState("weaponry");
+  const [upgradesOpen, setUpgradesOpen] = useState(false);
+  const [upgradeQuantities, setUpgradeQuantities] = useState({});
   const [blueprintId, setBlueprintId] = useState(null);
   const [base, setBase] = useState(null);
   const [reagents, setReagents] = useState([]);
@@ -206,6 +211,7 @@ export default function MaterialCrafting({ onChange }) {
     return used;
   };
   const chooseProfession = (id) => {
+    setUpgradesOpen(false);
     setProfession(id);
     setBlueprintId(null);
     setBase(null);
@@ -243,6 +249,13 @@ export default function MaterialCrafting({ onChange }) {
     setNote(outcome.message);
     setResult(outcome);
   };
+  const convert = (input) => {
+    const outcome = upgradeMaterial(getPlayer(), input, Number(upgradeQuantities[input] ?? 1));
+    setNote(outcome.message);
+    if (!outcome.ok) return;
+    setPlayer(outcome.patch);
+    onChange?.();
+  };
 
   const expNeeded = getExpToNextLevel(progress.level);
   const status = note || analysis?.message || (blueprint
@@ -253,11 +266,69 @@ export default function MaterialCrafting({ onChange }) {
     <div className='material-crafting'>
       <div className='inventory-tabs' role='tablist' aria-label='Crafting professions'>
         {Object.values(PROFESSIONS).map((entry) => (
-          <button key={entry.id} type='button' role='tab' aria-selected={profession === entry.id} className={`inventory-tab ${profession === entry.id ? "active" : ""}`} onClick={() => chooseProfession(entry.id)}>
+          <button key={entry.id} type='button' role='tab' aria-selected={!upgradesOpen && profession === entry.id} className={`inventory-tab ${!upgradesOpen && profession === entry.id ? "active" : ""}`} onClick={() => chooseProfession(entry.id)}>
             {entry.name}
           </button>
         ))}
+        <button type='button' role='tab' aria-selected={upgradesOpen} className={`inventory-tab ${upgradesOpen ? "active" : ""}`} onClick={() => { setUpgradesOpen(true); setNote(""); }}>
+          Material Transmutation
+        </button>
       </div>
+      {upgradesOpen ? (
+        <section className='material-transmutation' aria-label='Material transmutation'>
+          <header className='transmutation-header'>
+            <div>
+              <h3>Material Transmutation</h3>
+              <p>Refine spare materials into the next tier at a 3:1 ratio.</p>
+            </div>
+            <strong className='transmutation-wallet'>{(player.astra || 0).toLocaleString()} astra</strong>
+          </header>
+          <p className='crafting-muted'>Enter how many output materials to craft. Requires the output tier's level in Weaponry, Armor, or Jewelry. No profession exp or property discoveries are granted.</p>
+          {note && <div className='recipe-note' role='status'>{note}</div>}
+          {["ore", "wood", "hide", "cloth"].map((family) => (
+            <section key={family} className='transmutation-family' aria-label={`${MATERIAL_FAMILIES[family].label} transmutation`}>
+              <h4>{MATERIAL_FAMILIES[family].label}</h4>
+              <div className='transmutation-recipes'>
+                {MATERIAL_UPGRADE_RECIPES.filter((recipe) => recipe.family === family).map((recipe) => {
+                  const quantity = Number(upgradeQuantities[recipe.input] ?? 1);
+                  const validQuantity = Number.isSafeInteger(quantity) && quantity > 0 &&
+                    Number.isSafeInteger(quantity * recipe.astraCost);
+                  const upgrade = analyzeMaterialUpgrade(player, recipe.input, quantity);
+                  const owned = getMaterialCount(player, recipe.input);
+                  const max = Math.max(0, Math.min(Math.floor(owned / 3), Math.floor((player.astra || 0) / recipe.astraCost)));
+                  const unlocked = Object.keys(PROFESSIONS).some((id) => getProfession(player, id).level >= recipe.level);
+                  const feedbackId = `transmutation-${recipe.input}-feedback`;
+                  return (
+                    <article key={recipe.input} className={`transmutation-card ${unlocked ? "" : "locked"}`} aria-label={`${materialName(recipe.input)} to ${materialName(recipe.output)}`}>
+                      <div className='transmutation-route'>
+                        <div><span className='crafting-slot-label'>Tier {recipe.tier - 1} · Spend 3</span><strong style={{ color: materialColor(recipe.input) }}>{materialName(recipe.input)}</strong></div>
+                        <span className='transmutation-arrow' aria-hidden='true'>→</span>
+                        <div><span className='crafting-slot-label'>Tier {recipe.tier} · Receive 1</span><strong style={{ color: materialColor(recipe.output) }}>{materialName(recipe.output)}</strong></div>
+                      </div>
+                      <div className='transmutation-meta'>
+                        <span>Owned: {owned.toLocaleString()}</span>
+                        <span>{recipe.astraCost} astra each</span>
+                        <span>Crafting level {recipe.level}</span>
+                      </div>
+                      <div className='transmutation-controls'>
+                        <label>
+                          Output quantity
+                          <input className='input-field' type='number' min='1' step='1' aria-label={`${materialName(recipe.output)} quantity`} aria-describedby={feedbackId} value={upgradeQuantities[recipe.input] ?? "1"} onChange={(event) => setUpgradeQuantities((current) => ({ ...current, [recipe.input]: event.target.value }))} />
+                        </label>
+                        <button type='button' className='buttons' aria-label={`Max ${materialName(recipe.output)}`} disabled={!unlocked || max < 1} onClick={() => setUpgradeQuantities((current) => ({ ...current, [recipe.input]: String(max) }))}>Max</button>
+                        <button type='button' className='buttons' aria-label={`Craft ${materialName(recipe.output)}`} disabled={!upgrade.ok} onClick={() => convert(recipe.input)}>Craft</button>
+                      </div>
+                      <p className='transmutation-total'>{validQuantity ? `Total: ${(quantity * 3).toLocaleString()} ${materialName(recipe.input)} + ${(quantity * recipe.astraCost).toLocaleString()} astra → ${quantity.toLocaleString()} ${materialName(recipe.output)}` : "Total: —"}</p>
+                      <p id={feedbackId} className={`transmutation-feedback ${upgrade.ok ? "crafting-tags" : "crafting-warning"}`}>{upgrade.ok ? `Ready to craft · Max affordable: ${max.toLocaleString()}` : upgrade.message}</p>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </section>
+      ) : (
+        <>
       <header className='crafting-profession'>
         <div className='profession-level-ring small' style={{ "--profession-progress": `${progress.level >= MAX_PROFESSION_LEVEL ? 100 : Math.min(100, Math.round((progress.exp / Math.max(1, expNeeded)) * 100))}%` }} aria-hidden='true'>
           <span>{progress.level}</span>
@@ -351,6 +422,8 @@ export default function MaterialCrafting({ onChange }) {
           {status && <div className='recipe-note' role='status'>{status}</div>}
         </section>
       </div>
+        </>
+      )}
       {picker !== null && blueprint && (
         <MaterialPicker
           player={player}

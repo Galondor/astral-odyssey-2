@@ -260,6 +260,27 @@ export const RECIPES = {
     region: "Darkwood",
     cost: { astra: 800, materials: { wolf_pelt: 6, spider_silk: 4, goblin_scrap: 8, primal_essence: 1 } },
   },
+  gatherersCompass: {
+    name: "Gatherer's Compass",
+    type: "key",
+    item: "gatherersCompass",
+    region: "Meadowlands",
+    cost: { astra: 9000, materials: { metal_scraps: 50, meadow_oak: 50, meadow_flax: 6, copper_nugget: 6 } },
+  },
+  oreDiviner: {
+    name: "Ore Diviner",
+    type: "key",
+    item: "oreDiviner",
+    region: "Meadowlands",
+    cost: { astra: 4500, materials: { metal_scraps: 30, copper_nugget: 10 } },
+  },
+  forestersMap: {
+    name: "Forester's Map",
+    type: "key",
+    item: "forestersMap",
+    region: "Meadowlands",
+    cost: { astra: 4500, materials: { meadow_oak: 30, meadow_flax: 10 } },
+  },
   travelersPack: {
     name: "Traveler's Pack",
     type: "key",

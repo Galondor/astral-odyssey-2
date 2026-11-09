@@ -231,7 +231,7 @@ test.each(["broadcast", "individual"])("admins can attach profession experience 
   fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "Profession training" } });
   fireEvent.change(screen.getByLabelText("Message"), { target: { value: "A boost!" } });
   fireEvent.change(screen.getByLabelText("Attachment type"), { target: { value: "professionExp" } });
-  const professionSelect = screen.getByRole("option", { name: "Weaponry" }).parentElement;
+  const professionSelect = screen.getByRole("option", { name: "Weapons & Tools" }).parentElement;
   for (const profession of ["weaponry", "mining"]) {
     fireEvent.change(professionSelect, { target: { value: profession } });
     fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "200" } });

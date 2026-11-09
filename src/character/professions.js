@@ -10,7 +10,7 @@ export const MAX_PROFESSION_LEVEL = 50;
 export const PROFESSIONS = {
   weaponry: {
     id: "weaponry",
-    name: "Weaponry",
+    name: "Weapons & Tools",
     description: "Forges weapons, off-hand gear, Blacksmith's Hammers, and gathering tools and heads.",
     slots: ["weapon", "offhand", "hammer", "pickaxe", "axe"],
     tool: "hammer",

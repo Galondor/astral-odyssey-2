@@ -46,6 +46,65 @@ const chooseMaterial = (slot, name) => {
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: new RegExp(name) }));
 };
 
+test("Material Transmutation displays level and resource gates, crafts, and returns to profession crafting", () => {
+  player.professions.jewelry = { level: 8 };
+  player.astra = 50;
+  const onChange = openCrafting();
+  fireEvent.click(screen.getByRole("tab", { name: "Material Transmutation" }));
+  const upgrades = screen.getByRole("region", { name: "Material transmutation" });
+  expect(within(upgrades).getAllByRole("spinbutton")).toHaveLength(24);
+  expect(screen.getByRole("tab", { name: "Weapons & Tools" }).getAttribute("aria-selected")).toBe("false");
+  expect(within(upgrades).getByRole("button", { name: "Craft Cinderite Ore" }).disabled).toBe(true);
+  fireEvent.click(within(upgrades).getByRole("button", { name: "Craft Bog Iron" }));
+  expect(player.astra).toBe(0);
+  expect(player.materials).toMatchObject({ metal_scraps: 3, bog_iron: 6, slime_gel: 2 });
+  expect(onChange).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("status").textContent).toContain("Converted 3 Metal Scraps into 1 Bog Iron");
+  expect(screen.getByRole("button", { name: "Craft Bog Iron" }).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("tab", { name: "Armor" }));
+  expect(screen.getByRole("region", { name: "Blueprints" })).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "Material transmutation" })).toBeNull();
+});
+
+test("bulk transmutation previews totals, uses Max, and refreshes resources without granting experience", () => {
+  player.professions.jewelry = { level: 8, exp: 12, crafts: 2 };
+  player.astra = 150;
+  player.materials.metal_scraps = 12;
+  const professions = JSON.stringify(player.professions);
+  const onChange = openCrafting();
+  fireEvent.click(screen.getByRole("tab", { name: "Material Transmutation" }));
+  const card = screen.getByRole("article", { name: "Metal Scraps to Bog Iron" });
+  const quantity = within(card).getByRole("spinbutton", { name: "Bog Iron quantity" });
+  fireEvent.change(quantity, { target: { value: "2" } });
+  expect(within(card).getByText("Total: 6 Metal Scraps + 100 astra → 2 Bog Iron")).toBeTruthy();
+  expect(screen.getByRole("spinbutton", { name: "Cinderite Ore quantity" }).value).toBe("1");
+  fireEvent.click(within(card).getByRole("button", { name: "Max Bog Iron" }));
+  expect(quantity.value).toBe("3");
+  fireEvent.click(within(card).getByRole("button", { name: "Craft Bog Iron" }));
+  expect(player.astra).toBe(0);
+  expect(player.materials).toMatchObject({ metal_scraps: 3, bog_iron: 8, slime_gel: 2 });
+  expect(JSON.stringify(player.professions)).toBe(professions);
+  expect(onChange).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("status").textContent).toContain("Converted 9 Metal Scraps into 3 Bog Iron");
+  expect(within(card).getByText("Owned: 3")).toBeTruthy();
+  expect(within(card).getByRole("button", { name: "Craft Bog Iron" }).disabled).toBe(true);
+  expect(within(card).getByRole("button", { name: "Max Bog Iron" }).disabled).toBe(true);
+});
+
+test.each(["", "0", "-1", "1.5", "3", "9007199254740991"])("transmutation quantity %s is rejected with feedback and no changes", (value) => {
+  player.professions.armor = { level: 8 };
+  const snapshot = JSON.stringify(player);
+  openCrafting();
+  fireEvent.click(screen.getByRole("tab", { name: "Material Transmutation" }));
+  const card = screen.getByRole("article", { name: "Metal Scraps to Bog Iron" });
+  fireEvent.change(within(card).getByRole("spinbutton"), { target: { value } });
+  expect(within(card).getByRole("button", { name: "Craft Bog Iron" }).disabled).toBe(true);
+  expect(card.querySelector(".transmutation-feedback").textContent).not.toBe("");
+  fireEvent.click(within(card).getByRole("button", { name: "Craft Bog Iron" }));
+  expect(setPlayer).not.toHaveBeenCalled();
+  expect(JSON.stringify(player)).toBe(snapshot);
+});
+
 test("the preview groups all material effects and keeps reactions readable as more reagents are added", () => {
   const keys = ["cinderite_ore", "frost_diamond", "stormglass", "venom_sac", "primal_essence", "binding_resin"];
   player.professions.weaponry.level = 50;
@@ -102,7 +161,7 @@ test("Material Crafting is available in the Forge and crafts with chosen materia
   expect(within(screen.getByRole("tablist", { name: "Forge" })).getAllByRole("tab").map((tab) => tab.textContent))
     .toEqual(["Material Crafting", "Relic Crafting", "Upgrading"]);
   expect(screen.getByRole("tab", { name: "Material Crafting" }).getAttribute("aria-selected")).toBe("true");
-  expect(screen.getByRole("tab", { name: "Weaponry" }).getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("tab", { name: "Weapons & Tools" }).getAttribute("aria-selected")).toBe("true");
   const blueprints = screen.getByRole("region", { name: "Blueprints" });
   expect(within(blueprints).getByRole("button", { name: /^Greatsword/ }).disabled).toBe(true);
   expect(within(blueprints).getByText("Unlocks at level 14")).toBeTruthy();
@@ -272,11 +331,11 @@ test("crafting dialogs shrink their scroll area without squeezing material cards
 test("all crafting profession subtabs remain available when switching disciplines", () => {
   openCrafting();
   const tabs = screen.getByRole("tablist", { name: "Crafting professions" });
-  for (const name of ["Armor", "Jewelry", "Weaponry"]) {
+  for (const name of ["Armor", "Jewelry", "Weapons & Tools"]) {
     fireEvent.click(within(tabs).getByRole("tab", { name }));
     expect(within(tabs).getByRole("tab", { name }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByText(`${name} level 1`)).toBeTruthy();
-    for (const label of ["Weaponry", "Armor", "Jewelry"]) {
+    for (const label of ["Weapons & Tools", "Armor", "Jewelry"]) {
       expect(within(tabs).getByRole("tab", { name: label })).toBeTruthy();
     }
   }

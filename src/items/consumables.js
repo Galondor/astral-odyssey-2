@@ -119,6 +119,24 @@ export const KEY_ITEMS = {
     effects: { huntBonus: 1 },
     toggleable: true,
   },
+  gatherersCompass: {
+    name: "Gatherer's Compass",
+    description: "Doubles the chance for gathering events during travel.",
+    effects: { gatheringEventBonus: 1 },
+    toggleable: true,
+  },
+  oreDiviner: {
+    name: "Ore Diviner",
+    description: "Doubles the chance to roll mining for gathering events.",
+    effects: { miningEventBonus: 1 },
+    toggleable: true,
+  },
+  forestersMap: {
+    name: "Forester's Map",
+    description: "Doubles the chance to roll logging for gathering events.",
+    effects: { loggingEventBonus: 1 },
+    toggleable: true,
+  },
   wayfindersCompass: {
     name: "Wayfinder's Compass",
     description: "Charts shorter portal routes, reducing every portal fare by 25%.",

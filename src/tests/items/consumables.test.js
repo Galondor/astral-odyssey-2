@@ -12,6 +12,24 @@ jest.mock("firebase/database", () => ({
 
 beforeEach(() => jest.clearAllMocks());
 
+test.each([
+  ["gatherersCompass", "gatheringEventBonus"],
+  ["oreDiviner", "miningEventBonus"],
+  ["forestersMap", "loggingEventBonus"],
+])("%s toggles its gathering event bonus off and back on", (key, effect) => {
+  let player = { keyItems: [key], disabledKeyItems: [] };
+  getPlayer.mockImplementation(() => player);
+  setPlayer
+    .mockImplementationOnce((patch) => { player = { ...player, ...patch }; })
+    .mockImplementationOnce((patch) => { player = { ...player, ...patch }; });
+  expect(getKeyItemEffect(player, effect)).toBe(1);
+  expect(toggleKeyItem(key).ok).toBe(true);
+  expect(getKeyItemEffect(player, effect)).toBe(0);
+  expect(player.disabledKeyItems).toContain(key);
+  expect(toggleKeyItem(key).ok).toBe(true);
+  expect(getKeyItemEffect(player, effect)).toBe(1);
+});
+
 test("using the elixir requests a name without spending it or modifying stats", () => {
   getPlayer.mockReturnValue({ consumables: { elixirOfNameChanging: 1 }, stats: {} });
   expect(drinkConsumable("elixirOfNameChanging")).toMatchObject({ ok: true, requiresNameChange: true });

@@ -493,7 +493,7 @@ export function Game({ uid, onLogout, onMainMenu }) {
             }}>
               Quick guide
             </button>
-            <span className='sidebar-version' aria-label='Game version'>v0.3.2.0-Alpha</span>
+            <span className='sidebar-version' aria-label='Game version'>v0.3.2.1-Alpha</span>
           </div>
         </nav>
         </div>

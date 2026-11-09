@@ -26,7 +26,7 @@ import {
   REACTIONS,
 } from "./craftingMaterials";
 import { CONDITION_NAMES, createCraftedItem, createMythicItem, createUniqueItem } from "./items";
-import { getMaterialCount, MATERIALS, spendMaterials } from "./materials";
+import { addToMaterials, getMaterialCount, MATERIALS, spendMaterials } from "./materials";
 import { TOOL_MAX_ITEM_LEVEL } from "./craftingStats";
 import { createToolItem, getToolBonuses } from "./tools";
 
@@ -78,6 +78,46 @@ const rollIndex = (odds) => {
 };
 
 const fail = (message) => ({ ok: false, message });
+
+export const MATERIAL_UPGRADE_RECIPES = Object.entries(CRAFTING_MATERIALS)
+  .filter(([, material]) => ["ore", "wood", "hide", "cloth"].includes(material.family) && material.tier < 7)
+  .map(([input, material]) => {
+    const output = Object.keys(CRAFTING_MATERIALS).find((key) =>
+      CRAFTING_MATERIALS[key].family === material.family && CRAFTING_MATERIALS[key].tier === material.tier + 1);
+    return { input, output, family: material.family, tier: material.tier + 1, astraCost: 25 * (material.tier + 1), level: getMaterialCraftLevel(output) };
+  });
+
+export const analyzeMaterialUpgrade = (player, input, quantity = 1) => {
+  if (!player) return fail("No character loaded.");
+  const recipe = MATERIAL_UPGRADE_RECIPES.find((entry) => entry.input === input);
+  if (!recipe) return fail("Unknown material upgrade recipe.");
+  if (!Number.isSafeInteger(quantity) || quantity < 1)
+    return fail("Enter a positive whole number of materials to craft.");
+  const astraCost = recipe.astraCost * quantity;
+  const inputCount = 3 * quantity;
+  if (!Number.isSafeInteger(astraCost) || !Number.isSafeInteger(inputCount) ||
+      !Number.isSafeInteger(getMaterialCount(player, recipe.output) + quantity))
+    return fail("That quantity is too large to transmute.");
+  if (!Object.keys(PROFESSIONS).some((id) => getProfession(player, id).level >= recipe.level))
+    return fail(`Requires Weaponry, Armor, or Jewelry level ${recipe.level}.`);
+  if ((player.astra || 0) < astraCost) return fail(`You need ${astraCost} astra for this transmutation.`);
+  if (getMaterialCount(player, input) < inputCount) return fail(`You need ${inputCount} ${MATERIALS[input].name} for this transmutation.`);
+  return { ok: true, recipe, quantity, astraCost, inputCount };
+};
+
+export const upgradeMaterial = (player, input, quantity = 1) => {
+  const analysis = analyzeMaterialUpgrade(player, input, quantity);
+  if (!analysis.ok) return analysis;
+  const { recipe, astraCost, inputCount } = analysis;
+  return {
+    ok: true,
+    message: `Converted ${inputCount} ${MATERIALS[input].name} into ${quantity} ${MATERIALS[recipe.output].name}.`,
+    patch: {
+      astra: player.astra - astraCost,
+      materials: addToMaterials(spendMaterials(player, { [input]: inputCount }), { [recipe.output]: quantity }),
+    },
+  };
+};
 
 export const analyzeCraft = (player, selection = {}) => {
   if (!player) return fail("No character loaded.");

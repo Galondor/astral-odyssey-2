@@ -826,13 +826,26 @@ const globalEvents = [
   },
 ];
 
+export const getGatheringEventWeights = (player) => {
+  const general = 1 + getKeyItemEffect(player, "gatheringEventBonus");
+  return {
+    mining: 3 * general * (1 + getKeyItemEffect(player, "miningEventBonus")),
+    logging: 3 * general * (1 + getKeyItemEffect(player, "loggingEventBonus")),
+  };
+};
+
 export const travelEvents = [
   {
     id: "gathering",
     regions: "all",
-    weight: 6,
+    weight: ({ player }) => {
+      const weights = getGatheringEventWeights(player);
+      return weights.mining + weights.logging;
+    },
     run: ({ player, region }) => {
-      const result = offerGathering(player, region);
+      const weights = getGatheringEventWeights(player);
+      const activity = Math.random() < weights.mining / (weights.mining + weights.logging) ? "mining" : "logging";
+      const result = offerGathering(player, region, activity);
       return result.ok ? { next: "gathering" } : { reply: result.message, next: "menu" };
     },
   },

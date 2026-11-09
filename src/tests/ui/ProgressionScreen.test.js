@@ -81,8 +81,8 @@ test("Progression provides skill category subtabs and a Subclasses tab", () => {
   const professions = screen.getByRole("tablist", { name: "Profession categories" });
   expect(within(professions).getByRole("tab", { name: "Crafting" }).getAttribute("aria-selected")).toBe("true");
   const disciplines = screen.getByRole("tablist", { name: "Crafting disciplines" });
-  expect(within(disciplines).getByRole("tab", { name: "Weaponry" }).getAttribute("aria-selected")).toBe("true");
-  expect(screen.getByRole("region", { name: "Weaponry progression" }).textContent).toContain("Weaponry level 1");
+  expect(within(disciplines).getByRole("tab", { name: "Weapons & Tools" }).getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("region", { name: "Weapons & Tools progression" }).textContent).toContain("Weapons & Tools level 1");
   fireEvent.click(within(disciplines).getByRole("tab", { name: "Armor" }));
   const armor = screen.getByRole("region", { name: "Armor progression" });
   expect(armor.textContent).toContain("Armor level 1");

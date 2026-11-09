@@ -2556,7 +2556,7 @@ const PROGRESSION_TABS = [
 ];
 
 const CRAFTING_DISCIPLINES = [
-  ["weaponry", "Weaponry"],
+  ["weaponry", "Weapons & Tools"],
   ["armor", "Armor"],
   ["jewelry", "Jewelry"],
 ];

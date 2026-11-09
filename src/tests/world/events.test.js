@@ -7,6 +7,7 @@ import {
 import { getRandomEnemy, hasEnemy } from "../../combat/enemies";
 import {
   isEventEligible,
+  getGatheringEventWeights,
   pickTravelEvent,
   REGIONS,
   runTravelEvent,
@@ -46,7 +47,7 @@ test.each(REGION_ORDER)("gathering has increased travel selection weight in %s",
   const eligible = travelEvents.filter((event) => isEventEligible(event, ctx));
   const total = eligible.reduce((sum, event) =>
     sum + (typeof event.weight === "function" ? event.weight(ctx) : event.weight ?? 1), 0);
-  expect(travelEvents.find(({ id }) => id === "gathering").weight).toBe(6);
+  expect(travelEvents.find(({ id }) => id === "gathering").weight(ctx)).toBe(6);
   expect(pickTravelEvent(ctx, travelEvents, () => 4.5 / total).id).toBe("gathering");
   expect(pickTravelEvent(ctx, travelEvents, () => 6.5 / total).id).toBe("quietRoad");
 });
@@ -64,6 +65,26 @@ test("one generic gathering event is eligible everywhere and randomly selects ei
   }
   forfeitGathering();
   expect(scenes.gathering).toMatchObject({ input: "pointer", screen: "gathering", options: [] });
+});
+
+test("gathering key items double matching weights, stack, and respect disabled toggles", () => {
+  const event = travelEvents.find(({ id }) => id === "gathering");
+  expect(getGatheringEventWeights({})).toEqual({ mining: 3, logging: 3 });
+  expect(getGatheringEventWeights({ keyItems: ["gatherersCompass"] })).toEqual({ mining: 6, logging: 6 });
+  expect(getGatheringEventWeights({ keyItems: ["oreDiviner"] })).toEqual({ mining: 6, logging: 3 });
+  expect(getGatheringEventWeights({ keyItems: ["forestersMap"] })).toEqual({ mining: 3, logging: 6 });
+  const player = { keyItems: ["gatherersCompass", "oreDiviner", "forestersMap"], disabledKeyItems: ["forestersMap"] };
+  expect(getGatheringEventWeights(player)).toEqual({ mining: 12, logging: 6 });
+  expect(event.weight({ player })).toBe(18);
+  jest.spyOn(Math, "random").mockReturnValue(0.6);
+  forfeitGathering();
+  event.run({ player, region: "Meadowlands" });
+  expect(getGatheringAttempt().activity).toBe("mining");
+  player.disabledKeyItems.push("oreDiviner");
+  forfeitGathering();
+  event.run({ player, region: "Meadowlands" });
+  expect(getGatheringAttempt().activity).toBe("logging");
+  forfeitGathering();
 });
 
 test.each([
