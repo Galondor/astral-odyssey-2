@@ -42,14 +42,14 @@ export const buildUnlockGroups = (profession) => {
     },
     {
       id: "parts",
-      title: "Tool head recipes",
+      title: "Tool head blueprints",
       entries: blueprints.filter((blueprint) => blueprint.kind === "part").map((blueprint) => ({ level: blueprint.level, name: blueprint.name })),
     },
     {
       id: "uniques",
-      title: "Unique recipes",
+      title: "Unique blueprints",
       unique: true,
-      entries: blueprints.filter((blueprint) => blueprint.kind === "unique").map((blueprint) => ({ level: blueprint.level, name: blueprint.name, detail: blueprint.slotLabel })),
+      entries: blueprints.filter((blueprint) => blueprint.kind === "unique").map((blueprint) => ({ level: blueprint.level, name: blueprint.name, detail: `${blueprint.slotLabel}${blueprint.requiresExtraction ? " · Requires blueprint extraction" : ""}` })),
     },
     {
       id: "gear",

@@ -41,7 +41,7 @@ const KINDS = {
   unique: { label: "Unique item", options: Object.entries({ ...UNIQUES, ...CRAFTED_UNIQUES }).map(([k, v]) => [k, `${v.name}${CRAFTED_UNIQUES[k] ? " (crafted)" : ""}`]) },
   tool: { label: "Crafting tool", options: Object.entries(TOOL_NAMES) },
   gemstone: { label: "Random gemstone" },
-  skillGem: { label: "Exact Skill Gemstone", options: Object.entries(SKILLS).map(([key, skill]) =>
+  skillGem: { label: "Exact Skill Gemstone", options: Object.entries(SKILLS).filter(([, skill]) => !skill.className).map(([key, skill]) =>
     [key, `${skill.ultimate ? "Unique" : "Legendary"} - ${skill.name} Gemstone`]) },
   title: { label: "Title", options: Object.entries(TITLES).map(([id, title]) => [id, `${title.rarity} — ${title.name} (${title.criteria})`]) },
 };

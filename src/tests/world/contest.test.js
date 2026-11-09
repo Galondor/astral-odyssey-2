@@ -1,5 +1,5 @@
 import { getPlayer, setPlayer } from "../../character/player";
-import { getEnemy, startCombat } from "../../combat/combat";
+import { createContestFighter, getEnemy, startCombat } from "../../combat/combat";
 import { CONTEST_QUEUE_TTL_MS, CONTEST_TURN_MS, reconcileContestProgress, reduceContest } from "../../world/contest";
 import { MATERIALS } from "../../items/materials";
 
@@ -52,6 +52,21 @@ test("queue waits for a live opponent, starts full, and higher speed goes first"
   expect(matchOf(state).turn).toBe("bob");
   expect(getPlayer).not.toHaveBeenCalled();
   expect(setPlayer).not.toHaveBeenCalled();
+});
+
+test("queue preserves class mastery and snapshots its class techniques", () => {
+  const entrant = {
+    ...player("alice"), class: "Spellblade",
+    classMastery: { Spellblade: ["runicGuard", "flowingWeave"] },
+    equippedSkills: ["runicGuard", "fireball"],
+  };
+  const state = reduceContest(null, "alice", "alice", {
+    type: "queue", player: entrant, livePlayers: { alice: true },
+  }, 1000);
+  const fighter = state.entries.alice.fighter;
+  expect(fighter.player.classMastery).toEqual(entrant.classMastery);
+  expect(fighter.combat.classNodes).toEqual(expect.arrayContaining(["runicGuard", "flowingWeave"]));
+  expect(fighter.combat.skillLevels).toMatchObject({ runicGuard: 1, fusionStrike: 1 });
 });
 
 test("speed ties favor the first queued player; alternate turns without AI attacks", () => {
@@ -123,6 +138,7 @@ test("a channeled Meteor strikes automatically when its caster's next Contest tu
   bob.skills = { meteor: 1 };
   bob.equippedSkills = ["meteor"];
   bob.stats.power = 20;
+  Object.assign(matchOf(state).fighters.bob, createContestFighter(bob));
   state = command(state, "bob", "action", { type: "skill", key: "meteor" });
   let match = matchOf(state);
   expect(match.turn).toBe("alice");
@@ -162,6 +178,7 @@ test("stunning skills produce Firebase-safe state and make the opponent lose one
   const fighter = matchOf(state).fighters.bob;
   fighter.player.skills = { frostLance: 1 };
   fighter.player.equippedSkills = ["frostLance"];
+  Object.assign(fighter, createContestFighter(fighter.player));
   jest.spyOn(Math, "random").mockReturnValue(0);
   state = command(state, "bob", "action", { type: "skill", key: "frostLance" });
   let match = matchOf(state);

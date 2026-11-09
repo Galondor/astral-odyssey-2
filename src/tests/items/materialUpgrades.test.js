@@ -41,7 +41,7 @@ test("invalid recipes and insufficient resources fail explicitly without changin
   const player = { astra: 50, materials: { metal_scraps: 3 }, professions: { armor: { level: 8 } } };
   expect(analyzeMaterialUpgrade(null, "metal_scraps")).toMatchObject({ ok: false });
   for (const key of ["unknown", "warsteel_ingot", "copper_nugget"])
-    expect(upgradeMaterial(player, key)).toMatchObject({ ok: false, message: "Unknown material upgrade recipe." });
+    expect(upgradeMaterial(player, key)).toMatchObject({ ok: false, message: "Unknown material upgrade blueprint." });
   expect(upgradeMaterial({ ...player, astra: 49 }, "metal_scraps")).toMatchObject({ ok: false, message: expect.stringContaining("50 astra") });
   expect(upgradeMaterial({ ...player, materials: { metal_scraps: 2 } }, "metal_scraps")).toMatchObject({ ok: false, message: expect.stringContaining("3 Metal Scraps") });
   expect(upgradeMaterial({}, "metal_scraps")).toMatchObject({ ok: false, message: expect.stringContaining("level 8") });

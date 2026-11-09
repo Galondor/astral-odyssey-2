@@ -27,7 +27,10 @@ import {
   isUltimateUsed,
   getCombatTutorial,
   getCombatConsumables,
+  getCombatClassState,
+  getCombatSignature,
 } from "../combat/combat";
+import { classActionError } from "../combat/classMechanics";
 import { actionCostLabel, getActionAvailability } from "../combat/actionEconomy";
 import { tutorialActionError } from "../combat/tutorial";
 import { finishWorldBossAttempt, reportWorldBossError } from "./worldBoss";
@@ -72,6 +75,10 @@ const combatOptionDisabled = (type, key) => {
   }
   if (type === "pass") return false;
   if (type === "skill" && isUltimateUsed(key)) return `${SKILLS[key].name} has already been used this combat.`;
+  if (type === "skill") {
+    const error = classActionError(getCombatClassState(), key);
+    if (error) return error;
+  }
   return getActionAvailability(getCombatActions(), type, key).message || false;
 };
 const combatScreenData = () => ({
@@ -79,6 +86,7 @@ const combatScreenData = () => ({
   enemies: getEnemies(),
   defending: isPlayerDefending(), playerStatuses: getPlayerStatuses(),
   marrowWard: getMarrowWard(), actions: getCombatActions(), tutorial: getCombatTutorial(),
+  classState: getCombatClassState(),
 });
 
 const chooseAttackTarget = (type, skillKey) => {
@@ -187,7 +195,7 @@ export const scenes = {
     text: () =>
       `Where do you excel most at, ${getPlayer().name}?` +
       `\n{{Strength|strength}} {{Dexterity|dexterity}} {{Intelligence|intelligence}}` +
-      `\nThese core stats define your overall class` +
+      `\nYour class depends on the percentages of your total core stats` +
       `\n{{Swordsman|swordsman}}` +
       `\n{{Tactician|tactician}}` +
       `\n{{Spellcaster|spellcaster}}` +
@@ -657,7 +665,7 @@ export const scenes = {
       return [first, ...opening].join("\n");
     },
     screenData: combatScreenData,
-    options: [
+    get options() { return [
       {
         label: "Melee Attack",
         disabled: () => combatOptionDisabled("melee"),
@@ -729,6 +737,14 @@ export const scenes = {
         },
       },
       {
+        label: SKILLS[getCombatSignature()]?.name || "Class Signature",
+        keywords: ["signature"],
+        disabled: () => combatOptionDisabled("skill", getCombatSignature()),
+        tooltip: () => skillTooltip(getCombatSignature(), 1, "Action; uses class resources"),
+        onSelect: () => chooseAttackTarget(null, getCombatSignature()),
+        when: () => !!getCombatSignature(),
+      },
+      {
         label: "End Turn",
         disabled: () => combatOptionDisabled("pass"),
         keywords: ["pass", "end turn", "6"],
@@ -771,7 +787,7 @@ export const scenes = {
       if (o.label === "Leave Colosseum")
         return { ...o, when: () => !!getEnemy()?.colosseum };
       return { ...o, when: () => !isPlayerStunned() && (!o.when || o.when()) };
-    }),
+    }); },
   },
   combatTargets: {
     screen: "combat",
@@ -795,15 +811,17 @@ export const scenes = {
         },
         ...getEquippedSkills(player).map((key) => ({
           label: SKILLS[key].name,
-          actionCost: () => `${skillCost(getPlayer(), key)} Power`,
+          actionCost: () => `${skillCost(getPlayer(), key, getCombatClassState())} Power`,
           disabled: () => combatOptionDisabled("skill", key) ||
-            (getPlayer().stats.power < skillCost(getPlayer(), key) ? "Not enough Power." : false),
+            (getPlayer().stats.power < skillCost(getPlayer(), key, getCombatClassState()) ? "Not enough Power." : false),
           keywords: [SKILLS[key].name.toLowerCase()],
           tooltip: () =>
             skillTooltip(
               key,
               getSkillLevel(getPlayer(), key),
               actionCostLabel("skill", key, "solo", getCombatActions()),
+              getPlayer(),
+              getCombatClassState(),
             ),
           onSelect: () => chooseAttackTarget(null, key),
         })),

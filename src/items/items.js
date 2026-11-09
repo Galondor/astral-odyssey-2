@@ -1,5 +1,6 @@
 import { getInventoryItemKey, getPlayer, setPlayer } from "../character/player";
 import { getBaseStats, recalculateStats } from "../character/stats";
+import { commitWithClassPreview } from "../character/classSwitch";
 import { getEnemy } from "../combat/combat";
 import { SKILLS } from "../character/skills";
 import { ABILITIES, UNIQUE_ABILITIES, findAbility } from "../combat/abilities";
@@ -1401,6 +1402,7 @@ export const SKILL_GEM_REGION_MIN_LEVEL = 50;
 export const createSkillGemstone = (key) => {
   const skill = SKILLS[key];
   if (!Object.prototype.hasOwnProperty.call(SKILLS, key)) throw new Error("Unknown Skill Gem skill.");
+  if (skill.className) throw new Error("Class mastery techniques and signatures cannot have Skill Gems.");
   return {
     id: newId(),
     name: `${skill.name} Gemstone`,
@@ -1413,7 +1415,7 @@ export const createSkillGemstone = (key) => {
 
 export const generateRandomSkillGemstone = () => {
   const ultimate = Math.random() < SKILL_GEM_UNIQUE_CHANCE;
-  const pool = Object.keys(SKILLS).filter((key) => !!SKILLS[key].ultimate === ultimate);
+  const pool = Object.keys(SKILLS).filter((key) => !SKILLS[key].className && !!SKILLS[key].ultimate === ultimate);
   return createSkillGemstone(pick(pool));
 };
 
@@ -1424,7 +1426,7 @@ export const canDropSkillGemstone = (enemy) =>
 export const isValidGemstone = (gemstone) =>
   !!gemstone && typeof gemstone.id === "string" && typeof gemstone.name === "string" &&
   (isSkillGemstone(gemstone)
-    ? Object.prototype.hasOwnProperty.call(SKILLS, gemstone.skill) && gemstone.value === 1 &&
+    ? Object.prototype.hasOwnProperty.call(SKILLS, gemstone.skill) && !SKILLS[gemstone.skill].className && gemstone.value === 1 &&
       gemstone.rarity === (SKILLS[gemstone.skill].ultimate ? "Unique" : "Legendary")
     : !!GEMSTONES[gemstone.type] && typeof gemstone.stat === "string" &&
       Number.isFinite(Number(gemstone.value)) && RARITY_NAMES.includes(gemstone.rarity));
@@ -1772,8 +1774,7 @@ export function socketGemstone(gemstoneId, target) {
     targetItem.equipment[target.slotKey] = item;
     changes.equipment = targetItem.equipment;
   }
-  setPlayer(recalculateStats(player, changes));
-  return { ok: true };
+  return commitWithClassPreview(player, recalculateStats(player, changes));
 }
 
 export function removeGemstone(target, socketIndex = 0) {
@@ -1806,8 +1807,7 @@ export function removeGemstone(target, socketIndex = 0) {
     targetItem.equipment[target.slotKey] = item;
     changes.equipment = targetItem.equipment;
   }
-  setPlayer(recalculateStats(player, changes));
-  return { ok: true, cost };
+  return commitWithClassPreview(player, recalculateStats(player, changes), { ok: true, cost });
 }
 
 const BUYBACK_LIMIT = 10;
@@ -1908,8 +1908,7 @@ export function deleteOwnedItem(item, target) {
   } else {
     return { ok: false, message: "That item can't be deleted here." };
   }
-  setPlayer(patch);
-  return { ok: true, message: `Deleted ${category === "consumables" ? "one " : ""}${item.name}.` };
+  return commitWithClassPreview(player, patch, { ok: true, message: `Deleted ${category === "consumables" ? "one " : ""}${item.name}.` });
 }
 
 export function sellEquippedItem(slotKey) {
@@ -1928,14 +1927,46 @@ export function sellEquippedItem(slotKey) {
     { item, price: value },
     ...(player.gearTraderBuyback || []),
   ].slice(0, BUYBACK_LIMIT);
-  setPlayer({
+  return commitWithClassPreview(player, {
     ...recalculateStats(player, {
       equipment,
       astra: (player.astra || 0) + value,
       gearTraderBuyback: buyback,
     }),
-  });
-  return { ok: true, item, value };
+  }, { ok: true, item, value });
+}
+
+export function sellGearSelection(inventoryIndices = [], equipmentSlots = []) {
+  const player = getPlayer();
+  if (!player || getEnemy()) return { ok: false, reason: "combat" };
+  const inventory = [...(player.inventory || [])];
+  const equipment = { ...(player.equipment || {}) };
+  const sold = [];
+  let equipmentChanged = false;
+  const canSell = (item) => item && !item.twoHandedOf &&
+    getSellPrice(item) !== null && !isFavorite(player, "gear", item);
+  for (const index of [...new Set(inventoryIndices)].sort((a, b) => b - a)) {
+    if (!Number.isInteger(index) || index < 0 || !canSell(inventory[index])) continue;
+    sold.push(inventory.splice(index, 1)[0]);
+  }
+  for (const slot of new Set(equipmentSlots)) {
+    const item = equipment[slot];
+    if (!canSell(item)) continue;
+    sold.push(item);
+    equipmentChanged = true;
+    delete equipment[slot];
+    if (item.twoHanded) delete equipment.offHand;
+  }
+  if (!sold.length) return { ok: false, reason: "nothing" };
+  const value = sold.reduce((sum, item) => sum + getSellPrice(item), 0);
+  const changes = {
+    inventory, equipment, astra: (player.astra || 0) + value,
+    gearTraderBuyback: [
+      ...sold.slice().reverse().map((item) => ({ item, price: getSellPrice(item) })),
+      ...(player.gearTraderBuyback || []),
+    ].slice(0, BUYBACK_LIMIT),
+  };
+  return commitWithClassPreview(player, equipmentChanged ? recalculateStats(player, changes) : changes, { ok: true, count: sold.length, value });
 }
 
 export function buyBackGear(index) {
@@ -2018,8 +2049,7 @@ export function equipItem(index) {
     vacateSlot(equipment, inventory, target.key);
     equipment[target.key] = item;
   }
-  setPlayer(recalculateStats(p, { inventory, equipment }));
-  return { ok: true };
+  return commitWithClassPreview(p, recalculateStats(p, { inventory, equipment }));
 }
 
 export function unequipItem(slotKey) {
@@ -2029,6 +2059,5 @@ export function unequipItem(slotKey) {
   if (!equipment[slotKey]) return { ok: false };
   if (getEnemy()) return { ok: false, reason: "combat" };
   vacateSlot(equipment, inventory, slotKey);
-  setPlayer(recalculateStats(p, { inventory, equipment }));
-  return { ok: true };
+  return commitWithClassPreview(p, recalculateStats(p, { inventory, equipment }));
 }

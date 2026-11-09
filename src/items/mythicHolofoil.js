@@ -100,12 +100,16 @@ function illustration(effect, [light, accent], animated) {
 }
 
 const image = (svg) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-const makeStyle = (effect, colors) => ({
-  "--holofoil-mythic-still": image(illustration(effect, colors, false)),
-  backgroundImage: `${image(illustration(effect, colors, true))}, var(--holofoil-background)`,
-  backgroundSize: "100% 100%",
-  backgroundRepeat: "no-repeat",
-});
+const makeStyle = (effect, colors) => {
+  const animatedImage = image(illustration(effect, colors, true));
+  return {
+    "--holofoil-mythic-still": image(illustration(effect, colors, false)),
+    "--holofoil-mythic-animated": animatedImage,
+    backgroundImage: `${animatedImage}, var(--holofoil-background)`,
+    backgroundSize: "100% 100%",
+    backgroundRepeat: "no-repeat",
+  };
+};
 
 // Precompute the fifteen rollable finishes; custom/legacy colors remain supported.
 const styles = Object.fromEntries(MYTHIC_HOLOFOIL_EFFECTS.map(effect => [

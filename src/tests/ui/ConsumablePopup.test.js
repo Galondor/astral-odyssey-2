@@ -4,6 +4,7 @@ import { recalculateStats } from "../../character/stats";
 import { getEnemy } from "../../combat/combat";
 import { createSkillGemstone, deleteOwnedItem } from "../../items/items";
 import { SCREENS } from "../../ui/screens";
+import { cancelClassSwitch } from "../../character/classSwitch";
 
 jest.mock("../../firebase", () => ({ db: {} }));
 jest.mock("../../character/player", () => ({
@@ -23,6 +24,7 @@ const sword = {
 let player;
 beforeEach(() => {
   jest.clearAllMocks();
+  cancelClassSwitch();
   getEnemy.mockReturnValue(null);
   player = {
     name: "Nova", level: 20, baseStats: { strength: 5, dexterity: 5, intelligence: 5 },
@@ -211,6 +213,8 @@ test("deleting equipped two-handed gear clears both slots and recalculates stats
   const popup = screen.getByRole("dialog");
   fireEvent.click(within(popup).getByRole("button", { name: "Delete item" }));
   fireEvent.click(within(popup).getByRole("button", { name: "Confirm delete" }));
+  expect(player.equipment.mainHand).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Confirm class change" }));
   expect(player.equipment).toEqual({});
   expect(player.stats.strength).toBe(strength - 12);
   expect(player.inventory).toEqual([]);

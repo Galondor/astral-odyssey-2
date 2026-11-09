@@ -46,19 +46,19 @@ test("two Quick skills substitute the Action, repeated skill rejected", () => {
   expect(getCombatRound()).toBe(2);
 });
 
-test("Quick skill triggers Spellblade infusion for an attack in the same turn", () => {
+test("Quick support skills do not prime Spellblade's offensive weave", () => {
   attackRound(null, "renewal");
   const before = getEnemy().hp;
   expect(attackRound("melee").turnEnded).toBe(true);
-  expect(before - getEnemy().hp).toBe(15);
+  expect(before - getEnemy().hp).toBe(10);
 });
 
-test("a basic attack before a Quick skill leaves Spellstrike ready for next turn", () => {
+test("Quick support skills preserve the previous offensive type for next turn's weave", () => {
   attackRound("melee");
   attackRound(null, "provoke");
   const before = getEnemy().hp;
-  attackRound("melee");
-  expect(before - getEnemy().hp).toBe(15);
+  attackRound("magic");
+  expect(before - getEnemy().hp).toBe(13);
 });
 
 test("Spellcaster recovers Power once per completed turn, not per Quick skill", () => {

@@ -14,7 +14,7 @@ import {
   analyzeCraft, analyzeMaterialUpgrade, craftItem, getCraftingBook, getKnownProperties,
   MATERIAL_UPGRADE_RECIPES, upgradeMaterial,
 } from "../items/crafting";
-import { BLUEPRINTS, getBlueprintIntrinsicDescription, getBlueprints } from "../items/craftingBlueprints";
+import { BLUEPRINTS, getBlueprintIntrinsicDescription, getBlueprints, hasBlueprintRecipe } from "../items/craftingBlueprints";
 import {
   CRAFTING_MATERIALS,
   describeEffect,
@@ -22,6 +22,7 @@ import {
   isBaseMaterial,
   isReagentMaterial,
   MATERIAL_FAMILIES,
+  MATERIAL_TAGS,
   REACTIONS,
 } from "../items/craftingMaterials";
 import { RARITY_COLORS } from "../items/items";
@@ -37,6 +38,11 @@ const materialColor = (key) => MATERIAL_TIERS[MATERIALS[key]?.tier]?.color;
 
 function MaterialPicker({ player, blueprint, slot, used, level, onPick, onClear, onClose }) {
   const [query, setQuery] = useState("");
+  const [family, setFamily] = useState("");
+  const [tier, setTier] = useState("");
+  const [availability, setAvailability] = useState("");
+  const [sort, setSort] = useState("tier");
+  const [selected, setSelected] = useState(null);
   const book = getCraftingBook(player);
   const isBase = slot === "base";
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -46,22 +52,71 @@ function MaterialPicker({ player, blueprint, slot, used, level, onPick, onClear,
       : isReagentMaterial(key)))
     .map((key) => ({ key, available: getMaterialCount(player, key) - (used[key] || 0) }))
     .filter(({ key, available }) => available > 0 &&
+      (!family || CRAFTING_MATERIALS[key].family === family) &&
+      (!tier || CRAFTING_MATERIALS[key].tier === Number(tier)) &&
+      (!availability || (availability === "usable" ? getMaterialCraftLevel(key) <= level : getMaterialCraftLevel(key) > level)) &&
       terms.every((term) => [materialName(key), MATERIAL_FAMILIES[CRAFTING_MATERIALS[key].family].label,
         ...getKnownProperties(book, key).map(describeEffect)].join(" ").toLowerCase().includes(term)))
-    .sort((a, b) => CRAFTING_MATERIALS[a.key].tier - CRAFTING_MATERIALS[b.key].tier || materialName(a.key).localeCompare(materialName(b.key)));
+    .sort((a, b) => {
+      const byName = materialName(a.key).localeCompare(materialName(b.key));
+      if (sort === "name") return byName;
+      if (sort === "amount") return b.available - a.available || byName;
+      const byTier = CRAFTING_MATERIALS[a.key].tier - CRAFTING_MATERIALS[b.key].tier;
+      return (sort === "tierDesc" ? -byTier : byTier) || byName;
+    });
   const label = isBase ? "Choose base material" : `Choose reagent ${slot + 1}`;
+  if (selected) {
+    const material = CRAFTING_MATERIALS[selected];
+    const known = getKnownProperties(book, selected);
+    const required = getMaterialCraftLevel(selected);
+    const available = getMaterialCount(player, selected) - (used[selected] || 0);
+    return (
+      <CraftingDialog key={selected} label={`${materialName(selected)} details`} onClose={() => setSelected(null)} className='crafting-picker'>
+        <h3 style={{ color: materialColor(selected) }}>{materialName(selected)}</h3>
+        <p>{MATERIALS[selected].description}</p>
+        {known.length > 0 && <p className='crafting-tags'>Affinities: {material.tags.map((tag) => MATERIAL_TAGS[tag]).join(", ")}</p>}
+        <h4>Known properties</h4>
+        <ul className='crafting-detail-properties'>
+          {known.map((effect, index) => <li key={index}>{describeEffect(effect)}</li>)}
+          {known.length < material.properties.length && <li className='crafting-unknown'>??? ({material.properties.length - known.length} undiscovered)</li>}
+        </ul>
+        {required > level && <p className='crafting-warning'>Requires level {required}</p>}
+        <div className='item-popup-actions'>
+          <button type='button' className='buttons' disabled={required > level || available < 1} onClick={() => onPick(selected)}>Select reagent</button>
+          <button type='button' className='buttons' onClick={() => setSelected(null)}>Back to reagents</button>
+        </div>
+      </CraftingDialog>
+    );
+  }
   return (
-    <CraftingDialog label={label} onClose={onClose} className='crafting-picker'>
+    <CraftingDialog key='picker' label={label} onClose={onClose} className='crafting-picker'>
       <h3>{label}</h3>
       <input className='input-field' type='search' aria-label='Search materials' placeholder='Search your materials…' value={query} onChange={(event) => setQuery(event.target.value)} />
-      <div className='crafting-picker-list'>
+      {!isBase && <div className='crafting-picker-filters'>
+        <label>Family<select className='input-field' aria-label='Filter reagent family' value={family} onChange={(event) => setFamily(event.target.value)}>
+          <option value=''>All families</option>
+          {Object.entries(MATERIAL_FAMILIES).filter(([, entry]) => !entry.base).map(([key, entry]) => <option key={key} value={key}>{entry.label}</option>)}
+        </select></label>
+        <label>Tier<select className='input-field' aria-label='Filter reagent tier' value={tier} onChange={(event) => setTier(event.target.value)}>
+          <option value=''>All tiers</option>
+          {[1, 2, 3, 4, 5, 6, 7].map((value) => <option key={value} value={value}>Tier {value}</option>)}
+        </select></label>
+        <label>Level<select className='input-field' aria-label='Filter reagent level' value={availability} onChange={(event) => setAvailability(event.target.value)}>
+          <option value=''>All levels</option><option value='usable'>Usable now</option><option value='locked'>Level locked</option>
+        </select></label>
+        <label>Sort<select className='input-field' aria-label='Sort reagents' value={sort} onChange={(event) => setSort(event.target.value)}>
+          <option value='tier'>Tier: low to high</option><option value='tierDesc'>Tier: high to low</option>
+          <option value='name'>Name: A to Z</option><option value='amount'>Available: most first</option>
+        </select></label>
+      </div>}
+      <div className={`crafting-picker-list ${isBase ? "" : "crafting-picker-grid"}`}>
         {candidates.map(({ key, available }) => {
           const required = getMaterialCraftLevel(key);
           const locked = required > level;
           const known = getKnownProperties(book, key);
           const total = CRAFTING_MATERIALS[key].properties.length;
           return (
-            <button key={key} type='button' className='crafting-picker-option' disabled={locked} onClick={() => onPick(key)}>
+            <button key={key} type='button' className='crafting-picker-option' disabled={isBase && locked} onClick={() => isBase ? onPick(key) : setSelected(key)}>
               <strong style={{ color: materialColor(key) }}>{materialName(key)}</strong>
               <span>×{available} · {MATERIAL_FAMILIES[CRAFTING_MATERIALS[key].family].label} · Tier {CRAFTING_MATERIALS[key].tier}</span>
               <span className='crafting-muted'>
@@ -355,7 +410,8 @@ export default function MaterialCrafting({ onChange }) {
           <input className='input-field' type='search' aria-label='Search blueprints' placeholder='Search blueprints…' value={blueprintQuery} onChange={(event) => setBlueprintQuery(event.target.value)} />
           <div className='crafting-blueprint-list' role='region' aria-label='Available blueprints' tabIndex={0}>
             {blueprints.map((entry) => {
-              const locked = progress.level < entry.level;
+              const recipeKnown = hasBlueprintRecipe(player, entry);
+              const locked = progress.level < entry.level || !recipeKnown;
               return (
                 <button
                   key={entry.id}
@@ -368,7 +424,7 @@ export default function MaterialCrafting({ onChange }) {
                   <strong>{entry.name}</strong>
                   {getBlueprintIntrinsicDescription(entry) && <span className='crafting-muted'>{getBlueprintIntrinsicDescription(entry)}</span>}
                   <span className='crafting-muted'>
-                    {locked ? `Unlocks at level ${entry.level}` : entry.kind === "tool" ? "Crafting / Gathering tool" : entry.kind === "unique" ? `Unique ${entry.slotLabel}` : entry.slotLabel}
+                    {!recipeKnown ? "Extract this Unique to learn its blueprint" : locked ? `Unlocks at level ${entry.level}` : entry.kind === "tool" ? "Crafting / Gathering tool" : entry.kind === "unique" ? `Unique ${entry.slotLabel}` : entry.slotLabel}
                   </span>
                 </button>
               );
@@ -389,7 +445,7 @@ export default function MaterialCrafting({ onChange }) {
                 <button key={index} type='button' className='crafting-slot' aria-label={`Reagent slot ${index + 1}`} onClick={() => setPicker(index)}>
                   <span className='crafting-slot-label'>Reagent {index + 1}</span>
                   {reagents[index]
-                    ? <strong style={{ color: materialColor(reagents[index]) }}>{materialName(reagents[index])}</strong>
+                    ? <strong style={{ color: materialColor(reagents[index]) }}>{materialName(reagents[index])} <span className='crafting-muted'>(own {getMaterialCount(player, reagents[index])})</span></strong>
                     : <span className='crafting-muted'>Empty</span>}
                 </button>
               ) : (
@@ -401,7 +457,7 @@ export default function MaterialCrafting({ onChange }) {
               {blueprint.parts && <p className='crafting-muted'>Place a {blueprint.parts.join(" and a ")} in your reagent slots. Tools roll from item level 1 up to your equip profession level, capped by the parts used.</p>}
               {blueprint.requires && (
                 <div className='crafting-requires'>
-                  <span className='crafting-slot-label'>Recipe materials</span>
+                  <span className='crafting-slot-label'>Blueprint materials</span>
                   <ul>
                     {Object.entries(blueprint.requires).map(([key, qty]) => (
                       <li key={key} className={getMaterialCount(player, key) < qty ? "crafting-warning" : ""}>
@@ -446,7 +502,7 @@ export default function MaterialCrafting({ onChange }) {
         </CraftingDialog>
       )}
       {result?.item && (
-        <ItemPopup item={result.item} onClose={() => setResult(null)} allowDismantle onDismantled={() => onChange?.()}>
+        <ItemPopup item={result.item} onClose={() => setResult(null)} allowDismantle onDismantled={() => onChange?.()} onExtracted={() => onChange?.()}>
           <div className='crafting-result'>
             {result.exp > 0 && <p>+{result.exp} {PROFESSIONS[profession].name} exp{result.levelsGained ? ` · Level up!` : ""}</p>}
             {result.discoveries.map(({ key, effect }) => (

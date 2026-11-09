@@ -17,6 +17,9 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { SCREENS } from "../../ui/screens";
 import { createSkillGemstone } from "../../items/items";
 import ProfessionProgress from "../../ui/ProfessionProgress";
+import { getPlayer, setPlayer } from "../../character/player";
+import { recalculateStats } from "../../character/stats";
+import { cancelClassSwitch } from "../../character/classSwitch";
 
 const ProgressionScreen = SCREENS.progression.component;
 const player = {
@@ -86,7 +89,7 @@ test("Progression provides skill category subtabs and a Subclasses tab", () => {
   fireEvent.click(within(disciplines).getByRole("tab", { name: "Armor" }));
   const armor = screen.getByRole("region", { name: "Armor progression" });
   expect(armor.textContent).toContain("Armor level 1");
-  expect(within(armor).getByRole("region", { name: "Unique recipes" }).textContent).toContain("Frostwoven Mantle");
+  expect(within(armor).getByRole("region", { name: "Unique blueprints" }).textContent).toContain("Frostwoven Mantle");
   expect(within(armor).getByRole("progressbar", { name: "Armor exp" })).toBeTruthy();
   fireEvent.click(within(disciplines).getByRole("tab", { name: "Jewelry" }));
   const jewelry = screen.getByRole("region", { name: "Jewelry progression" });
@@ -115,4 +118,36 @@ test("overcapped skills display gem levels without blocking learned-level upgrad
   const meteor = screen.getByText("Meteor").closest(".skill-card");
   expect(within(meteor).getByText("Level 4/3")).toBeTruthy();
   expect(within(meteor).getByRole("button", { name: "Level up (2 points)" }).disabled).toBe(true);
+});
+
+test("mastery techniques are separate from shared learning and signatures need no skill slot", () => {
+  const hero = { ...player, class: "Swordsman", classMastery: { Swordsman: ["shieldBash"] } };
+  render(<ProgressionScreen player={hero} onChange={jest.fn()} />);
+  fireEvent.click(screen.getByRole("tab", { name: /^Skills/ }));
+  const techniques = within(screen.getByRole("region", { name: "Mastery techniques" }));
+  expect(techniques.getByRole("button", { name: "Equip Shield Bash" }).disabled).toBe(false);
+  expect(techniques.queryByRole("button", { name: /Learn|Level up/ })).toBeNull();
+  expect(screen.queryByText("Resolve Strike")).toBeNull();
+  expect(screen.queryByText("Fusion Strike")).toBeNull();
+});
+
+test("stat allocation shows a class preview before committing and refreshes the displayed class on confirmation", () => {
+  cancelClassSwitch();
+  let hero = {
+    ...player, level: 25, statPoints: 20,
+    baseStats: { strength: 10, dexterity: 1, intelligence: 8 }, equipment: {},
+  };
+  hero = { ...hero, ...recalculateStats(hero) };
+  getPlayer.mockImplementation(() => hero);
+  setPlayer.mockClear();
+  setPlayer.mockImplementation((patch) => { hero = { ...hero, ...patch }; });
+  render(<ProgressionScreen player={hero} onChange={jest.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Add 10 Strength" }));
+  expect(screen.getByRole("dialog", { name: "Class change preview" })).toBeTruthy();
+  expect(hero.statPoints).toBe(20);
+  expect(setPlayer).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Confirm class change" }));
+  expect(hero.class).toBe("Swordsman");
+  expect(hero.statPoints).toBe(10);
+  expect(screen.getByRole("heading", { name: "Level 25 Swordsman" })).toBeTruthy();
 });

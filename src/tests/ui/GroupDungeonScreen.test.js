@@ -8,6 +8,7 @@ import {
 } from "../../world/groupParty";
 import { GroupLobby, GroupRunActions, GroupRunScreen } from "../../ui/GroupDungeonScreen";
 import Tooltip from "../../ui/Tooltip";
+import { CLASS_TREES } from "../../character/mastery";
 
 jest.mock("../../firebase", () => ({ db: {} }));
 jest.mock("../../character/player", () => ({ getPlayer: () => ({ level: 45 }), setPlayer: () => {} }));
@@ -140,34 +141,83 @@ test("the run screen shows the timer, current stage, party and living enemies", 
   expect(document.querySelector(".group-enemy.dead")).toBeNull();
 });
 
+test("pilot signatures appear on the main group action menu without equipment and show resource reasons", async () => {
+  const run = makeRun();
+  run.party.a.cls = "Spellblade";
+  run.party.a.weave = 1;
+  run.party.a.equipped = [];
+  status = baseStatus({ run, active: true, inRun: true, roundRemainingMs: 20000 });
+  const { rerender } = render(<GroupRunActions />);
+  expect(screen.getByRole("button", { name: /Fusion Strike/ }).disabled).toBe(true);
+  expect(screen.getAllByText(/need 2 Weave/).length).toBeGreaterThan(0);
+  run.party.a.weave = 2;
+  rerender(<GroupRunActions />);
+  expect(screen.getByRole("button", { name: /Fusion Strike/ }).disabled).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: /Fusion Strike/ }));
+  const enemy = run.combat.enemies.find((entry) => !entry.dead && !entry.hidden);
+  await act(async () => fireEvent.click(screen.getAllByRole("button").find((button) => button.textContent.includes(enemy.name))));
+  expect(submitIntent).toHaveBeenLastCalledWith({ type: "skill", key: "fusionStrike", target: expect.any(String) });
+});
+
+test.each([
+  ["Tactician", "advantage"], ["Spellcaster", "instability"], ["Duelist", "tempo"],
+  ["Trickster", "tricks"], ["Specialist", "adaptation"],
+])("%s has a main-menu group signature with the correct target type", async (cls, resource) => {
+  const run = makeRun();
+  Object.assign(run.party.a, { cls, [resource]: 2, equipped: [] });
+  status = baseStatus({ run, active: true, inRun: true, roundRemainingMs: 20000 });
+  render(<GroupRunActions />);
+  const signature = CLASS_TREES[cls].signature;
+  const button = screen.getByRole("button", { name: new RegExp(signature.name) });
+  expect(button.disabled).toBe(false);
+  await act(async () => fireEvent.click(button));
+  if (cls !== "Duelist") {
+    const enemy = run.combat.enemies.find((entry) => !entry.dead && !entry.hidden);
+    await act(async () => fireEvent.click(screen.getAllByRole("button").find((entry) => entry.textContent.includes(enemy.name))));
+  }
+  expect(submitIntent).toHaveBeenLastCalledWith({
+    type: "skill", key: signature.key, target: cls === "Duelist" ? "a" : expect.any(String),
+  });
+});
+
+test("group Spellcaster skill buttons show the actual Instability surcharge", () => {
+  const run = makeRun();
+  Object.assign(run.party.a, { cls: "Spellcaster", instability: 3, skills: { fireball: 1 }, equipped: ["fireball"] });
+  run.party.a.stats.power = 6;
+  status = baseStatus({ run, active: true, inRun: true, roundRemainingMs: 20000 });
+  render(<GroupRunActions />);
+  fireEvent.click(screen.getByRole("button", { name: /\d+\. Skills/ }));
+  expect(screen.getByRole("button", { name: /Fireball \(7 power\)/ }).disabled).toBe(true);
+});
+
 test("combat actions pick enemy targets and allies for guard, potions and support skills", async () => {
   const run = makeRun();
   status = baseStatus({ run, active: true, inRun: true, remainingMs: 60000, roundRemainingMs: 20000 });
   render(<GroupRunActions />);
-  expect(screen.getByRole("status").textContent).toContain("Waiting for you, Bo.");
+  expect(screen.getAllByRole("status").some((entry) => entry.textContent.includes("Waiting for you, Bo."))).toBe(true);
 
   fireEvent.click(screen.getByRole("button", { name: "1. Melee Attack" }));
   const enemy = run.combat.enemies.find((e) => !e.dead && !e.hidden);
   await act(async () => fireEvent.click(screen.getAllByRole("button").find((b) => b.textContent.includes(enemy.name))));
   expect(submitIntent).toHaveBeenLastCalledWith({ type: "melee", target: expect.any(String) });
 
-  fireEvent.click(await screen.findByRole("button", { name: "6. Guard an Ally" }));
+  fireEvent.click(await screen.findByRole("button", { name: "7. Guard an Ally" }));
   expect(screen.queryByRole("button", { name: /Yourself/ })).toBeNull();
   await act(async () => fireEvent.click(screen.getByRole("button", { name: /^2\. Bo/ })));
   expect(submitIntent).toHaveBeenLastCalledWith({ type: "guard", target: "b" });
 
-  fireEvent.click(await screen.findByRole("button", { name: "4. Use Item" }));
+  fireEvent.click(await screen.findByRole("button", { name: "5. Use Item" }));
   fireEvent.click(screen.getByRole("button", { name: /Health Potion x2/ }));
   await act(async () => fireEvent.click(screen.getByRole("button", { name: /^2\. Yourself/ })));
   expect(submitIntent).toHaveBeenLastCalledWith({ type: "item", key: "healthPotion", target: "a" });
 
-  fireEvent.click(await screen.findByRole("button", { name: "3. Skills" }));
+  fireEvent.click(await screen.findByRole("button", { name: "4. Skills" }));
   fireEvent.click(screen.getByRole("button", { name: /Mending Light/ }));
   await act(async () => fireEvent.click(screen.getByRole("button", { name: /^3\. Bo/ })));
   expect(submitIntent).toHaveBeenLastCalledWith({ type: "skill", key: "mendingLight", target: "b" });
 
-  await screen.findByRole("button", { name: "5. Defend" });
-  await act(async () => fireEvent.keyDown(window, { key: "5" }));
+  await screen.findByRole("button", { name: "6. Defend" });
+  await act(async () => fireEvent.keyDown(window, { key: "6" }));
   expect(submitIntent).toHaveBeenLastCalledWith({ type: "defend" });
 });
 
@@ -190,7 +240,7 @@ test("shared quick skills are explicitly labeled Action in group combat", () => 
   run.combat.players.a.equipped = ["provoke", "renewal"];
   status = baseStatus({ run, active: true, inRun: true, remainingMs: 60000, roundRemainingMs: 20000 });
   render(<GroupRunActions />);
-  fireEvent.click(screen.getByRole("button", { name: "3. Skills" }));
+  fireEvent.click(screen.getByRole("button", { name: "4. Skills" }));
   expect(screen.getByRole("button", { name: /Provoke \(\d+ power\)/ })).toBeTruthy();
   expect(screen.getByRole("button", { name: /Renewal \(\d+ power\)/ })).toBeTruthy();
   expect(screen.queryByText(/Quick Action/)).toBeNull();
@@ -208,7 +258,7 @@ test("area skills submit immediately without asking the player to pick one enemy
   status = baseStatus({ run, active: true, inRun: true, remainingMs: 60000, roundRemainingMs: 20000 });
   render(<GroupRunActions />);
 
-  fireEvent.click(screen.getByRole("button", { name: "3. Skills" }));
+  fireEvent.click(screen.getByRole("button", { name: "4. Skills" }));
   await act(async () => fireEvent.click(screen.getByRole("button", { name: /Whirlwind/ })));
 
   expect(submitIntent).toHaveBeenLastCalledWith({ type: "skill", key: "whirlwind" });
@@ -237,7 +287,7 @@ test("target buttons follow the living enemies, even when enemies share a name a
   rerender(<GroupRunActions />);
   expect(targetButtons()).toHaveLength(0);
   expect(screen.getByRole("button", { name: "1. Melee Attack" })).toBeTruthy();
-  expect(document.querySelectorAll(".input-buttons button")).toHaveLength(9);
+  expect(document.querySelectorAll(".input-buttons button")).toHaveLength(10);
   expect(consoleError.mock.calls.some((args) => String(args[0]).includes("same key"))).toBe(false);
   consoleError.mockRestore();
 });
@@ -333,8 +383,8 @@ test("mobile group action order matches combat and still submits targets and pot
   window.matchMedia.mockReturnValue({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() });
   status = baseStatus({ run: makeRun(), active: true, inRun: true, remainingMs: 60000, roundRemainingMs: 20000 });
   render(<GroupRunActions />);
-  expect(screen.getAllByRole("button").slice(0, 7).map(button => button.textContent))
-    .toEqual(["Melee Attack", "Magic Attack", "Defend", "Use Item", "Skills", "Guard an Ally", "Pass"]);
+  expect(screen.getAllByRole("button").slice(0, 8).map(button => button.textContent))
+    .toEqual(["Melee Attack", "Magic Attack", "Improvise (Action)", "Defend", "Use Item", "Skills", "Guard an Ally", "Pass"]);
   fireEvent.click(screen.getByRole("button", { name: "Use Item" }));
   fireEvent.click(screen.getByRole("button", { name: "Health Potion x2" }));
   await act(async () => fireEvent.click(screen.getByRole("button", { name: /^Yourself/ })));

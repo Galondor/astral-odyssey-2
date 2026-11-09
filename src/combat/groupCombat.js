@@ -21,6 +21,12 @@ import { MAX_PLAYER_CHANCE } from "../character/stats";
 import { getEnemyStatusResistance } from "./enemies";
 import { SKILLS, applySupportSkill, computeSkillCost, getEquippedSkills, getSkillLevel, skillMultiplier } from "../character/skills";
 import { PASSIVE_TUNING as PT, getEquippedPassives } from "../character/passives";
+import { CLASS_TREES, getClassStateLabel } from "../character/mastery";
+import {
+  classActionError, classCombatState, beginClassDefense, recordClassBlock,
+  prepareClassAttack, finishClassAttack, spendClassResource,
+  recordClassParry,
+} from "./classMechanics";
 
 /*
  Group combat: up to 3 players against any number of enemies, resolved one round at a time.
@@ -57,8 +63,6 @@ const BULWARK_COUNTER = 0.5;
 const RHYTHM_CRIT = 0.04;
 const RHYTHM_MAX = 0.2;
 const PARRY_CHANCE = 0.15;
-const PARRY_COUNTER = 0.6;
-const SPELLSTRIKE_BONUS = 0.5;
 const HEX_CHANCE = 0.2;
 const ADAPTABLE_PER_KIND = 0.05;
 const ADAPTABLE_MAX = 0.2;
@@ -88,17 +92,18 @@ export const isStunned = (m) => (m.statuses || []).some((st) => STATUSES[st.id]?
 export function createGroupMember(id, player) {
   const stats = { ...player.stats, health: player.stats.maxHealth, power: player.stats.maxPower };
   const equipped = getEquippedSkills(player);
+  const signature = CLASS_TREES[player.class]?.signature?.key;
   const consumables = {};
   for (const [key, count] of Object.entries(player.consumables || {}))
     if (isCombatConsumable(CONSUMABLES[key]) && count > 0) consumables[key] = count;
   return {
     id,
     name: player.name,
-    cls: player.class || null,
+    ...classCombatState(player),
     level: player.level || 1,
     stats,
     ab: getAbilityTotals(player),
-    skills: Object.fromEntries(equipped.map((key) => [key, getSkillLevel(player, key)])),
+    skills: Object.fromEntries([...equipped, signature].filter(Boolean).map((key) => [key, getSkillLevel(player, key)])),
     equipped,
     passives: getEquippedPassives(player),
     hatred: 0,
@@ -114,7 +119,6 @@ export function createGroupMember(id, player) {
     downed: false,
     combo: 0,
     kinds: [],
-    spellstrike: false,
     stunGrace: false,
     secondWindUsed: false,
     meteorCharge: null,
@@ -143,8 +147,11 @@ export function normalizeCombat(c) {
     m.kinds = m.kinds || [];
     m.usedUltimates = m.usedUltimates || {};
     m.passives = m.passives || [];
+    m.classNodes = m.classNodes || [];
     m.starKinds = m.starKinds || [];
     m.skills = m.skills || {};
+    const signature = CLASS_TREES[m.cls]?.signature?.key;
+    if (signature) m.skills[signature] = 1;
     m.equipped = m.equipped || [];
     m.consumables = m.consumables || {};
     m.spent = m.spent || {};
@@ -182,7 +189,18 @@ export function refreshMembers(players, { revive = true, full = true } = {}) {
     m.meteorCharge = null;
     m.combo = 0;
     m.kinds = [];
-    m.spellstrike = false;
+    m.resolve = 0;
+    m.resolveBlockRound = null;
+    m.weave = 0;
+    m.lastWeaveType = null;
+    m.emberReady = false;
+    m.advantage = 0;
+    m.instability = 0;
+    m.tempo = 0;
+    m.riposteReady = false;
+    m.tricks = 0;
+    m.adaptation = 0;
+    m.lastRole = null;
     m.starKinds = [];
     m.starReady = false;
     m.unwrittenPathStrikes = 0;
@@ -541,6 +559,16 @@ function applyItem(c, actor, intent, log) {
   for (const e of livingEnemies(c)) e.threat[actor.id] = (e.threat[actor.id] || 0) + threat;
 }
 
+function applyClassSelfEffect(actor, effect, log) {
+  if (effect.barrier) {
+    addStatus(actor.statuses, "barrier", { turns: 3, power: Math.round(actor.stats.maxHealth * 0.15) });
+    log.push(`A class technique shields ${actor.name} for 15% of their maximum health.`);
+  }
+  if (effect.heal) actor.healingDone = (actor.healingDone || 0) +
+    healMember(actor, Math.round(actor.stats.maxHealth * effect.heal), log, "Improvise");
+  if (effect.power) gainMemberPower(actor, effect.power);
+}
+
 function attackAction(c, actor, intent, log, env, options = {}) {
   const skillKey = intent.type === "skill" ? intent.key : null;
   const skill = skillKey ? SKILLS[skillKey] : null;
@@ -548,6 +576,17 @@ function attackAction(c, actor, intent, log, env, options = {}) {
   const s = actor.stats;
   const ab = actor.ab;
   const cls = actor.cls;
+  if (skillKey && (!skill || (skill.className && skill.className !== cls))) {
+    log.push(`${actor.name} cannot use that class technique.`);
+    return;
+  }
+  if (!options.costPaid) {
+    const error = classActionError(actor, skillKey);
+    if (error) {
+      log.push(`${actor.name}: ${error}`);
+      return;
+    }
+  }
   if (skill?.ultimate && !options.releasing && actor.usedUltimates?.[skillKey]) {
     log.push(`${actor.name}'s ${skill.name} has already been used in this combat.`);
     return;
@@ -555,32 +594,48 @@ function attackAction(c, actor, intent, log, env, options = {}) {
   if (skill?.area && !options.areaResolved) {
     const targets = targetableEnemies(c).slice();
     if (!targets.length) return;
-    const cost = computeSkillCost(skillKey, cls, actor.passives);
+    const cost = computeSkillCost(skillKey, cls, actor.passives, actor);
     if (level < 1 || !actor.equipped.includes(skillKey) || s.power < cost) {
       log.push(`${actor.name} can't use ${skill.name} and hesitates.`);
       return;
     }
     const overcharged = hasMemberPassive(actor, "overcharge") && s.power > s.maxPower;
     s.power -= cost;
+    const classEffect = prepareClassAttack(actor, skill.type, skillKey);
+    spendClassResource(actor, skillKey, skill.type);
+    applyClassSelfEffect(actor, classEffect, log);
     const echo = advanceEcho(actor, ab);
     const combo = actor.combo;
+    let landed = false;
+    let opening = false;
     for (const enemy of targets) {
-      if (!enemy.dead)
-        attackAction(c, actor, { ...intent, target: enemy.uid }, log, env, {
+      if (!enemy.dead) {
+        const targetEffect = prepareClassAttack(actor, skill.type, skillKey, enemy);
+        const dealt = attackAction(c, actor, { ...intent, target: enemy.uid }, log, env, {
           areaResolved: true,
           costPaid: true,
           overcharged,
           echo,
+          classEffect,
         });
+        if (dealt > 0) {
+          landed = true;
+          opening = opening || targetEffect.opening;
+        }
+      }
     }
     consumeAttackPassives(actor, log);
+    const gain = landed || cls === "Spellblade"
+      ? finishClassAttack(actor, skill.type, skillKey, {}, { ...classEffect, opening }) : { power: 0 };
+    if (gain.power) gainMemberPower(actor, gain.power);
+    log.push(`${actor.name}: ${getClassStateLabel(actor)}`);
     actor.combo = combo + 1;
     return;
   }
   let overcharged = !!options.overcharged;
   if (skill && !options.costPaid) {
-    const cost = computeSkillCost(skillKey, cls, actor.passives);
-    if (level < 1 || !actor.equipped.includes(skillKey) || s.power < cost) {
+    const cost = computeSkillCost(skillKey, cls, actor.passives, actor);
+    if (level < 1 || (!skill.signature && !actor.equipped.includes(skillKey)) || s.power < cost) {
       log.push(`${actor.name} can't use ${skill.name} and hesitates.`);
       return;
     }
@@ -597,10 +652,18 @@ function attackAction(c, actor, intent, log, env, options = {}) {
     log.push(`${actor.name} begins channeling Meteor. It will strike at the start of next round unless the channel is interrupted.`);
     return;
   }
+  const classEffect = options.classEffect || prepareClassAttack(actor, skill ? skill.type : intent.type, skillKey, findEnemy(c, intent.target) || {});
+  if (!options.costPaid) {
+    spendClassResource(actor, skillKey, skill ? skill.type : intent.type);
+    applyClassSelfEffect(actor, classEffect, log);
+  }
   const echo = options.echo === undefined ? advanceEcho(actor, ab) : options.echo;
   if (skill?.type === "support") {
     supportAction(c, actor, skillKey, level, intent, log, echo);
     actor.combo += 1;
+    const gain = finishClassAttack(actor, skill.type, skillKey);
+    if (gain.power) gainMemberPower(actor, gain.power);
+    log.push(`${actor.name}: ${getClassStateLabel(actor)}`);
     return;
   }
   const type = skill ? skill.type : intent.type;
@@ -612,7 +675,9 @@ function attackAction(c, actor, intent, log, env, options = {}) {
     return;
   }
   const speedAdvantage = memberSpeed(actor) - enemy.speed;
-  let hit = type === "melee" ? roll(s.attackMin, s.attackMax) : roll(s.magicAttackMin || 0, s.magicAttackMax || 0);
+  const attackType = skillKey === "fusionStrike" || skill?.strongerAttack
+    ? ((s.magicAttackMin + s.magicAttackMax) > (s.attackMin + s.attackMax) ? "magic" : "melee") : type;
+  let hit = attackType === "melee" ? roll(s.attackMin, s.attackMax) : roll(s.magicAttackMin || 0, s.magicAttackMax || 0);
   if (skill) hit = Math.round(hit * skillMultiplier(skillKey, level));
   const ctx = {
     level,
@@ -645,14 +710,10 @@ function attackAction(c, actor, intent, log, env, options = {}) {
   }
   if (ctx.crit && ab.uniqueEffects.includes("fortunesSpark") && Math.random() < FORTUNES_SPARK_CHANCE)
     hit *= 1 + roll(100, 300) / 100;
-  let bonus = 1 + (ab.damageBonus || 0) + (skill?.bonus?.(ctx) || 0);
+  let bonus = 1 + (ab.damageBonus || 0) + (skill?.bonus?.(ctx) || 0) + classEffect.damageBonus;
   if (cls === "Specialist") {
     kinds.add(skill ? skillKey : type);
     bonus += Math.min(ADAPTABLE_MAX, kinds.size * ADAPTABLE_PER_KIND);
-  }
-  if (cls === "Spellblade" && !skill && actor.spellstrike) {
-    bonus += SPELLSTRIKE_BONUS;
-    actor.spellstrike = false;
   }
   const glacial = ab.uniqueEffects.includes("glacialEdge") && hasStatus(enemy.statuses, "vulnerable");
   if (constellation) bonus += 1.5;
@@ -745,11 +806,19 @@ function attackAction(c, actor, intent, log, env, options = {}) {
   actor.kinds = [...kinds];
   actor.starKinds = [...starKinds];
   actor.combo += 1;
-  if (cls === "Spellblade" && skill) actor.spellstrike = true;
+  if (!options.areaResolved) {
+    const gain = dealt > 0 ? finishClassAttack(actor, type, skillKey, enemy, classEffect) : { power: 0 };
+    if (gain.power) gainMemberPower(actor, gain.power);
+    log.push(`${actor.name}: ${getClassStateLabel(actor)}`);
+  }
+  if (!enemy.dead && classEffect.burn) inflictOnEnemy(c, enemy, "burn", { turns: 2, power: 0.03 }, log);
+  if (!enemy.dead && classEffect.sunder) inflictOnEnemy(c, enemy, "vulnerable", { turns: 3, power: classEffect.sunder }, log);
+  if (!enemy.dead && classEffect.weaken) inflictOnEnemy(c, enemy, "weaken", { turns: 2, power: 0.2 }, log);
   if (!skill && hasMemberPassive(actor, "battleTrance")) {
     const gained = gainMemberPower(actor, PT.battleTrance.power);
     if (gained > 0) log.push(`Battle Trance: ${actor.name} recovers [blue]${gained}[/blue] power.`);
   }
+  return dealt;
 }
 
 // Damage bonuses from the attacker's passives (additive with other damage bonuses).
@@ -799,6 +868,7 @@ function memberAct(c, actor, intent, log, env) {
     });
     return;
   }
+  if (intent?.type === "skill" && intent.key === "riposteStance" && actor.cls === "Duelist") return;
   switch (intent?.type) {
     case "melee":
     case "magic":
@@ -819,12 +889,19 @@ function memberAct(c, actor, intent, log, env) {
 // Defend and Guard are stances: they protect for the whole round, so they're applied before anyone acts.
 function applyStances(c, intents, log) {
   for (const m of livingMembers(c)) {
+    m.riposteReady = false;
     const intent = intents[m.id];
     if (isStunned(m)) continue;
     if (intent?.type === "defend") {
       m.defending = true;
+      const gain = beginClassDefense(m);
+      if (gain.power) gainMemberPower(m, gain.power);
       log.push(`${m.name} braces to defend.`);
+      log.push(`${m.name}: ${getClassStateLabel(m)}`);
     } else if (intent?.type === "guard") {
+      const gain = beginClassDefense(m);
+      if (gain.power) gainMemberPower(m, gain.power);
+      log.push(`${m.name}: ${getClassStateLabel(m)}`);
       const ally = findMember(c, intent.target);
       if (!ally || ally === m) {
         m.defending = true;
@@ -834,6 +911,9 @@ function applyStances(c, intents, log) {
         log.push(`${m.name} stands guard over ${ally.name}.`);
         for (const e of livingEnemies(c)) e.threat[m.id] = (e.threat[m.id] || 0) + GUARD_THREAT;
       }
+    } else if (intent?.type === "skill" && intent.key === "riposteStance" && m.cls === "Duelist" && !m.meteorCharge) {
+      m.riposteReady = true;
+      log.push(`${m.name} prepares a riposte stance.`);
     }
   }
 }
@@ -867,10 +947,13 @@ function enemyStrike(c, e, target, ability, log, { scale = 1, telegraphed = fals
     log.push(`${victim.name} evades ${the(e)}${used}!`);
     return 0;
   }
-  if (!telegraphed && victim.cls === "Duelist" && Math.random() < PARRY_CHANCE) {
-    const riposte = Math.max(1, Math.round(roll(s.attackMin, s.attackMax) * PARRY_COUNTER - e.defense));
+  if (!telegraphed && victim.cls === "Duelist" && (victim.riposteReady || Math.random() < PARRY_CHANCE)) {
+    const parry = recordClassParry(victim, !!victim.riposteReady);
+    const riposte = Math.max(1, Math.round(roll(s.attackMin, s.attackMax) * parry.counter - e.defense));
     log.push(`${victim.name} parries ${the(e)}${used} and ripostes for ${red(riposte)}!`);
     damageEnemy(c, e, riposte, log, c.env, victim);
+    if (parry.heal) victim.healingDone = (victim.healingDone || 0) + healMember(victim, Math.round(s.maxHealth * parry.heal), log, "Second Wind");
+    log.push(`${victim.name}: ${getClassStateLabel(victim)}`);
     return 0;
   }
   const attack = telegraphed ? ability.committedAttack || e.attack : e.attack;
@@ -880,6 +963,7 @@ function enemyStrike(c, e, target, ability, log, { scale = 1, telegraphed = fals
   dmg *= telegraphed ? ability.committedOutgoing ?? outgoingMult(e.statuses) : outgoingMult(e.statuses);
   dmg = Math.max(1, Math.round(dmg - (s.defense || 0) * (1 - (ability?.ignoreDefense || 0))));
   const blocked = victim.defending || !!guardian;
+  if (blocked) recordClassBlock(victim, c.round);
   if (blocked) dmg = Math.max(1, Math.floor(dmg * (victim.cls === "Swordsman" ? BULWARK_DAMAGE_TAKEN : 0.5)));
   if (blocked && telegraphed) dmg = Math.max(1, Math.floor(dmg * TELEGRAPH_BLOCKED));
   dmg *= incomingMult(victim.statuses);
@@ -1264,6 +1348,7 @@ export function resolveGroupRound(combat, intents, env) {
   }
   if (livingMembers(c).length) endOfRound(c, log, env);
   const outcome = advanceEncounter(c, log, env);
+  for (const m of Object.values(c.players)) m.riposteReady = false;
   c.round += 1;
   delete c.env;
   return { combat: c, log, outcome };

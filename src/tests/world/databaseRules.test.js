@@ -31,12 +31,12 @@ test("marketplace rules accept exactly the current consumable catalog", () => {
   expect(allowedKeys.sort()).toEqual(Object.keys(CONSUMABLES).sort());
 });
 
-test("marketplace Skill Gem rule catalogs match all active skills and their rarities", () => {
+test("marketplace Skill Gem rule catalogs match shared skills and their rarities", () => {
   const validation = databaseRules.rules.marketplace.$listingId[".validate"];
   const patterns = [...validation.matchAll(/child\('item\/skill'\)\.val\(\)\.matches\(\/(.+?)\/\)/g)];
   expect(patterns).toHaveLength(2);
   const keys = (pattern) => pattern[1].replace(/^\^\(|\)\$$/g, "").split("|").sort();
-  expect(keys(patterns[0])).toEqual(Object.keys(SKILLS).filter((key) => !SKILLS[key].ultimate).sort());
+  expect(keys(patterns[0])).toEqual(Object.keys(SKILLS).filter((key) => !SKILLS[key].className && !SKILLS[key].ultimate).sort());
   expect(keys(patterns[1])).toEqual(Object.keys(SKILLS).filter((key) => SKILLS[key].ultimate).sort());
   const mailRule = databaseRules.rules.inbox.$uid.$msgId.attachments.$kind.$index[".validate"];
   for (const field of ["type", "skill", "value", "stat"])

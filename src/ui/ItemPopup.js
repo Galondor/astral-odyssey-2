@@ -5,12 +5,15 @@ import { TooltipContent } from "./Tooltip";
 import { getPlayer } from "../character/player";
 import { getEnemy } from "../combat/combat";
 import { isFavorite } from "../items/favorites";
-import { dismantleOwnedItem, getDismantleResources } from "../items/dismantling";
+import { dismantleOwnedItem, extractOwnedItem, getDismantleResources } from "../items/dismantling";
+import { getExtractableBlueprint, hasBlueprintRecipe } from "../items/craftingBlueprints";
 import { MATERIALS } from "../items/materials";
+import { getClassSwitchPreview } from "../character/classSwitch";
 
-export default function ItemPopup({ item, onClose, actions = [], comparison, message, onDelete, deleteDisabled, allowDismantle = false, dismantleDisabled, onDismantled, children }) {
+export default function ItemPopup({ item, onClose, actions = [], comparison, message, onDelete, deleteDisabled, allowDismantle = false, dismantleDisabled, onDismantled, onExtracted, children }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [confirmingDismantle, setConfirmingDismantle] = useState(false);
+  const [confirmingExtract, setConfirmingExtract] = useState(false);
   const [dismantleResult, setDismantleResult] = useState(null);
   const dialog = useRef(null);
   const close = useRef(onClose);
@@ -21,7 +24,9 @@ export default function ItemPopup({ item, onClose, actions = [], comparison, mes
   const comparisonDetails = comparison?.open ? itemComparisonTooltip(item) : null;
   const resources = allowDismantle ? getDismantleResources(item) : null;
   const cannotDismantle = dismantleDisabled || (resources && (!!getEnemy() || isFavorite(getPlayer(), "gear", item)));
-  const confirming = confirmingDelete || confirmingDismantle;
+  const extractBlueprint = allowDismantle && getExtractableBlueprint(item);
+  const recipeKnown = extractBlueprint && hasBlueprintRecipe(getPlayer(), extractBlueprint);
+  const confirming = confirmingDelete || confirmingDismantle || confirmingExtract;
 
   useEffect(() => {
     const element = dialog.current;
@@ -29,9 +34,11 @@ export default function ItemPopup({ item, onClose, actions = [], comparison, mes
     const previousFocus = document.activeElement;
     element.querySelector("button").focus();
     const keepFocusInside = (event) => {
+      if (getClassSwitchPreview()) return;
       if (!element.contains(event.target)) element.querySelector("button").focus();
     };
     const closeOnEscape = (event) => {
+      if (getClassSwitchPreview()) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
@@ -84,6 +91,12 @@ export default function ItemPopup({ item, onClose, actions = [], comparison, mes
         {children}
         {message && <div className='gemstone-message' role='status'>{message}</div>}
         {dismantleResult && <div className='gemstone-message' role='status'>{dismantleResult.message}</div>}
+        {confirmingExtract && (
+          <p role='alert'>
+            Extract {item.name}'s blueprint? This will permanently destroy the item and any socketed gemstones.
+            {" "}You will learn a reusable blueprint to craft it in the Forge. Profession level and material requirements still apply.
+          </p>
+        )}
         {confirmingDismantle && (
           <p role='alert'>
             Dismantle {item.name} for {resources.min}-{resources.max} {MATERIALS[resources.key].name}?
@@ -118,7 +131,22 @@ export default function ItemPopup({ item, onClose, actions = [], comparison, mes
               {label}
             </button>
           ))}
-          {resources && !dismantleResult?.ok && !confirmingDelete && (confirmingDismantle ? (
+          {extractBlueprint && !dismantleResult?.ok && !confirmingDelete && !confirmingDismantle && (confirmingExtract ? (
+            <>
+              <button type='button' className='buttons' disabled={cannotDismantle || recipeKnown} onClick={() => {
+                const result = extractOwnedItem(item);
+                setDismantleResult(result);
+                setConfirmingExtract(false);
+                if (result.ok) onExtracted?.(result);
+              }}>Confirm extract</button>
+              <button type='button' className='buttons' onClick={() => setConfirmingExtract(false)}>Cancel</button>
+            </>
+          ) : (
+            <button type='button' className='buttons' disabled={cannotDismantle || recipeKnown} onClick={() => setConfirmingExtract(true)}>
+              {recipeKnown ? "Blueprint learned" : "Extract"}
+            </button>
+          ))}
+          {resources && !dismantleResult?.ok && !confirmingDelete && !confirmingExtract && (confirmingDismantle ? (
             <>
               <button type='button' className='buttons' disabled={cannotDismantle} onClick={() => {
                 const result = dismantleOwnedItem(item);
@@ -131,7 +159,7 @@ export default function ItemPopup({ item, onClose, actions = [], comparison, mes
           ) : (
             <button type='button' className='buttons' disabled={cannotDismantle} onClick={() => setConfirmingDismantle(true)}>Dismantle</button>
           ))}
-          {onDelete && !confirmingDismantle && !dismantleResult?.ok && (confirmingDelete ? (
+          {onDelete && !confirmingDismantle && !confirmingExtract && !dismantleResult?.ok && (confirmingDelete ? (
             <>
               <button type='button' className='buttons' disabled={deleteDisabled} onClick={onDelete}>
                 Confirm delete

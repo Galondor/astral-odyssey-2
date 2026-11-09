@@ -129,7 +129,7 @@ describe("blueprints", () => {
     expect(getBlueprints("jewelry").some((b) => b.kind === "tool" && b.slot === "precisionTools")).toBe(true);
     expect(getBlueprints("armor").some((b) => b.kind === "tool")).toBe(false);
     for (const profession of ["weaponry", "armor", "jewelry"]) {
-      expect(getBlueprints(profession).filter((b) => b.kind === "unique").map((b) => b.level)).toEqual([20, 35, 50]);
+      expect(getBlueprints(profession).filter((b) => b.kind === "unique" && !b.requiresExtraction).map((b) => b.level)).toEqual([20, 35, 50]);
     }
     for (const unique of Object.values(CRAFTED_UNIQUES)) expect(findAbility({ name: unique.ability })?.effects).toBeTruthy();
   });

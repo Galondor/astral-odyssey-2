@@ -22,6 +22,8 @@ jest.mock("../../combat/combat", () => ({
   defendRound: jest.fn(),
   endCombat: jest.fn(),
   getCombatRound: jest.fn(),
+  getCombatSignature: jest.fn(() => null),
+  getCombatClassState: jest.fn(() => null),
   getCombatTutorial: jest.fn(),
   getCombatActions: jest.fn(),
   getCombatConsumables: jest.fn(),

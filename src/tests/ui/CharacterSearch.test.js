@@ -18,7 +18,7 @@ test("shows searchable character details, disables private profiles, and opens p
   ]);
   loadPublicProfile.mockResolvedValue({
     name: "Nova",
-    level: 20,
+    level: 25,
     class: "Spellblade",
     stats: null,
     equipment: {},

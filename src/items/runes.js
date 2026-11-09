@@ -1,4 +1,5 @@
-import { getPlayer, setPlayer } from "../character/player";
+import { getPlayer } from "../character/player";
+import { commitWithClassPreview } from "../character/classSwitch";
 import { recalculateStats } from "../character/stats";
 import { getEnemy } from "../combat/combat";
 import { CONSUMABLES } from "./consumables";
@@ -133,6 +134,5 @@ export function applyRune(key, itemId, stat) {
     equipment[slot] = updated;
     changes.equipment = equipment;
   }
-  setPlayer(recalculateStats(player, changes));
-  return { ok: true, message: `You use ${rune.name} on ${item.name}: ${effectMessage}. Added the ${rune.name} tag.` };
+  return commitWithClassPreview(player, recalculateStats(player, changes), { ok: true, message: `You use ${rune.name} on ${item.name}: ${effectMessage}. Added the ${rune.name} tag.` });
 }

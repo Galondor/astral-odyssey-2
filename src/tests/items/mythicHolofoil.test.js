@@ -101,6 +101,7 @@ test.each(MYTHIC_HOLOFOIL_EFFECTS)("%s has valid animated artwork, static artwor
     }
     expect(animated).toMatch(/<animate(?:Transform|Motion)? /);
     expect(still).not.toContain("<animate");
+    expect(decodeImage(style["--holofoil-mythic-animated"])).toBe(animated);
     expect(style.backgroundSize).toBe("100% 100%");
     backgrounds.add(style.backgroundImage);
   }

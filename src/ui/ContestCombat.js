@@ -6,6 +6,9 @@ import { STATUSES } from "../combat/statuses";
 import { actionCostLabel, getActionAvailability } from "../combat/actionEconomy";
 import Tooltip from "./Tooltip";
 import ActionSlots from "./ActionSlots";
+import { CLASS_TREES } from "../character/mastery";
+import { classActionError } from "../combat/classMechanics";
+import { ClassResource } from "./ClassMastery";
 
 export const getContestCombatView = ({ match, uid }) => {
   const fighter = match?.fighters?.[uid];
@@ -49,6 +52,7 @@ export const getContestCombatView = ({ match, uid }) => {
       stats: fighter.player.stats,
       defending: fighter.defending,
       playerStatuses: fighter.statuses || [],
+      classState: fighter.combat,
       marrowWard: fighter.combat?.wardMax > 0
         ? { current: fighter.combat.ward, max: fighter.combat.wardMax } : null,
     },
@@ -96,12 +100,13 @@ export default function ContestCombat({ onLeave, navigationModal }) {
   const costLabel = (type, key) => actionCostLabel(type, key, "contest", actions);
   const actionOption = (label, type, key, tooltip) => {
     const available = type === "pass" ? { ok: true } : getActionAvailability(actions, type, key);
-    const powerCost = type === "skill" ? skillCost(fighter.player, key) : null;
+    const powerCost = type === "skill" ? skillCost(fighter.player, key, fighter.combat) : null;
     const ultimateUsed = type === "skill" && SKILLS[key]?.ultimate && fighter?.combat?.usedUltimates?.[key];
+    const classError = type === "skill" ? classActionError(fighter?.combat, key) : null;
     const reason = stunned && type !== "pass" ? "Stunned: End Turn to recover." :
       !available.ok ? available.message :
-        ultimateUsed ? `${SKILLS[key].name} has already been used this combat.` :
-        powerCost != null && fighter.player.stats.power < powerCost ? `You need ${powerCost} Power.` : "";
+        classError || (ultimateUsed ? `${SKILLS[key].name} has already been used this combat.` :
+        powerCost != null && fighter.player.stats.power < powerCost ? `You need ${powerCost} Power.` : "");
     const cost = type === "skill" ? `${powerCost} Power` :
       type === "pass" || type === "consume" ? "" : costLabel(type, key);
     return {
@@ -120,7 +125,7 @@ export default function ContestCombat({ onLeave, navigationModal }) {
     if (menu === "skills") {
       options = [back, ...getEquippedSkills(fighter.player).map((key) => actionOption(
         SKILLS[key].name, "skill", key,
-        skillTooltip(key, getSkillLevel(fighter.player, key), costLabel("skill", key), fighter.player),
+        skillTooltip(key, getSkillLevel(fighter.player, key), costLabel("skill", key), fighter.player, fighter.combat),
       )), actionOption("End Turn", "pass")];
     } else if (menu === "items") {
       options = [back, ...getConsumables(fighter.player).filter(isCombatConsumable).map((item) => actionOption(
@@ -131,6 +136,10 @@ export default function ContestCombat({ onLeave, navigationModal }) {
       options = [
         actionOption("Melee Attack", "melee"),
         actionOption("Magic Attack", "magic"),
+        ...(CLASS_TREES[fighter.player.class] ? [actionOption(
+          CLASS_TREES[fighter.player.class].signature.name, "skill", CLASS_TREES[fighter.player.class].signature.key,
+          skillTooltip(CLASS_TREES[fighter.player.class].signature.key, 1, "Action", fighter.player),
+        )] : []),
         actionOption("Defend", "defend"),
         { label: "Use Item", disabled, select: () => setMenu("items") },
         { label: "Skills", disabled, select: () => setMenu("skills") },
@@ -160,6 +169,7 @@ export default function ContestCombat({ onLeave, navigationModal }) {
     {!match?.winner && <p role='status'>{!status.ready ? "Connecting to Contest..." :
       `${status.yourTurn ? "Your turn" : `${opponent?.player.name}'s turn`} - ${Math.ceil(status.remainingMs / 1000)} seconds remaining.`}</p>}
     {fighter && !match?.winner && <ActionSlots actions={actions} />}
+    {fighter && !match?.winner && <ClassResource state={fighter.combat} />}
     {menu === "skills" && !match?.winner && <>
       <p>Choose a skill to use.</p>
       {!getEquippedSkills(fighter?.player).length && <p>No skills equipped. Equip learned skills in Progression before joining Contest.</p>}

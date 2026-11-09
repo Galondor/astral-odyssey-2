@@ -77,7 +77,7 @@ test("ordinary gemstone sale values and unsocket costs remain unchanged", () => 
   }
 });
 
-test.each(Object.keys(SKILLS))("%s has an exact +1 gem with the correct rarity", (key) => {
+test.each(Object.keys(SKILLS).filter((key) => !SKILLS[key].className))("%s has an exact +1 gem with the correct rarity", (key) => {
   const gem = createSkillGemstone(key);
   expect(gem).toMatchObject({
     name: `${SKILLS[key].name} Gemstone`, type: "skill", skill: key, value: 1,
@@ -89,6 +89,15 @@ test.each(Object.keys(SKILLS))("%s has an exact +1 gem with the correct rarity",
   expect(isValidGemstone({ ...gem, skill: "missing" })).toBe(false);
   expect(createSkillGemstone(key).id).not.toBe(gem.id);
 });
+
+test.each(Object.keys(SKILLS).filter((key) => SKILLS[key].className))(
+  "%s cannot generate or validate a mastery-bypassing Skill Gem", (key) => {
+    expect(() => createSkillGemstone(key)).toThrow(/Class mastery/);
+    expect(isValidGemstone({
+      id: "invalid", name: "Invalid Gem", type: "skill", skill: key, value: 1, rarity: "Legendary",
+    })).toBe(false);
+  },
+);
 
 test.each([[0, true], [0.099999, true], [0.1, false], [0.999999, false]])(
   "rarity is rolled first with a 10%% Unique boundary (%s)", (roll, ultimate) => {
@@ -174,14 +183,14 @@ test("skill-point upgrades and respecs use learned levels, never gem levels", ()
   expect(player.equipment.helmet.gemstones).toHaveLength(2);
 });
 
-test.each(Object.keys(SKILLS).filter((key) => SKILLS[key].type !== "support"))(
+test.each(Object.keys(SKILLS).filter((key) => !SKILLS[key].className && SKILLS[key].type !== "support"))(
   "%s keeps increasing damage after level 5", (key) => {
     expect(skillMultiplier(key, 6)).toBeGreaterThan(skillMultiplier(key, 5));
     expect(skillMultiplier(key, 15)).toBeGreaterThan(skillMultiplier(key, 6));
   },
 );
 
-test.each(Object.keys(SKILLS).filter((key) => SKILLS[key].type === "support"))(
+test.each(Object.keys(SKILLS).filter((key) => !SKILLS[key].className && SKILLS[key].type === "support"))(
   "%s keeps increasing its healing or status power after level 5", (key) => {
     const strength = (level) => {
       const caster = { name: "Hero", stats: { health: 0, maxHealth: 10000, magicAttackMin: 100, magicAttackMax: 100 }, statuses: [] };

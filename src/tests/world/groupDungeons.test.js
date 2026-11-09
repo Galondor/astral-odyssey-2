@@ -1,7 +1,7 @@
 import { calculateStats } from "../../character/stats";
 import { getClassForStats } from "../../character/classes";
 import { createUniqueItem, SLOTS, generateRandomItem } from "../../items/items";
-import { SKILLS } from "../../character/skills";
+import { SKILLS, computeSkillCost } from "../../character/skills";
 import { GROUP_DUNGEONS, GROUP_RUN_MS, GROUP_WIPE_PENALTY_MS } from "../../world/groupDungeonData";
 import { ENEMY_SPEED_MULTIPLIER } from "../../combat/enemies";
 import { UNIQUES } from "../../world/dungeonData";
@@ -131,7 +131,7 @@ const chooseIntents = (run) => {
   const telegraph = c.enemies.some((e) => !e.dead && e.pending);
   let guardTaken = false;
   living.forEach((m, index) => {
-    const has = (key) => m.equipped.includes(key) && m.stats.power >= SKILLS[key].powerCost;
+    const has = (key) => m.equipped.includes(key) && m.stats.power >= computeSkillCost(key, m.cls, m.passives, m);
     const doomed = living.find((ally) => ally.statuses.some((st) => st.id === "doom") && ally !== m);
     const corrupted = living.find((ally) => ally.statuses.filter((st) => st.id === "corruption" || st.id === "scurvy").reduce((n, st) => n + st.stacks, 0) >= 3);
     const hurt = [...living].sort((a, b) => a.stats.health / a.stats.maxHealth - b.stats.health / b.stats.maxHealth)[0];

@@ -16,6 +16,9 @@ import RichText from "./RichText";
 import Tooltip from "./Tooltip";
 import useIsMobile from "./useIsMobile";
 import { filterChatText } from "../shared/names";
+import { CLASS_TREES } from "../character/mastery";
+import { classActionError } from "../combat/classMechanics";
+import { ClassResource } from "./ClassMastery";
 
 const DUNGEON_LIST = Object.values(GROUP_DUNGEONS).sort((a, b) => a.level - b.level);
 const STAGE_KIND_LABELS = ["Entry", "Teamwork", "Challenge", "Boss"];
@@ -324,6 +327,7 @@ const MemberCard = ({ member, run, intentIn, me }) => {
           {member.defending && <div className='group-tag'>Defending</div>}
           {guarding && <div className='group-tag'>Guarding {guarding.name}</div>}
           <StatusChips list={member.statuses} />
+          {run.combat && <ClassResource state={member} />}
         </>
       )}
     </div>
@@ -582,18 +586,20 @@ export const GroupRunActions = ({ navigationModal }) => {
       const player = { class: me.cls, stats: me.stats, skills: me.skills, passives: me.passives || [], equippedPassives: me.passives || [] };
       options = [back, ...(me.equipped || []).filter((key) => SKILLS[key]).map((key) => {
         const skill = SKILLS[key];
-        const cost = skillCost(player, key);
+        const cost = skillCost(player, key, me);
         const used = !!(skill.ultimate && me.usedUltimates?.[key]);
         const tooltip = skillTooltip(
           key,
           me.skills[key] || 0,
           `Action: takes your only action this round${used ? "; already used this combat" : ""}`,
           player,
+          me,
         );
         return {
           label: `${skill.name} (${cost} power)${used ? " — Used this combat" : ""}`,
           tooltip: { ...tooltip, stats: tooltip.stats.map((stat) => stat.label === "Action cost" ? { ...stat, value: "Action" } : stat) },
-          disabled: me.stats.power < cost || used,
+          disabled: me.stats.power < cost || used || !!classActionError(me, key),
+          reason: classActionError(me, key),
           select: () => {
             const intent = { type: "skill", key };
             if (skill.area) return send(intent);
@@ -618,6 +624,17 @@ export const GroupRunActions = ({ navigationModal }) => {
       options = stunned ? [{ label: "Pass", select: () => send({ type: "pass" }) }] : [
         { label: "Melee Attack", select: () => pickEnemy({ type: "melee" }) },
         { label: "Magic Attack", select: () => pickEnemy({ type: "magic" }) },
+        ...(CLASS_TREES[me.cls] ? [{
+          label: `${CLASS_TREES[me.cls].signature.name} (Action)`,
+          tooltip: { title: CLASS_TREES[me.cls].signature.name, description: CLASS_TREES[me.cls].signature.description },
+          disabled: !!classActionError(me, CLASS_TREES[me.cls].signature.key),
+          reason: classActionError(me, CLASS_TREES[me.cls].signature.key),
+          select: () => {
+            const key = CLASS_TREES[me.cls].signature.key;
+            const intent = { type: "skill", key };
+            return SKILLS[key].type === "support" ? send({ ...intent, target: identity }) : pickEnemy(intent);
+          },
+        }] : []),
         { label: "Skills", select: () => setMenu({ view: "skills" }) },
         { label: "Use Item", select: () => setMenu({ view: "items" }) },
         { label: "Defend", select: () => send({ type: "defend" }) },
@@ -625,7 +642,7 @@ export const GroupRunActions = ({ navigationModal }) => {
         { label: "Pass", select: () => send({ type: "pass" }) },
       ];
       if (mobile && !stunned) {
-        const order = ["Melee Attack", "Magic Attack", "Defend", "Use Item", "Skills", "Guard an Ally", "Pass"];
+        const order = ["Melee Attack", "Magic Attack", `${CLASS_TREES[me.cls]?.signature.name} (Action)`, "Defend", "Use Item", "Skills", "Guard an Ally", "Pass"];
         options.sort((a, b) => order.indexOf(a.label) - order.indexOf(b.label));
       }
     }
@@ -658,6 +675,7 @@ export const GroupRunActions = ({ navigationModal }) => {
         {waitingFor.length ? `Waiting for ${waitingFor.map((id) => (id === identity ? "you" : run.names[id])).join(", ")}.` : "Resolving..."}
       </p>
       {prompt && <p>{prompt}</p>}
+      {run.combat && me && !me.downed && <ClassResource state={me} />}
       {(run.puzzle?.kind === "dials" || run.puzzle?.kind === "rings") && (
         <PuzzleSetter
           key={roundKey}
@@ -669,11 +687,14 @@ export const GroupRunActions = ({ navigationModal }) => {
       )}
       <div className='input-buttons'>
         {options.map((option, index) => (
-          <Tooltip disableOnMobile={menu.view === "items"} key={`${menu.view}-${index}`} content={option.tooltip}>
+          <div key={`${menu.view}-${index}`}>
+          <Tooltip disableOnMobile={menu.view === "items"} content={option.tooltip}>
             <button type='button' className={`buttons input-button ${mobile && option.label === "Melee Attack" ? "input-primary" : ""}`} disabled={option.disabled} onClick={option.select}>
               {!mobile && `${index + 1}. `}{option.label}
             </button>
           </Tooltip>
+          {option.reason && <small className='group-muted'>{option.reason}</small>}
+          </div>
         ))}
         <div className='group-run-tools'>
         <button

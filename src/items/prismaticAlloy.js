@@ -1,4 +1,5 @@
-import { getPlayer, setPlayer } from "../character/player";
+import { getPlayer } from "../character/player";
+import { commitWithClassPreview } from "../character/classSwitch";
 import { getEnemy } from "../combat/combat";
 import { CONSUMABLES } from "./consumables";
 import { isHolofoilColors, rollHolofoil } from "./holofoil";
@@ -37,9 +38,8 @@ export function applyPrismaticAlloy(itemId) {
     equipment[slot] = upgraded;
     changes.equipment = equipment;
   }
-  setPlayer(recalculateStats(player, { ...changes, baseStats: getBaseStats(player) }));
-  return {
+  return commitWithClassPreview(player, recalculateStats(player, { ...changes, baseStats: getBaseStats(player) }), {
     ok: true,
     message: `You use a ${alloy.name} on ${item.name}. Its Holofoil was ${reroll ? "rerolled" : "applied"}.`,
-  };
+  });
 }

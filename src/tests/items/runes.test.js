@@ -5,6 +5,7 @@ import { applyConsumable, CONSUMABLES, drinkConsumable } from "../../items/consu
 import { CONDITION_NAMES, getSubStatTier, itemTooltip, SUBSTAT_NAMES } from "../../items/items";
 import { getItemSocketCount } from "../../items/sockets";
 import { applyRune, canApplyRune } from "../../items/runes";
+import { cancelClassSwitch, confirmClassSwitch } from "../../character/classSwitch";
 
 jest.mock("../../character/player", () => ({ getPlayer: jest.fn(), setPlayer: jest.fn() }));
 jest.mock("../../combat/combat", () => ({ getEnemy: jest.fn() }));
@@ -13,6 +14,7 @@ let player;
 let item;
 beforeEach(() => {
   jest.clearAllMocks();
+  cancelClassSwitch();
   getEnemy.mockReturnValue(null);
   item = {
     id: "gear-1", name: "Iron Sword", slot: "weapon", rarity: "Rare", condition: "Average", iLevel: 5,
@@ -54,7 +56,10 @@ test("equipped items recalculate stats and keep two-handed placeholders intact",
     consumables: { architectsRune: 1 },
   }) };
   expect(player.stats.strength).toBe(19);
-  expect(applyRune("architectsRune", item.id, "intelligence").ok).toBe(true);
+  expect(applyRune("architectsRune", item.id, "intelligence")).toMatchObject({ ok: false, reason: "class-change" });
+  expect(player.stats.strength).toBe(19);
+  expect(player.consumables.architectsRune).toBe(1);
+  expect(confirmClassSwitch().ok).toBe(true);
   expect(player.stats).toMatchObject({ strength: 7, intelligence: 17 });
   expect(player.equipment.offHand).toEqual(placeholder);
   expect(player.equipment.mainHand.usedRunes).toEqual(["Architect's Rune"]);

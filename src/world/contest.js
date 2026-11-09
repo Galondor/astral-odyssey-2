@@ -53,6 +53,7 @@ const combatPlayer = (player) => {
     name: player.name, level: player.level, class: player.class,
     stats: player.stats, equipment: player.equipment || {},
     skills: player.skills || {}, equippedSkills: player.equippedSkills || [],
+    classMastery: player.classMastery || {},
     passives: player.passives || [], equippedPassives: player.equippedPassives || [],
     consumables: player.consumables || {}, keyItems: player.keyItems || [],
   }));

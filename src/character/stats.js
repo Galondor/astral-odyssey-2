@@ -3,6 +3,7 @@ import { getItemGearScore } from "../items/gearScore";
 import { getItemGemstones, isSkillGemstone } from "../items/sockets";
 import { isToolItem } from "../items/craftingStats";
 import { getItemIntrinsicBonuses } from "../items/intrinsics";
+import { CLASS_SKILLS, validateClassLoadout } from "./mastery";
 
 /*
  Central stat calculation. Every derived stat is computed here from:
@@ -272,5 +273,30 @@ export const migratePowerProgression = (player) => {
 export const recalculateStats = (player, changes = {}) => {
   const next = { ...player, ...changes };
   const stats = calculateStats(next);
-  return { ...changes, class: getClassForStats(stats), stats };
+  const cls = getClassForStats(stats);
+  const patch = { ...changes, class: cls, stats };
+  if (cls !== player.class) {
+    const classLoadouts = { ...next.classLoadouts };
+    if (player.class) {
+      const outgoing = Array.isArray(player.equippedSkills) ? player.equippedSkills : [];
+      const saved = classLoadouts[player.class];
+      if (Array.isArray(saved)) {
+        const valid = validateClassLoadout({ ...player, equippedSkills: saved });
+        const active = validateClassLoadout(player);
+        // Keep unavailable preferences when validation alone changed the active loadout.
+        classLoadouts[player.class] = JSON.stringify(valid) === JSON.stringify(active)
+          ? [...saved]
+          : [...outgoing, ...saved.filter((key) => !valid.includes(key) && !outgoing.includes(key))];
+      } else classLoadouts[player.class] = [...outgoing];
+    }
+    patch.classLoadouts = classLoadouts;
+    const incoming = Array.isArray(classLoadouts[cls])
+      ? classLoadouts[cls]
+      : (Array.isArray(next.equippedSkills) ? next.equippedSkills : [])
+        .filter((key) => !CLASS_SKILLS[key]);
+    patch.equippedSkills = validateClassLoadout({ ...next, class: cls, equippedSkills: incoming });
+  } else {
+    patch.equippedSkills = validateClassLoadout({ ...next, class: cls });
+  }
+  return patch;
 };

@@ -9,7 +9,7 @@ export const freshActions = () => ({
 // state.quickSkill (Quick Reflexes) turns the next non-ultimate skill into a Quick Action outside group combat.
 export const getActionCost = (type, key, mode = "solo", state) =>
   mode !== "group" && (type === "consume" || (type === "skill" &&
-    (SKILLS[key]?.actionCost === "quick" || (state?.quickSkill && SKILLS[key] && !SKILLS[key].ultimate))))
+    (SKILLS[key]?.actionCost === "quick" || (state?.quickSkill && SKILLS[key] && !SKILLS[key].ultimate && !SKILLS[key].signature))))
     ? "quick" : "action";
 
 export const getActionAvailability = (state, type, key) => {

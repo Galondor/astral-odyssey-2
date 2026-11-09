@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import ContestScreen from "../../ui/ContestScreen";
 import ContestCombat, { getContestCombatView } from "../../ui/ContestCombat";
 import { getContestStatus, sendContestCommand } from "../../world/contest";
+import { CLASS_TREES } from "../../character/mastery";
 
 jest.mock("../../world/contest", () => ({
   CONTEST_MIN_LEVEL: 25,
@@ -46,6 +47,52 @@ const fighter = (name) => ({
     skills: { fireball: 1 }, equippedSkills: ["fireball"], consumables: { healthPotion: 2 } },
   combat: { actions: { actionAvailable: true, quickAvailable: true, usedSkills: [] } },
 });
+
+test("pilot signatures are main actions without equipping and follow frozen resource and Action availability", async () => {
+  const alice = fighter("Alice");
+  alice.player.class = "Swordsman";
+  alice.player.equippedSkills = [];
+  alice.combat = { cls: "Swordsman", resolve: 1, actions: { actionAvailable: true, quickAvailable: true } };
+  getContestStatus.mockReturnValue({
+    ready: true, playing: true, uid: "alice", yourTurn: true, remainingMs: 45000,
+    match: { host: "alice", guest: "bob", fighters: { alice, bob: fighter("Bob") } },
+  });
+
+  const { rerender } = render(<ContestCombat />);
+  expect(screen.getByRole("button", { name: /Resolve Strike/ }).disabled).toBe(true);
+  expect(screen.getAllByText(/need 2 Resolve/).length).toBeGreaterThan(0);
+  alice.combat.resolve = 2;
+  alice.combat.actions.actionAvailable = false;
+  rerender(<ContestCombat />);
+  expect(screen.getByRole("button", { name: /Resolve Strike/ }).disabled).toBe(true);
+  alice.combat.actions.actionAvailable = true;
+  rerender(<ContestCombat />);
+  fireEvent.click(screen.getByRole("button", { name: /Resolve Strike/ }));
+  await waitFor(() => expect(sendContestCommand).toHaveBeenCalledWith({
+    type: "action", action: { type: "skill", key: "resolveStrike" },
+  }));
+});
+
+test.each([
+  ["Tactician", "advantage"], ["Spellcaster", "instability"], ["Duelist", "tempo"],
+  ["Trickster", "tricks"], ["Specialist", "adaptation"],
+])("%s exposes its dedicated Contest signature without equipment", async (cls, resource) => {
+  const alice = fighter("Alice");
+  alice.player.class = cls;
+  alice.player.equippedSkills = [];
+  Object.assign(alice.combat, { cls, [resource]: 2 });
+  getContestStatus.mockReturnValue({
+    ready: true, playing: true, uid: "alice", yourTurn: true, remainingMs: 45000,
+    match: { host: "alice", guest: "bob", fighters: { alice, bob: fighter("Bob") } },
+  });
+  render(<ContestCombat />);
+  const signature = CLASS_TREES[cls].signature;
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(signature.name) }));
+  await waitFor(() => expect(sendContestCommand).toHaveBeenCalledWith({
+    type: "action", action: { type: "skill", key: signature.key },
+  }));
+});
+
 test("waiting for the opponent disables actions but still permits forfeiting", () => {
   getContestStatus.mockReturnValue({
     ready: true, playing: true, uid: "alice", yourTurn: false, remainingMs: 45000,
@@ -100,6 +147,7 @@ test("skill selection, back navigation, and item selection do not spend a turn u
 test("skill costs use Contest power and class; unavailable skills are disabled", () => {
   const alice = fighter("Alice");
   alice.player.class = "Spellcaster";
+  alice.combat.cls = "Spellcaster";
   alice.player.stats.power = 4;
   const status = {
     ready: true, playing: true, uid: "alice", yourTurn: true, remainingMs: 45000,
@@ -107,12 +155,17 @@ test("skill costs use Contest power and class; unavailable skills are disabled",
   };
   getContestStatus.mockReturnValue(status);
   const { rerender } = render(<ContestCombat />);
-  fireEvent.click(screen.getByRole("button", { name: "5. Skills" }));
+  fireEvent.click(screen.getByRole("button", { name: /\d+\. Skills/ }));
   expect(screen.getByRole("button", { name: /2\. Fireball/ }).disabled).toBe(false);
   alice.player.stats.power = 3;
   rerender(<ContestCombat />);
   expect(screen.getByRole("button", { name: /2\. Fireball/ }).disabled).toBe(true);
   expect(screen.getByText("You need 4 Power.")).toBeTruthy();
+  alice.combat.instability = 2;
+  alice.player.stats.power = 5;
+  rerender(<ContestCombat />);
+  expect(screen.getByRole("button", { name: /Fireball \(6 Power\)/ }).disabled).toBe(true);
+  expect(screen.getByText("You need 6 Power.")).toBeTruthy();
   fireEvent.keyDown(window, { key: "2" });
   expect(sendContestCommand).not.toHaveBeenCalled();
 });

@@ -1,5 +1,6 @@
-import { getInventoryItemKey, getPlayer, setPlayer } from "../character/player";
+import { getInventoryItemKey, getPlayer } from "../character/player";
 import { recalculateStats } from "../character/stats";
+import { commitWithClassPreview } from "../character/classSwitch";
 import { getGatheringTier } from "../character/gathering";
 import { getEnemy } from "../combat/combat";
 import { CRAFTING_MATERIALS, REGION_TIERS } from "./craftingMaterials";
@@ -9,6 +10,8 @@ import { getItemBaseType } from "./intrinsics";
 import { getSlotBases, RARITY_NAMES, SLOTS } from "./items";
 import { MATERIALS } from "./materials";
 import { REGIONS } from "../world/regions";
+import { getExtractableBlueprint, hasBlueprintRecipe } from "./craftingBlueprints";
+import { getCraftingBook } from "./crafting";
 
 const FAMILY_BY_MATERIAL = { metal: "ore", wood: "wood", leather: "hide", cloth: "cloth", jewelry: "precious" };
 
@@ -30,9 +33,9 @@ export function getDismantleResources(item) {
   return { key, min, max: min + 1 + Math.floor(rarity / 2) + Number(!!item.twoHanded) };
 }
 
-export function dismantleOwnedItem(item, rng = Math.random) {
+function destroyOwnedItem(item, action, getOutcome) {
   const player = getPlayer();
-  if (getEnemy()) return { ok: false, message: "You can't dismantle items during combat." };
+  if (getEnemy()) return { ok: false, message: `You can't ${action} items during combat.` };
   if (!player || !item) return { ok: false, message: "That item is no longer owned." };
   const key = getInventoryItemKey(item);
   const inventory = [...(player.inventory || [])];
@@ -44,30 +47,52 @@ export function dismantleOwnedItem(item, rng = Math.random) {
   const owned = index >= 0 ? inventory[index] : player.equipment?.[slot];
   if (!owned) return { ok: false, message: "That item is no longer owned." };
   if (isFavorite(player, "gear", owned))
-    return { ok: false, message: "Unfavorite this item before dismantling it." };
-  const resources = getDismantleResources(owned);
-  if (!resources?.key) return { ok: false, message: "That item can't be dismantled." };
-  const count = resources.min + Math.floor(rng() * (resources.max - resources.min + 1));
-  const materials = { ...(player.materials || {}) };
-  materials[resources.key] = (materials[resources.key] || 0) + count;
+    return { ok: false, message: `Unfavorite this item before ${action === "extract" ? "extracting its blueprint" : "dismantling it"}.` };
+  const outcome = getOutcome(player, owned);
+  if (!outcome.ok) return outcome;
   let patch;
   if (index >= 0) {
     inventory.splice(index, 1);
-    patch = { inventory, materials };
+    patch = { inventory, ...outcome.patch };
   } else {
     const equipment = { ...player.equipment };
     delete equipment[slot];
     if (owned.twoHanded) delete equipment.offHand;
-    patch = recalculateStats(player, { equipment, materials });
+    patch = recalculateStats(player, { equipment, ...outcome.patch });
   }
   const unseenInventoryItems = { ...(player.unseenInventoryItems || {}) };
   if (unseenInventoryItems.gear) {
     unseenInventoryItems.gear = unseenInventoryItems.gear.filter((entry) => entry !== key);
     if (!unseenInventoryItems.gear.length) delete unseenInventoryItems.gear;
   }
-  setPlayer({ ...patch, unseenInventoryItems });
-  return {
-    ok: true, materials: { [resources.key]: count },
-    message: `Dismantled ${owned.name}: ${count} ${MATERIALS[resources.key].name}.`,
-  };
+  const { patch: rewardPatch, ...result } = outcome;
+  return commitWithClassPreview(player, { ...patch, unseenInventoryItems }, result);
+}
+
+export function dismantleOwnedItem(item, rng = Math.random) {
+  return destroyOwnedItem(item, "dismantle", (player, owned) => {
+    const resources = getDismantleResources(owned);
+    if (!resources?.key) return { ok: false, message: "That item can't be dismantled." };
+    const count = resources.min + Math.floor(rng() * (resources.max - resources.min + 1));
+    const materials = { ...(player.materials || {}) };
+    materials[resources.key] = (materials[resources.key] || 0) + count;
+    return {
+      ok: true, patch: { materials }, materials: { [resources.key]: count },
+      message: `Dismantled ${owned.name}: ${count} ${MATERIALS[resources.key].name}.`,
+    };
+  });
+}
+
+export function extractOwnedItem(item) {
+  return destroyOwnedItem(item, "extract", (player, owned) => {
+    const blueprint = getExtractableBlueprint(owned);
+    if (!blueprint) return { ok: false, message: "That item has no extractable blueprint." };
+    if (hasBlueprintRecipe(player, blueprint)) return { ok: false, message: "You already know this blueprint." };
+    const book = getCraftingBook(player);
+    return {
+      ok: true,
+      patch: { craftingBook: { ...book, recipes: [...(book.recipes || []), blueprint.id] } },
+      message: `Extracted ${owned.name}'s blueprint. It is now available in the Forge.`,
+    };
+  });
 }

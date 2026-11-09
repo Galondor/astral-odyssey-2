@@ -3,6 +3,7 @@ import { recalculateStats } from "../../character/stats";
 import { getEnemy } from "../../combat/combat";
 import { getSellPrice, getSubStatTier, itemTooltip, unequipItem, equipItem } from "../../items/items";
 import { getItemUpgradeStatus, upgradeInventoryItem } from "../../items/upgrades";
+import { cancelClassSwitch, confirmClassSwitch } from "../../character/classSwitch";
 
 jest.mock("../../character/player", () => ({ getPlayer: jest.fn(), setPlayer: jest.fn() }));
 jest.mock("../../combat/combat", () => ({ getEnemy: jest.fn() }));
@@ -21,6 +22,7 @@ const makeItem = (changes = {}) => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  cancelClassSwitch();
   player = {
     level: 100, astra: 1000000, stats: {}, inventory: [makeItem()],
     baseStats: { strength: 2, dexterity: 2, intelligence: 2 },
@@ -169,7 +171,8 @@ test("upgrade count survives serialization, unequipping, and reequipping", () =>
   expect(equipItem(0).ok).toBe(true);
   expect(player.equipment.mainHand).toMatchObject({ iLevel: 51, upgrades: 1, price: 5500 });
   expect(upgradeInventoryItem("sword")).toMatchObject({ ok: false, message: expect.stringContaining("Unequip") });
-  unequipItem("mainHand");
+  expect(unequipItem("mainHand")).toMatchObject({ ok: false, reason: "class-change" });
+  expect(confirmClassSwitch().ok).toBe(true);
   expect(upgradeInventoryItem("sword").ok).toBe(true);
   expect(player.inventory.find((item) => item.id === "sword")).toMatchObject({ iLevel: 52, upgrades: 2 });
   const upgraded = player.inventory.find((item) => item.id === "sword");

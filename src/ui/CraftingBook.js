@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getProfessionLevel, MATERIAL_TIER_LEVELS, PROFESSIONS } from "../character/professions";
 import { getCraftingBook, getKnownProperties } from "../items/crafting";
-import { getBlueprintIntrinsicDescription, getBlueprints } from "../items/craftingBlueprints";
+import { getBlueprintIntrinsicDescription, getBlueprints, hasBlueprintRecipe } from "../items/craftingBlueprints";
 import {
   CRAFTING_MATERIALS,
   describeEffect,
@@ -45,7 +45,7 @@ export function CraftingDialog({ label, onClose, children, className = "" }) {
 const BOOK_TABS = [
   ["materials", "Materials"],
   ["reactions", "Reactions"],
-  ["recipes", "Recipes"],
+  ["recipes", "Blueprints"],
 ];
 
 const tierLabel = (key) => MATERIAL_TIERS[MATERIALS[key]?.tier]?.label;
@@ -89,7 +89,7 @@ export default function CraftingBook({ player, onClose }) {
         className='input-field'
         type='search'
         aria-label='Search crafting book'
-        placeholder='Search materials, effects, reactions, recipes…'
+        placeholder='Search materials, effects, reactions, blueprints…'
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
@@ -134,7 +134,8 @@ export default function CraftingBook({ player, onClose }) {
         ))}
         {tab === "recipes" && recipes.map(({ blueprint }) => {
           const level = getProfessionLevel(player, blueprint.profession);
-          const unlocked = level >= blueprint.level;
+          const recipeKnown = hasBlueprintRecipe(player, blueprint);
+          const unlocked = recipeKnown && level >= blueprint.level;
           return (
             <article key={blueprint.id} className={`crafting-book-entry ${unlocked ? "" : "locked"}`}>
               <header>
@@ -153,7 +154,8 @@ export default function CraftingBook({ player, onClose }) {
               {blueprint.requires && (
                 <span>Requires: {Object.entries(blueprint.requires).map(([key, qty]) => `${qty}× ${MATERIALS[key].name}`).join(", ")}</span>
               )}
-              {!unlocked && <span className='crafting-muted'>Unlocks at {PROFESSIONS[blueprint.profession].name} level {blueprint.level}.</span>}
+              {!recipeKnown && <span className='crafting-muted'>Extract this Unique to learn its reusable blueprint.</span>}
+              {level < blueprint.level && <span className='crafting-muted'>Unlocks at {PROFESSIONS[blueprint.profession].name} level {blueprint.level}.</span>}
             </article>
           );
         })}

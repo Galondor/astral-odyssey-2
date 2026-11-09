@@ -9,6 +9,7 @@ import { listItem, subscribeListings } from "../../world/marketplace";
 import MarketplaceScreen from "../../ui/MarketplaceScreen";
 import { SCREENS } from "../../ui/screens";
 import { isAdmin } from "../../world/inbox";
+import { cancelClassSwitch } from "../../character/classSwitch";
 
 jest.mock("../../firebase", () => ({ db: {}, auth: { currentUser: { uid: "alice" } } }));
 jest.mock("../../ui/changelogFiles", () => ({ changelogFiles: [] }));
@@ -33,10 +34,12 @@ const sapphire = { ...ruby, id: "sapphire", name: "Rare Sapphire", type: "sapphi
 let player;
 beforeEach(() => {
   jest.clearAllMocks();
+  cancelClassSwitch();
   isAdmin.mockReturnValue(false);
   player = {
     name: "Alice", class: "Specialist", level: 25, astra: 1000,
-    stats: { strength: 2, dexterity: 2, intelligence: 2 },
+    baseStats: { strength: 20, dexterity: 20, intelligence: 20 },
+    stats: { strength: 20, dexterity: 20, intelligence: 20 },
     inventory: [sword, helmet], equipment: {}, gemstones: [ruby, sapphire],
     consumables: { healthPotion: 2, greaterPotion: 1 },
     materials: { slime_gel: 3, [Object.keys(MATERIALS).find((key) => key !== "slime_gel")]: 2 },

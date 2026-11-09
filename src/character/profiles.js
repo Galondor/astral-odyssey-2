@@ -12,6 +12,7 @@ export const createPublicProfile = (player) => ({
   equipment: player.equipment || {},
   skills: player.skills || {},
   equippedSkills: player.equippedSkills || [],
+  classMastery: player.classMastery || {},
   passives: player.passives || [],
   equippedPassives: player.equippedPassives || [],
   skillPoints: player.skillPoints || 0,

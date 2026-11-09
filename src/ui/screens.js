@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import ClassMastery, { ClassResource } from "./ClassMastery";
+import { CLASS_TREES } from "../character/mastery";
+import { commitWithClassPreview } from "../character/classSwitch";
+import { withClassSwitchPreview } from "./ClassSwitchPreview";
 import { getHolofoilStyle } from "../items/holofoil";
 import {
   getInventoryItemKey,
@@ -32,6 +36,7 @@ import {
   refreshGearTraderStock,
   socketGemstone,
   sellEquippedItem,
+  sellGearSelection,
   sellGemstone,
   sellInventoryItem,
   unequipItem,
@@ -376,7 +381,7 @@ const CombatHealth = ({ label, value, max, color, marrowWard, wardLabel = "Marro
 
 const CombatScreen = ({ messages, data, player }) => {
   const mobile = useIsMobile();
-  const { enemy, enemies = [], round, stats, defending, playerStatuses = [], marrowWard, actions, tutorial } = data || {};
+  const { enemy, enemies = [], round, stats, defending, playerStatuses = [], marrowWard, actions, tutorial, classState } = data || {};
   const analyzerUnlocked = getKeyItemEffect(player, "analyzer") > 0;
   const opponents = enemies.length ? enemies : [enemy];
   const chips = (list) => (
@@ -396,6 +401,7 @@ const CombatScreen = ({ messages, data, player }) => {
         <p>Practice supplies only. Your original health, Power, and inventory are preserved.</p>
       </section>}
       <ActionSlots actions={actions} />
+      <ClassResource state={classState} />
       {round != null && <div className='combat-round'>Round {round}</div>}
       <div className='combat-arena'>
         <section className='combatant combat-enemy-column' aria-label='Encounter enemies' tabIndex={0}>
@@ -523,8 +529,9 @@ const CraftingScreen = ({ data, onChange }) => {
   const make = (key) => {
     const result = craft(player, key);
     if (result.ok) {
-      setPlayer(result.patch);
-      onChange();
+      const committed = commitWithClassPreview(player, result.patch, result);
+      if (committed.ok) onChange();
+      else { setNote(committed.message); return; }
     }
     setNote(result.message);
   };
@@ -744,7 +751,8 @@ const ForgeScreen = ({ onChange }) => {
           <div className='recipe-note' role='status'>{note || "Choose an unequipped item from your inventory to upgrade."}</div>
           {selectedUpgradeItem && (
             <ItemPopup item={selectedUpgradeItem} onClose={() => setSelectedUpgradeId(null)}
-              allowDismantle onDismantled={(result) => { setNote(result.message); onChange?.(); }} />
+              allowDismantle onDismantled={(result) => { setNote(result.message); onChange?.(); }}
+              onExtracted={(result) => { setNote(result.message); onChange?.(); }} />
           )}
         </div>
       )}
@@ -921,32 +929,20 @@ const GearTraderScreen = ({ data, onChange }) => {
     return total + (getGemstoneValue(sellableGemsByKey.get(key).gemstone) || 0);
   }, 0);
   const sellSelectedGear = () => {
-    let count = 0;
-    let total = 0;
-    selectedGearKeys
+    const inventoryIndices = selectedGearKeys
       .filter((key) => key.startsWith("inventory:"))
-      .map((key) => Number(key.slice("inventory:".length).split(":")[0]))
-      .sort((a, b) => b - a)
-      .forEach((index) => {
-        const result = sellInventoryItem(index);
-        if (result.ok) {
-          count++;
-          total += result.value;
-        }
-      });
-    selectedGearKeys
+      .map((key) => Number(key.slice("inventory:".length).split(":")[0]));
+    const slots = selectedGearKeys
       .filter((key) => key.startsWith("equipment:"))
-      .map((key) => key.slice("equipment:".length).split(":")[0])
-      .forEach((slot) => {
-        const result = sellEquippedItem(slot);
-        if (result.ok) {
-          count++;
-          total += result.value;
-        }
-      });
+      .map((key) => key.slice("equipment:".length).split(":")[0]);
+    const result = sellGearSelection(inventoryIndices, slots);
+    if (!result.ok) {
+      setNote(result.message || "No selected gear could be sold.");
+      return;
+    }
     setSelectedGearToSell([]);
-    setNote(`${count} gear ${count === 1 ? "item" : "items"} sold for ${total} astra.`);
-    if (count) refresh();
+    setNote(`${result.count} gear ${result.count === 1 ? "item" : "items"} sold for ${result.value} astra.`);
+    refresh();
   };
   const sellSelectedGems = () => {
     let count = 0;
@@ -1268,6 +1264,7 @@ const GearTraderScreen = ({ data, onChange }) => {
           onClose={() => setSelectedGear(null)}
           allowDismantle={selectedGear.canFavorite}
           onDismantled={(result) => { setNote(result.message); refresh(); }}
+          onExtracted={(result) => { setNote(result.message); refresh(); }}
           comparison={{ open: compareSelected, onToggle: () => setCompareSelected((open) => !open) }}
           actions={[
             ...(selectedGear.canFavorite ? [{
@@ -1405,6 +1402,7 @@ const Equipment = ({ player, onChange, locked }) => {
           allowDismantle
           dismantleDisabled={locked}
           onDismantled={onChange}
+          onExtracted={onChange}
           deleteDisabled={locked || isFavorite(player, "gear", selectedGear.item)}
           onDelete={() => {
             const result = deleteOwnedItem(selectedGear.item, { kind: "equipment", slotKey: gemSlotKey });
@@ -2097,7 +2095,7 @@ const Inventory = ({ player, onChange, locked }) => {
                 <div className='equip-empty'>No gear matches these filters.</div>
               )}
               {sortedGear.map(({ item, index }) => (
-                <Tooltip disableOnMobile key={item.id || index} content={itemTooltip(item)}
+                <Tooltip disableOnMobile key={item.id || index} content={() => itemTooltip(item)}
                   onView={() => viewItem("gear", getInventoryItemKey(item))}>
                   <button
                     type='button'
@@ -2460,6 +2458,7 @@ const Inventory = ({ player, onChange, locked }) => {
           allowDismantle
           dismantleDisabled={locked}
           onDismantled={onChange}
+          onExtracted={onChange}
           deleteDisabled={locked || isFavorite(player, "gear", selectedGear.item)}
           onDelete={() => {
             const result = deleteOwnedItem(selectedGear.item, { kind: "inventory" });
@@ -2706,6 +2705,7 @@ const SkillsTab = ({ player, inCombat, onChange }) => {
     onChange();
   };
   const skills = Object.entries(SKILLS).filter(([, skill]) => {
+    if (skill.signature || skill.masteryNode) return false;
     if (category === "support") return skill.type === "support";
     if (category === "ultimate") return skill.category === category;
     return skill.type !== "support" && !["passive", "ultimate"].includes(skill.category);
@@ -2740,7 +2740,7 @@ const SkillsTab = ({ player, inCombat, onChange }) => {
         player={player}
         inCombat={inCombat}
         refundable={Object.entries(player.skills || {}).reduce(
-          (sum, [key, level]) => sum + (level || 0) * skillPointCost(key),
+          (sum, [key, level]) => sum + (SKILLS[key]?.signature || SKILLS[key]?.masteryNode ? 0 : (level || 0) * skillPointCost(key)),
           0,
         ) + getLearnedPassives(player).length * PASSIVE_POINT_COST}
         label='Reset skills'
@@ -2749,6 +2749,24 @@ const SkillsTab = ({ player, inCombat, onChange }) => {
           onChange();
         }}
       />
+      <section aria-label='Mastery techniques'>
+        <h4>Mastery techniques</h4>
+        <p>Learn techniques through your class mastery tree, not shared skill points. Equipped techniques use regular skill slots.</p>
+        {(CLASS_TREES[player.class]?.nodes || []).filter((node) => node.skill).map((node) => {
+          const key = node.skill;
+          const learned = getSkillLevel(player, key) > 0;
+          const isEquipped = equipped.includes(key);
+          return <div className='skill-card' key={key}>
+            <strong>{SKILLS[key]?.name || node.name}</strong>
+            <span>{learned ? "Learned through mastery" : `Requires ${node.name} mastery`}</span>
+            <button type='button' className='buttons'
+              disabled={inCombat || !learned || (!isEquipped && regularEquipped.length >= regularSlots)}
+              onClick={() => act(isEquipped ? unequipSkill : equipSkill, key)}>
+              {isEquipped ? "Unequip" : "Equip"} {node.name}
+            </button>
+          </div>;
+        })}
+      </section>
       {category === "passive" ? <PassiveList player={player} inCombat={inCombat} act={act} /> : (
       <div className='skill-list'>
         {skills.length ? skills.map(([key, s]) => {
@@ -2898,7 +2916,7 @@ const ProgressionScreen = ({ player: initial, inCombat, onChange }) => {
       {tab === "skills" && (
         <SkillsTab player={player} inCombat={inCombat} onChange={refresh} />
       )}
-      {tab === "classes" && <ClassesTab player={player} />}
+      {tab === "classes" && <><ClassesTab player={player} /><ClassMastery player={player} inCombat={inCombat} onChange={refresh} /></>}
       {tab === "subclasses" && (
         <div className='equip-empty' role='status'>
           Subclass progression is coming soon.
@@ -3298,3 +3316,7 @@ export const SCREENS = {
 };
 
 export const DEFAULT_SCREEN = "adventure";
+
+Object.values(SCREENS).forEach((screen) => {
+  screen.component = withClassSwitchPreview(screen.component);
+});

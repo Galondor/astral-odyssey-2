@@ -13,7 +13,7 @@ import {
   PROFESSIONS,
   TIER_EXP_MULT,
 } from "../character/professions";
-import { BLUEPRINTS } from "./craftingBlueprints";
+import { BLUEPRINTS, hasBlueprintRecipe } from "./craftingBlueprints";
 import {
   CRAFTING_MATERIALS,
   findReactions,
@@ -33,7 +33,7 @@ import { createToolItem, getToolBonuses } from "./tools";
 /*
  Material Crafting engine. A selection is { blueprintId, base: materialKey, reagents: [materialKey] }.
  analyzeCraft() is deterministic and powers the preview; craftItem() rolls the result and returns a player patch.
- The player saves `craftingBook: { materials: { key: propertiesKnown }, reactions: [reactionId] }`.
+ The player saves `craftingBook: { materials: { key: propertiesKnown }, reactions: [reactionId], recipes?: [blueprintId] }`.
 */
 export const CRAFT_RARITIES = ["Common", "Uncommon", "Rare", "Epic", "Legendary"];
 const RESULT_RARITY_ORDER = [...CRAFT_RARITIES, "Unique", "Mythic"];
@@ -55,7 +55,9 @@ export const getCraftingBook = (player) => {
   }
   const reactions = [...new Set(Array.isArray(saved.reactions) ? saved.reactions : Object.values(saved.reactions || {}))]
     .filter((id) => REACTIONS[id]);
-  return { materials, reactions };
+  const recipes = [...new Set(Array.isArray(saved.recipes) ? saved.recipes : Object.values(saved.recipes || {}))]
+    .filter((id) => BLUEPRINTS[id]?.requiresExtraction);
+  return { materials, reactions, ...(recipes.length ? { recipes } : {}) };
 };
 
 export const getKnownProperties = (book, key) =>
@@ -90,7 +92,7 @@ export const MATERIAL_UPGRADE_RECIPES = Object.entries(CRAFTING_MATERIALS)
 export const analyzeMaterialUpgrade = (player, input, quantity = 1) => {
   if (!player) return fail("No character loaded.");
   const recipe = MATERIAL_UPGRADE_RECIPES.find((entry) => entry.input === input);
-  if (!recipe) return fail("Unknown material upgrade recipe.");
+  if (!recipe) return fail("Unknown material upgrade blueprint.");
   if (!Number.isSafeInteger(quantity) || quantity < 1)
     return fail("Enter a positive whole number of materials to craft.");
   const astraCost = recipe.astraCost * quantity;
@@ -123,6 +125,8 @@ export const analyzeCraft = (player, selection = {}) => {
   if (!player) return fail("No character loaded.");
   const blueprint = BLUEPRINTS[selection.blueprintId];
   if (!blueprint) return fail("Choose something to craft.");
+  if (!hasBlueprintRecipe(player, blueprint))
+    return fail(`Extract ${blueprint.name} to learn its blueprint first.`);
   const profession = getProfession(player, blueprint.profession);
   const professionName = PROFESSIONS[blueprint.profession].name;
   const { level } = profession;
@@ -139,7 +143,7 @@ export const analyzeCraft = (player, selection = {}) => {
   if (getMaterialCraftLevel(baseKey) > level)
     return fail(`${MATERIALS[baseKey].name} requires ${professionName} level ${getMaterialCraftLevel(baseKey)}.`);
   const reagents = (Array.isArray(selection.reagents) ? selection.reagents : []).filter(Boolean);
-  if (blueprint.kind === "part" && reagents.length) return fail("Tool-part recipes don't use reagents; clear the reagent slots.");
+  if (blueprint.kind === "part" && reagents.length) return fail("Tool-part blueprints don't use reagents; clear the reagent slots.");
   const slots = getReagentSlots(level);
   if (reagents.length > slots) return fail(`You have ${slots} reagent slot${slots === 1 ? "" : "s"}.`);
   for (const key of reagents) {

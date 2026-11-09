@@ -288,6 +288,18 @@ input[type='checkbox']:disabled {
     background-image: var(--holofoil-mythic-still), var(--holofoil-background) !important;
   }
 }
+.inventory-panel .inventory-item[style*="--holofoil-background"] { animation-play-state: paused !important; }
+.inventory-panel .inventory-item[style*="--holofoil-mythic-still"] {
+  background-image: var(--holofoil-mythic-still), var(--holofoil-background) !important;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .inventory-panel .inventory-item[style*="--holofoil-background"]:hover {
+    animation-play-state: running !important;
+  }
+  .inventory-panel .inventory-item[style*="--holofoil-mythic-still"]:hover {
+    background-image: var(--holofoil-mythic-animated), var(--holofoil-background) !important;
+  }
+}
 .gear-trader .inventory-item[aria-disabled='true'] { opacity: 0.5; cursor: not-allowed; }
 .equip-slot:disabled { cursor: default; opacity: 0.7; }
 .equip-slot.filled { border-color: #ffd866; }
@@ -1127,6 +1139,11 @@ input[type='checkbox']:disabled {
 .crafting-picker-option > * { min-width: 0; max-width: 100%; text-align: left; }
 .crafting-picker-option:hover:not(:disabled) { border-color: #7b83ff; }
 .crafting-picker-option:disabled { opacity: 0.5; cursor: not-allowed; }
+.crafting-picker-list.crafting-picker-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
+.crafting-picker-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.crafting-picker-filters label { display: flex; flex-direction: column; gap: 4px; min-width: 0; color: #aaaed0; font-size: 12px; }
+.crafting-picker-filters select { width: 100%; min-width: 0; box-sizing: border-box; }
+.crafting-dialog > .crafting-detail-properties { flex-shrink: 1; min-height: 0; overflow-y: auto; }
 .profession-progress { display: flex; flex-direction: column; gap: 14px; padding: 4px 0; text-align: left; color: #ecebff; }
 .profession-progress h3, .profession-progress h4, .profession-progress p { margin: 0; }
 .profession-progress *, .crafting-profession-info * { text-align: left; }

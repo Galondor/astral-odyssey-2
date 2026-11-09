@@ -2,6 +2,11 @@ import { getPlayer, setPlayer } from "./player";
 import { getEnemy } from "../combat/combat";
 import { getItemGemstones, isSkillGemstone } from "../items/sockets";
 import { STATUSES, addStatus, cleanseDebuffs, healMult } from "../combat/statuses";
+import { classPowerSurcharge, classSupportBarrier } from "../combat/classMechanics";
+import {
+  CLASS_SKILLS, CLASS_TREES, MAX_EQUIPPED, MAX_EQUIPPED_ULTIMATE, ULTIMATE_UNLOCK_LEVEL,
+  getClassNodes, maxRegularSkills, validateClassLoadout,
+} from "./mastery";
 import {
   MAX_EQUIPPED_PASSIVES, PASSIVES, PASSIVE_POINT_COST, PASSIVE_TUNING,
   getEquippedPassives, getLearnedPassives, hasPassive,
@@ -10,6 +15,8 @@ import {
 /*
  Player skills. The player saves `skills` ({ key: level }, 0/missing = not learned) and
  `equippedSkills` (up to MAX_EQUIPPED regular skills and one ultimate).
+ `classMastery` and `classLoadouts` save independent per-class preferences. Signatures are
+ innate to the current class; techniques require its mastery nodes and use regular slots.
  Skill points learn or upgrade regular skills; ultimates cost two points per level.
  Skill fields: name, description, type ("melee" | "magic" | "support"), powerCost, multiplier (damage multiplier at
  level 1), perLevel (added to the multiplier per extra level), maxLevel, and optional effects:
@@ -22,16 +29,12 @@ import {
  Support skills deal no damage. They have `target` ("self" | "ally" | "party") and support(ctx) with
  ctx = { level, caster, target, heal(t, amount), applyStatus(t, id, opts), cleanse(t) }; see applySupportSkill.
 */
-export const MAX_EQUIPPED = 3;
-export const MAX_EQUIPPED_ULTIMATE = 1;
-export const ULTIMATE_UNLOCK_LEVEL = 25;
-// Regular skill slots: 3, or 4 with the Skillful passive equipped.
-export const maxRegularSkills = (player) =>
-  hasPassive(player, "skillful") ? PASSIVE_TUNING.skillful.slots : MAX_EQUIPPED;
+export { MAX_EQUIPPED, MAX_EQUIPPED_ULTIMATE, ULTIMATE_UNLOCK_LEVEL, maxRegularSkills };
 
 const pct = (n) => `${Math.round(n * 100)}%`;
 
 export const SKILLS = {
+  ...CLASS_SKILLS,
   backstab: {
     name: "Backstab",
     description: "A precise strike from the shadows.",
@@ -303,7 +306,7 @@ const TARGET_LABELS = { self: "Yourself", ally: "You or one ally", party: "Your 
  Returns { lines, healed, threat } where threat is the total healing/shielding done (for aggro).
  echo (0-1): a Chronal Loop repeat that only scales the skill's healing and shielding.
 */
-export function applySupportSkill(key, level, caster, targets, { echo = 0, passives = [] } = {}) {
+export function applySupportSkill(key, level, caster, targets, { echo = 0, passives = [], classState = caster } = {}) {
   const skill = SKILLS[key];
   const lines = [];
   const totals = { healed: 0, threat: 0 };
@@ -314,7 +317,7 @@ export function applySupportSkill(key, level, caster, targets, { echo = 0, passi
   const who = (t) => (t === caster ? `${caster.name === "You" ? "you" : caster.name}` : t.name);
   for (const target of targets) {
     if (!target.statuses) target.statuses = [];
-    skill.support({
+    const context = {
       level,
       caster,
       target,
@@ -365,22 +368,28 @@ export function applySupportSkill(key, level, caster, targets, { echo = 0, passi
           ? `${skill.name} cleanses ${removed.map((st) => STATUSES[st.id].name).join(", ")} from ${who(t)}.`
           : `${skill.name} finds nothing to cleanse on ${who(t)}.`);
       },
-    });
+    };
+    skill.support(context);
+    const barrier = classSupportBarrier(classState, key);
+    if (barrier) context.applyStatus(target, "barrier", { turns: 3, power: Math.round(target.stats.maxHealth * barrier) });
   }
   return { lines, affected, ...totals };
 }
 
 // Spellcasters cast spells more cheaply (see CLASSES); Efficiency trims regular skill costs further.
-export const computeSkillCost = (key, cls, passives = []) => {
+export const computeSkillCost = (key, cls, passives = [], classState = null) => {
   const s = SKILLS[key];
   if (!s) return 0;
-  if (s.ultimate) return s.powerCost;
+  if (s.signature) return 0;
+  const surcharge = classPowerSurcharge(classState, s.type, key);
+  if (s.ultimate) return s.powerCost + surcharge;
   const base = cls === "Spellcaster" && s.type === "magic" ? Math.max(1, s.powerCost - 1) : s.powerCost;
-  return hasPassive(passives, "efficiency")
+  const cost = hasPassive(passives, "efficiency") && base > 0
     ? Math.max(1, Math.round(base * (1 - PASSIVE_TUNING.efficiency.discount)))
     : base;
+  return cost + surcharge;
 };
-export const skillCost = (player, key) => computeSkillCost(key, player?.class, getEquippedPassives(player));
+export const skillCost = (player, key, classState = null) => computeSkillCost(key, player?.class, getEquippedPassives(player), classState);
 export const getLearnedSkillLevel = (player, key) => player?.skills?.[key] || 0;
 export const getSkillGemBonus = (player, key) =>
   Object.values(player?.equipment || {}).flatMap(getItemGemstones).filter((gem) =>
@@ -388,6 +397,11 @@ export const getSkillGemBonus = (player, key) =>
     gem.rarity === (SKILLS[key]?.ultimate ? "Unique" : "Legendary"),
   ).length;
 export const getSkillLevel = (player, key) => {
+  const skill = SKILLS[key];
+  if (skill?.className) {
+    if (player?.class !== skill.className) return 0;
+    return skill.signature || getClassNodes(player).includes(skill.masteryNode) ? 1 : 0;
+  }
   const learned = getLearnedSkillLevel(player, key);
   return learned > 0 ? learned + getSkillGemBonus(player, key) : 0;
 };
@@ -399,21 +413,25 @@ export const skillMultiplier = (key, level) => {
   return Math.round((s.multiplier + s.perLevel * (Math.max(1, level) - 1)) * 100) / 100;
 };
 
-export const getEquippedSkills = (player = getPlayer()) =>
-  (player?.equippedSkills || []).filter((k) => SKILLS[k] && getSkillLevel(player, k) > 0);
+export const getEquippedSkills = (player = getPlayer()) => validateClassLoadout(player);
 
-export const skillTooltip = (key, level, extra, player = getPlayer()) => {
+export const skillTooltip = (key, level, extra, player = getPlayer(), classState = null) => {
   const s = SKILLS[key];
   if (!s) return null;
   const shown = Math.max(1, level);
+  const subtitle = s.signature
+    ? `${s.className} signature`
+    : s.masteryNode
+      ? `${s.className} mastery technique${level > 0 ? "" : " · Not available"}`
+      : level > 0 ? `Level ${level}/${s.maxLevel}` : "Not learned";
   if (s.type === "support")
     return {
       title: s.name,
-      subtitle: level > 0 ? `Level ${level}/${s.maxLevel}` : "Not learned",
+      subtitle,
       description: [s.description, ...s.describe(shown), "Outside group combat, support skills always target yourself."],
       stats: [
         { label: "Action cost", value: s.actionCost === "quick" ? "Quick in solo/PvP; Action in group combat" : "Action" },
-        { label: "Power cost", value: skillCost(player, key) },
+        { label: "Power cost", value: skillCost(player, key, classState) },
         { label: "Type", value: "Support" },
         { label: "Target", value: TARGET_LABELS[s.target] },
       ],
@@ -421,14 +439,16 @@ export const skillTooltip = (key, level, extra, player = getPlayer()) => {
     };
   const stats = [
     { label: "Action cost", value: s.actionCost === "quick" ? "Quick in solo/PvP; Action in group combat" : "Action" },
-    { label: "Power cost", value: skillCost(player, key) },
-    { label: "Damage", value: `${Math.round(skillMultiplier(key, level) * 100)}% ${s.type} attack` },
+    { label: "Power cost", value: skillCost(player, key, classState) },
+    { label: "Damage", value: key === "fusionStrike" || s.strongerAttack
+      ? `${Math.round(skillMultiplier(key, level) * 100)}% stronger attack (${s.type} damage)`
+      : `${Math.round(skillMultiplier(key, level) * 100)}% ${s.type} attack` },
   ];
   if (level > 0 && level < s.maxLevel)
     stats.push({ label: "Next level", value: `${Math.round(skillMultiplier(key, level + 1) * 100)}%`, color: "#7bd88f" });
   return {
     title: s.name,
-    subtitle: level > 0 ? `Level ${level}/${s.maxLevel}` : "Not learned",
+    subtitle,
     description: [s.description, ...(s.describe ? s.describe(shown) : [])],
     stats,
     footer: extra,
@@ -440,6 +460,7 @@ export function levelUpSkill(key) {
   const p = getPlayer();
   const s = SKILLS[key];
   if (!p || !s) return { ok: false };
+  if (s.className) return { ok: false, reason: "class-skill" };
   if (getEnemy()) return { ok: false, reason: "combat" };
   const level = getLearnedSkillLevel(p, key);
   if (level >= s.maxLevel) return { ok: false, reason: "max" };
@@ -452,9 +473,10 @@ export function levelUpSkill(key) {
 
 export function equipSkill(key) {
   const p = getPlayer();
+  if (SKILLS[key]?.signature) return { ok: false, reason: "signature" };
   if (!p || !SKILLS[key] || getSkillLevel(p, key) < 1) return { ok: false };
   if (getEnemy()) return { ok: false, reason: "combat" };
-  const equipped = p.equippedSkills || [];
+  const equipped = getEquippedSkills(p);
   if (equipped.includes(key)) return { ok: false };
   const skill = SKILLS[key];
   if (skill.ultimate) {
@@ -465,6 +487,30 @@ export function equipSkill(key) {
     return { ok: false, reason: "full" };
   }
   setPlayer({ equippedSkills: [...equipped, key] });
+  return { ok: true };
+}
+
+// Mastery uses its own per-class budget, never skill points.
+export function learnClassNode(key, cls = getPlayer()?.class) {
+  const p = getPlayer();
+  if (!p || !CLASS_TREES[cls]) return { ok: false };
+  if (getEnemy()) return { ok: false, reason: "combat" };
+  const active = getClassNodes(p, cls);
+  if (active.includes(key)) return { ok: false, reason: "learned" };
+  const saved = Array.isArray(p.classMastery?.[cls]) ? p.classMastery[cls] : [];
+  const classMastery = { ...p.classMastery, [cls]: [...saved, key] };
+  if (!getClassNodes({ ...p, classMastery }, cls).includes(key))
+    return { ok: false, reason: "mastery" };
+  setPlayer({ classMastery });
+  return { ok: true };
+}
+
+export function resetClassMastery(cls = getPlayer()?.class) {
+  const p = getPlayer();
+  if (!p || !CLASS_TREES[cls]) return { ok: false };
+  if (getEnemy()) return { ok: false, reason: "combat" };
+  const classMastery = { ...p.classMastery, [cls]: [] };
+  setPlayer({ classMastery, equippedSkills: getEquippedSkills({ ...p, classMastery }) });
   return { ok: true };
 }
 

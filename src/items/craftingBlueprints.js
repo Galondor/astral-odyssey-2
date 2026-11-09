@@ -2,10 +2,15 @@ import { getItemIntrinsicDescription, getSlotBases, SLOTS } from "./items";
 import { CRAFTED_UNIQUES } from "./craftingUniques";
 import { MATERIALS } from "./materials";
 import { TOOL_NAMES } from "./tools";
+import { DUNGEON_TYPES, UNIQUES } from "../world/dungeonData";
+import { GROUP_DUNGEONS } from "../world/groupDungeonData";
+import { CRAFTING_MATERIALS } from "./craftingMaterials";
+import { MATERIAL_TIER_LEVELS } from "../character/professions";
+import { getItemBaseType } from "./intrinsics";
 
 /*
  Blueprints: what each crafting profession can make and the profession level that unlocks it.
-   kind     - gear (random roll), tool (Hammer/Precision Tools), unique (crafting-only Unique recipe)
+   kind     - gear (random roll), tool (Hammer/Precision Tools), unique (fixed Unique recipe)
    families - base material families accepted; baseQty - base materials consumed
    parts    - tools only: tool part types that must be placed in reagent slots
    requires - uniques only: extra materials consumed by the recipe
@@ -46,6 +51,29 @@ const TOOL_BLUEPRINTS = {
 
 const slotLabel = (slot) => SLOTS.find((entry) => entry.type === slot)?.label.replace(/ \d$/, "") || slot;
 
+const getDroppedUniqueRecipe = (unique) => {
+  const dungeon = Object.values(DUNGEON_TYPES).find((entry) => entry.bosses.some((boss) => boss.unique === unique.id)) ||
+    Object.values(GROUP_DUNGEONS).find((entry) => entry.unique === unique.id);
+  const specialMaterials = {
+    unwrittenPath: { labyrinth_crown_fragment: 1, labyrinth_rune_shard: 3 },
+    astralColossusHeart: { commanders_crest: 1, primal_essence: 3 },
+  };
+  const requires = dungeon ? { [dungeon.materials.boss]: 1, [dungeon.materials.elite]: 3 } :
+    specialMaterials[unique.id];
+  if (!requires) throw new Error(`Unknown blueprint source for Unique ${unique.id}.`);
+  const tier = Math.max(...Object.keys(requires).map((key) => CRAFTING_MATERIALS[key].tier));
+  const profession = ["ring", "necklace"].includes(unique.slot) ? "jewelry" :
+    ["weapon", "offhand"].includes(unique.slot) ? "weaponry" : "armor";
+  const baseType = getItemBaseType({ ...unique, unique: unique.id });
+  const base = getSlotBases(unique.slot).find((entry) => entry.name === baseType);
+  if (!base) throw new Error(`Unknown blueprint base for Unique ${unique.id}.`);
+  const family = profession === "jewelry" ? "precious" : FAMILY_BY_MATERIAL[base.material];
+  return {
+    profession, level: MATERIAL_TIER_LEVELS[tier - 1], family, minTier: tier,
+    baseQty: BASE_QTY[unique.slot] + (unique.twoHanded ? 2 : 0), requires,
+  };
+};
+
 const buildBlueprints = () => {
   const out = {};
   for (const [profession, unlocks] of Object.entries(UNLOCKS)) {
@@ -66,12 +94,13 @@ const buildBlueprints = () => {
       };
     }
   }
-  for (const unique of Object.values(CRAFTED_UNIQUES)) {
-    const { recipe } = unique;
+  for (const unique of [...Object.values(CRAFTED_UNIQUES), ...Object.values(UNIQUES)]) {
+    const recipe = unique.recipe || getDroppedUniqueRecipe(unique);
     out[`unique:${unique.id}`] = {
       id: `unique:${unique.id}`, profession: recipe.profession, kind: "unique", slot: unique.slot, name: unique.name,
       level: recipe.level, stat: unique.stat, twoHanded: !!unique.twoHanded, slotLabel: slotLabel(unique.slot),
       families: [recipe.family], minTier: recipe.minTier, baseQty: recipe.baseQty, requires: recipe.requires, unique,
+      requiresExtraction: !unique.recipe,
     };
   }
   for (const [type, family] of [
@@ -104,4 +133,13 @@ export const getBlueprints = (profession) =>
     .filter((blueprint) => blueprint.profession === profession)
     .sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
 
-export const isBlueprintUnlocked = (blueprint, level) => !!blueprint && level >= blueprint.level;
+export const hasBlueprintRecipe = (player, blueprint) =>
+  !!blueprint && (!blueprint.requiresExtraction ||
+    Object.values(player?.craftingBook?.recipes || {}).includes(blueprint.id));
+
+export const isBlueprintUnlocked = (blueprint, level, player) =>
+  hasBlueprintRecipe(player, blueprint) && level >= blueprint.level;
+
+export const getExtractableBlueprint = (item) =>
+  item?.rarity === "Unique" && !item.twoHandedOf && BLUEPRINTS[`unique:${item.unique}`]?.requiresExtraction
+    ? BLUEPRINTS[`unique:${item.unique}`] : null;

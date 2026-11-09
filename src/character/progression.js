@@ -1,8 +1,10 @@
 import { getPlayer, setPlayer } from "./player";
 import { getEnemy } from "../combat/combat";
 import { getBaseStatPoints, recalculateStats } from "./stats";
-import { skillPointCost } from "./skills";
+import { SKILLS, skillPointCost } from "./skills";
 import { PASSIVE_POINT_COST, getLearnedPassives } from "./passives";
+import { CLASS_TREES } from "./mastery";
+import { commitWithClassPreview } from "./classSwitch";
 
 export const CORE_STAT_KEYS = ["strength", "dexterity", "intelligence"];
 
@@ -16,8 +18,7 @@ export function spendStatPoint(stat, amount = 1) {
   if (statPoints < amount) return { ok: false, reason: "points" };
   const baseStats = { ...getBaseStatPoints(p) };
   baseStats[stat] += amount;
-  setPlayer(recalculateStats(p, { baseStats, statPoints: statPoints - amount }));
-  return { ok: true };
+  return commitWithClassPreview(p, recalculateStats(p, { baseStats, statPoints: statPoints - amount }));
 }
 
 export const getUnspentPoints = (player) => {
@@ -40,8 +41,7 @@ export function respecStatPoints() {
   const cost = getRespecCost(p);
   if ((p.astra || 0) < cost) return { ok: false, reason: "astra", cost };
   const baseStats = Object.fromEntries(CORE_STAT_KEYS.map((k) => [k, Math.min(base[k] || 0, 1)]));
-  setPlayer(recalculateStats(p, { baseStats, statPoints: (p.statPoints || 0) + refund, astra: p.astra - cost }));
-  return { ok: true, refund, cost };
+  return commitWithClassPreview(p, recalculateStats(p, { baseStats, statPoints: (p.statPoints || 0) + refund, astra: p.astra - cost }), { ok: true, refund, cost });
 }
 
 // All learned skills are forgotten and their points refunded.
@@ -49,7 +49,9 @@ export function respecSkills() {
   const p = getPlayer();
   if (!p) return { ok: false };
   if (getEnemy()) return { ok: false, reason: "combat" };
-  const refund = Object.entries(p.skills || {}).reduce(
+  const classSkills = new Set(Object.values(CLASS_TREES).flatMap((tree) => tree.nodes.map((node) => node.skill).filter(Boolean)));
+  const sharedSkills = Object.entries(p.skills || {}).filter(([key]) => !SKILLS[key]?.signature && !classSkills.has(key));
+  const refund = sharedSkills.reduce(
     (sum, [key, level]) => sum + (level || 0) * skillPointCost(key),
     0,
   ) + getLearnedPassives(p).length * PASSIVE_POINT_COST;
@@ -57,7 +59,10 @@ export function respecSkills() {
   const cost = getRespecCost(p);
   if ((p.astra || 0) < cost) return { ok: false, reason: "astra", cost };
   setPlayer({
-    skills: {}, equippedSkills: [], passives: [], equippedPassives: [],
+    skills: Object.fromEntries(Object.entries(p.skills || {}).filter(([key]) => classSkills.has(key))),
+    equippedSkills: (p.equippedSkills || []).filter((key) => classSkills.has(key)),
+    classLoadouts: Object.fromEntries(Object.entries(p.classLoadouts || {}).map(([cls, keys]) => [cls, keys.filter((key) => classSkills.has(key))])),
+    passives: [], equippedPassives: [],
     skillPoints: (p.skillPoints || 0) + refund, astra: p.astra - cost,
   });
   return { ok: true, refund, cost };

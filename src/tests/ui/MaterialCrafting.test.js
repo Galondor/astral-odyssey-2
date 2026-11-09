@@ -44,7 +44,60 @@ const openCrafting = () => {
 const chooseMaterial = (slot, name) => {
   fireEvent.click(screen.getByRole("button", { name: slot }));
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: new RegExp(name) }));
+  if (slot.startsWith("Reagent")) fireEvent.click(screen.getByRole("button", { name: "Select reagent" }));
 };
+
+test("reagent grid filters, sorts, shows details, and selects without revealing unknown properties", () => {
+  player.materials = { slime_gel: 2, primal_essence: 9, frost_diamond: 4, binding_resin: 3 };
+  player.craftingBook = { materials: { slime_gel: 1 }, reactions: [] };
+  openCrafting();
+  fireEvent.click(within(screen.getByRole("region", { name: "Blueprints" })).getByRole("button", { name: /^Sword/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Reagent slot 1" }));
+  let picker = screen.getByRole("dialog", { name: "Choose reagent 1" });
+  const names = () => Array.from(picker.querySelectorAll(".crafting-picker-option strong")).map((entry) => entry.textContent);
+  expect(picker.querySelector(".crafting-picker-grid")).toBeTruthy();
+  fireEvent.change(within(picker).getByLabelText("Sort reagents"), { target: { value: "amount" } });
+  expect(names()).toEqual(["Primal Essence", "Frost Diamond", "Binding Resin", "Slime Gel"]);
+  fireEvent.change(within(picker).getByLabelText("Sort reagents"), { target: { value: "name" } });
+  expect(names()).toEqual(["Binding Resin", "Frost Diamond", "Primal Essence", "Slime Gel"]);
+  fireEvent.change(within(picker).getByLabelText("Filter reagent family"), { target: { value: "gem" } });
+  expect(names()).toEqual(["Frost Diamond"]);
+  fireEvent.click(within(picker).getByRole("button", { name: /Frost Diamond/ }));
+  let details = screen.getByRole("dialog", { name: "Frost Diamond details" });
+  expect(within(details).getByRole("button", { name: "Select reagent" }).disabled).toBe(true);
+  expect(within(details).getByText(/undiscovered/)).toBeTruthy();
+  expect(within(details).queryByText(describeEffect(CRAFTING_MATERIALS.frost_diamond.properties[0]))).toBeNull();
+  fireEvent.keyDown(window, { key: "Escape" });
+  picker = screen.getByRole("dialog", { name: "Choose reagent 1" });
+  expect(within(picker).getByLabelText("Filter reagent family").value).toBe("gem");
+  fireEvent.change(within(picker).getByLabelText("Filter reagent family"), { target: { value: "" } });
+  fireEvent.change(within(picker).getByLabelText("Filter reagent tier"), { target: { value: "1" } });
+  expect(names()).toContain("Slime Gel");
+  expect(names()).not.toContain("Frost Diamond");
+  fireEvent.change(within(picker).getByLabelText("Filter reagent tier"), { target: { value: "" } });
+  fireEvent.change(within(picker).getByLabelText("Filter reagent level"), { target: { value: "usable" } });
+  expect(names()).not.toContain("Frost Diamond");
+  fireEvent.change(within(picker).getByRole("searchbox"), { target: { value: "slime" } });
+  expect(names()).toEqual(["Slime Gel"]);
+  fireEvent.click(within(picker).getByRole("button", { name: /Slime Gel/ }));
+  details = screen.getByRole("dialog", { name: "Slime Gel details" });
+  expect(within(details).getByText(MATERIALS.slime_gel.description)).toBeTruthy();
+  expect(within(details).getByText(describeEffect(CRAFTING_MATERIALS.slime_gel.properties[0]))).toBeTruthy();
+  fireEvent.click(within(details).getByRole("button", { name: "Select reagent" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.getByRole("button", { name: "Reagent slot 1" }).textContent).toContain("Slime Gel (own 2)");
+  expect(setPlayer).not.toHaveBeenCalled();
+});
+
+test("extracted recipes appear as usable blueprints while unknown recipes stay locked", () => {
+  player.professions.jewelry = { level: 50 };
+  player.craftingBook = { recipes: ["unique:maldrathPhylactery"] };
+  openCrafting();
+  fireEvent.click(screen.getByRole("tab", { name: "Jewelry" }));
+  const blueprints = screen.getByRole("region", { name: "Blueprints" });
+  expect(within(blueprints).getByRole("button", { name: /^Maldrath/ }).disabled).toBe(false);
+  expect(within(blueprints).getByRole("button", { name: /^Zug/ }).disabled).toBe(true);
+});
 
 test("Material Transmutation displays level and resource gates, crafts, and returns to profession crafting", () => {
   player.professions.jewelry = { level: 8 };
@@ -176,6 +229,7 @@ test("Material Crafting is available in the Forge and crafts with chosen materia
   fireEvent.click(within(basePicker).getByRole("button", { name: /Metal Scraps/ }));
   fireEvent.click(screen.getByRole("button", { name: "Reagent slot 1" }));
   fireEvent.click(within(screen.getByRole("dialog", { name: "Choose reagent 1" })).getByRole("button", { name: /Slime Gel/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Select reagent" }));
 
   const preview = screen.getByRole("region", { name: "Craft preview" });
   expect(within(preview).getByText("Intrinsic (Sword): +3% Increased attack")).toBeTruthy();
@@ -215,9 +269,9 @@ test("the Crafting Book is searchable and hides undiscovered properties", () => 
   expect(reactions.textContent).toContain("Thermal Shock");
   expect(reactions.textContent).toContain("??? Undiscovered reaction");
 
-  fireEvent.click(within(book).getByRole("tab", { name: "Recipes" }));
+  fireEvent.click(within(book).getByRole("tab", { name: "Blueprints" }));
   fireEvent.change(within(book).getByRole("searchbox", { name: "Search crafting book" }), { target: { value: "signet sovereign" } });
-  const recipes = within(book).getByRole("region", { name: "Recipes entries" });
+  const recipes = within(book).getByRole("region", { name: "Blueprints entries" });
   expect(recipes.textContent).toContain("Sovereign's Signet");
   expect(recipes.textContent).toContain("Unlocks at Jewelry level 50.");
   fireEvent.click(within(book).getByRole("button", { name: "Close Crafting Book" }));
@@ -273,46 +327,49 @@ test("crafting dialogs shrink their scroll area without squeezing material cards
   const path = require("path");
   const style = document.createElement("style");
   style.textContent = fs.readFileSync(path.join(process.cwd(), "src", "App.css"), "utf8");
+  openCrafting();
+  const bookButton = screen.getByRole("button", { name: "Crafting Book" });
+  const swordButton = within(screen.getByRole("region", { name: "Blueprints" })).getByRole("button", { name: /^Sword/ });
   document.head.append(style);
   try {
-    openCrafting();
-    fireEvent.click(screen.getByRole("button", { name: "Crafting Book" }));
-    const book = screen.getByRole("dialog", { name: "Crafting Book" });
-    const tabs = within(book).getByRole("tablist", { name: "Crafting book sections" });
+    fireEvent.click(bookButton);
+    const book = document.querySelector('[aria-label="Crafting Book"][role="dialog"]');
+    const tabs = book.querySelector('[aria-label="Crafting book sections"]');
     expect(getComputedStyle(tabs).flexShrink).toBe("0");
-    expect(getComputedStyle(within(book).getByRole("searchbox")).flexShrink).toBe("0");
-    const entries = within(book).getByRole("region", { name: "Materials entries" });
+    expect(getComputedStyle(book.querySelector('input[type="search"]')).flexShrink).toBe("0");
+    const entries = book.querySelector('[aria-label="Materials entries"]');
     expect(getComputedStyle(entries).flexShrink).toBe("1");
     expect(getComputedStyle(entries).minHeight).toBe("0");
     expect(getComputedStyle(entries).overflowY).toBe("auto");
     const bookEntry = entries.querySelector(".crafting-book-entry");
     expect(getComputedStyle(bookEntry).flexShrink).toBe("0");
     expect(getComputedStyle(bookEntry).overflowWrap).toBe("anywhere");
-    fireEvent.click(within(book).getByRole("button", { name: "Close Crafting Book" }));
+    fireEvent.click(book.querySelector('[aria-label="Close Crafting Book"]'));
 
-    const blueprintGrid = screen.getByRole("region", { name: "Available blueprints" });
+    const blueprintGrid = document.querySelector('[aria-label="Available blueprints"]');
     expect(blueprintGrid.tabIndex).toBe(0);
     expect(getComputedStyle(blueprintGrid).display).toBe("grid");
     expect(getComputedStyle(blueprintGrid).overflowY).toBe("auto");
-    expect(getComputedStyle(screen.getByRole("region", { name: "Crafting bench" })).display).toBe("grid");
-    fireEvent.click(within(screen.getByRole("region", { name: "Blueprints" })).getByRole("button", { name: /^Sword/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Base material slot" }));
-    const picker = screen.getByRole("dialog", { name: "Choose base material" });
-    expect(getComputedStyle(within(picker).getByRole("searchbox")).flexShrink).toBe("0");
+    expect(getComputedStyle(document.querySelector('[aria-label="Crafting bench"]')).display).toBe("grid");
+    fireEvent.click(swordButton);
+    fireEvent.click(document.querySelector('[aria-label="Base material slot"]'));
+    const picker = document.querySelector('[aria-label="Choose base material"][role="dialog"]');
+    expect(getComputedStyle(picker.querySelector('input[type="search"]')).flexShrink).toBe("0");
     expect(getComputedStyle(picker.querySelector(".item-popup-actions")).flexShrink).toBe("0");
     const options = picker.querySelector(".crafting-picker-list");
     expect(getComputedStyle(options).flexShrink).toBe("1");
     expect(getComputedStyle(options).minHeight).toBe("0");
     expect(getComputedStyle(picker).boxSizing).toBe("border-box");
-    fireEvent.click(within(picker).getByRole("button", { name: /Metal Scraps/ }));
-    const preview = screen.getByRole("region", { name: "Craft preview" });
+    fireEvent.click(within(picker).getByText("Metal Scraps").closest("button"));
+    const preview = document.querySelector('[aria-label="Craft preview"]');
     expect(getComputedStyle(preview).overflowWrap).toBe("anywhere");
     expect(getComputedStyle(preview.querySelector(".crafting-effect-card > strong")).textAlign).toBe("left");
     expect(getComputedStyle(preview.querySelector(".crafting-effect-list > li")).textAlign).toBe("left");
     expect(getComputedStyle(preview.querySelector(".crafting-stats dd")).textAlign).toBe("right");
     expect(getComputedStyle(preview.querySelector(".crafting-odds-row > :last-child")).textAlign).toBe("right");
-    fireEvent.click(screen.getByRole("button", { name: "Reagent slot 1" }));
-    const reagents = screen.getByRole("dialog", { name: "Choose reagent 1" });
+    fireEvent.click(document.querySelector('[aria-label="Reagent slot 1"]'));
+    const reagents = document.querySelector('[aria-label="Choose reagent 1"][role="dialog"]');
+    expect(getComputedStyle(reagents.querySelector(".crafting-picker-list")).display).toBe("grid");
     const reagentOptions = reagents.querySelectorAll(".crafting-picker-option");
     expect(reagentOptions.length).toBeGreaterThan(1);
     reagentOptions.forEach((card) => {

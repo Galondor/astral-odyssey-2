@@ -12,8 +12,8 @@ import {
 import {
   SKILLS,
   applySupportSkill,
+  computeSkillCost,
   getSkillLevel,
-  skillCost,
   skillMultiplier,
 } from "../character/skills";
 import { gainExp, MAX_PLAYER_CHANCE, MAX_CRITICAL_RESISTANCE } from "../character/stats";
@@ -47,6 +47,12 @@ import { freshActions, getActionAvailability } from "./actionEconomy";
 import { TUTORIAL_STEPS, tutorialActionError } from "./tutorial";
 import { PASSIVE_TUNING as PT, getEquippedPassives } from "../character/passives";
 import { GROUP_REWARD_BONUS } from "./encounters";
+import { CLASS_TREES, getClassStateLabel } from "../character/mastery";
+import {
+  classActionError, classCombatState, beginClassDefense, recordClassBlock,
+  prepareClassAttack, finishClassAttack, spendClassResource,
+  recordClassParry,
+} from "./classMechanics";
 
 const BASE_DROP_CHANCE = 0.25;
 
@@ -56,8 +62,6 @@ const BULWARK_COUNTER = 0.5;
 const RHYTHM_CRIT = 0.04;
 const RHYTHM_MAX = 0.2;
 const PARRY_CHANCE = 0.15;
-const PARRY_COUNTER = 0.6;
-const SPELLSTRIKE_BONUS = 0.5;
 const HEX_CHANCE = 0.2;
 const ADAPTABLE_PER_KIND = 0.05;
 const ADAPTABLE_MAX = 0.2;
@@ -128,6 +132,11 @@ export const getCombatConsumables = () => fight?.tutorial
   ? { healthPotion: fight.tutorial.step <= 1 ? 1 : 0 }
   : getPlayer()?.consumables || {};
 export const getCombatRound = () => fight?.round ?? null;
+export const getCombatClassState = () => fight ? { ...fight } : null;
+export const getCombatSignature = () => {
+  restoreSavedCombat();
+  return CLASS_TREES[fight?.cls]?.signature?.key || null;
+};
 export const isPlayerDefending = () => playerDefending;
 export const getPlayerStatuses = () => playerStatuses;
 export const getMarrowWard = () =>
@@ -210,9 +219,14 @@ export const startCombat = (templates, { enemyFirst = false } = {}) => {
   const p = getPlayer();
   const ab = getAbilityTotals(p);
   const passives = getEquippedPassives(p);
+  const equipped = (p.equippedSkills || []).filter((key) => SKILLS[key] && getSkillLevel(p, key) > 0 && !SKILLS[key].signature);
   fight = {
     ab,
-    cls: p.class,
+    ...classCombatState(p),
+    equipped,
+    skillLevels: Object.fromEntries([
+      ...equipped, CLASS_TREES[p.class]?.signature?.key,
+    ].filter(Boolean).map((key) => [key, getSkillLevel(p, key)])),
     round: 1,
     actions: { ...freshActions(), ...(passives.includes("quickReflexes") ? { quickSkill: true } : {}) },
     usedUltimates: {},
@@ -225,7 +239,6 @@ export const startCombat = (templates, { enemyFirst = false } = {}) => {
     secondWindUsed: false,
     combo: 0,
     kinds: new Set(),
-    spellstrike: false,
     playerStunGrace: false,
     playerActsFirst: !enemyFirst && enemy.speed <= Math.round(
       (p.stats?.speed || 0) * (1 + (ab.speedMult || 0)),
@@ -530,17 +543,20 @@ function enemyStrike(s, replies, ability) {
     );
     return 0;
   }
-  if (fight.cls === "Duelist" && Math.random() < PARRY_CHANCE) {
+  if (fight.cls === "Duelist" && (fight.riposteReady || Math.random() < PARRY_CHANCE)) {
+    const parry = recordClassParry(fight, !!fight.riposteReady);
     replies.push(`You parry the ${enemy.name}'s attack and riposte!`);
     const counterRoll = roll(s.attackMin, s.attackMax);
-    const raw = counterRoll * PARRY_COUNTER - enemy.defense;
+    const raw = counterRoll * parry.counter - enemy.defense;
     const riposte = Math.max(1, Math.round(raw));
     hurtEnemy(riposte, replies, "Your riposte", [
       `Melee attack roll: ${counterRoll} (range ${s.attackMin}-${s.attackMax}).`,
-      `Riposte multiplier: ${counterRoll} × ${PARRY_COUNTER} = ${counterRoll * PARRY_COUNTER}.`,
-      `Enemy defense: ${counterRoll * PARRY_COUNTER} - ${enemy.defense} = ${raw}.`,
+      `Riposte multiplier: ${counterRoll} × ${parry.counter} = ${counterRoll * parry.counter}.`,
+      `Enemy defense: ${counterRoll * parry.counter} - ${enemy.defense} = ${raw}.`,
       `Round to nearest whole number, minimum 1: ${riposte}.`,
     ]);
+    if (parry.heal) healPlayer(s, Math.round(s.maxHealth * parry.heal), replies, "Second Wind");
+    replies.push(getClassStateLabel(fight));
     return 0;
   }
   const baseRoll = roll(...enemy.attack);
@@ -572,6 +588,7 @@ function enemyStrike(s, replies, ability) {
   );
   const blocked = playerDefending;
   if (blocked) {
+    recordClassBlock(fight, fight.round);
     const blockMultiplier =
       fight.cls === "Swordsman" ? BULWARK_DAMAGE_TAKEN : 0.5;
     const beforeBlock = dmg;
@@ -1017,6 +1034,7 @@ function finishRound(p, s, replies, patch) {
   selectLivingTarget();
   outcome = outcome || (encounterWon() ? "victory" : endOfRound(s, replies));
   playerDefending = false;
+  fight.riposteReady = false;
   if (!outcome) {
     fight.round += 1;
     fight.actions = newActions();
@@ -1034,6 +1052,10 @@ function finishRound(p, s, replies, patch) {
 
 function actionError(type, key) {
   if (!enemy || !fight) return "There is nothing to fight.";
+  if (type === "skill") {
+    const error = classActionError(fight, key);
+    if (error) return error;
+  }
   if (fight.meteorCharge && !(type === "skill" && key === "meteor"))
     return "Meteor is ready to strike and must be released now.";
   if (
@@ -1065,7 +1087,7 @@ function completeAction(type, key, p, s, replies, patch = {}, forceEndTurn = fal
   const { slot } = getActionAvailability(fight.actions, type, key);
   fight.actions[slot] = false;
   if (type === "skill") fight.actions.usedSkills.push(key);
-  if (type === "skill" && fight.quickReflexesReady && !SKILLS[key]?.ultimate) {
+  if (type === "skill" && fight.quickReflexesReady && !SKILLS[key]?.ultimate && !SKILLS[key]?.signature) {
     fight.quickReflexesReady = false;
     fight.actions.quickSkill = false;
   }
@@ -1109,16 +1131,19 @@ export function attackRound(type, skillKey) {
   const s = { ...p.stats };
   const replies = [];
   const skill = skillKey ? SKILLS[skillKey] : null;
-  const level = skill ? (releasingMeteor ? fight.meteorCharge.level : getSkillLevel(p, skillKey)) : 0;
+  const level = skill ? (releasingMeteor ? fight.meteorCharge.level :
+    skill.signature ? (skill.className === fight.cls ? 1 : 0) :
+    fight.skillLevels ? fight.skillLevels[skillKey] || 0 : getSkillLevel(p, skillKey)) : 0;
   let cost = 0;
   if (skill) {
-    if (level < 1 || !(p.equippedSkills || []).includes(skillKey))
+    if (level < 1 || (!skill.signature && !(fight.equipped || p.equippedSkills || []).includes(skillKey)) ||
+        (skill.className && skill.className !== fight.cls))
       return {
         replies: ["You haven't learned that skill."],
         over: false,
         used: false,
       };
-    cost = releasingMeteor ? 0 : skillCost(p, skillKey);
+    cost = releasingMeteor ? 0 : computeSkillCost(skillKey, fight.cls, fight.passives, fight);
     if (s.power < cost)
       return {
         replies: [`You need ${cost} power to use ${skill.name}.`],
@@ -1146,6 +1171,14 @@ export function attackRound(type, skillKey) {
     return { ...completeAction(type, null, p, s, replies), used: true };
   }
   const overcharged = !!skill && passiveOn("overcharge") && s.power > s.maxPower;
+  const classEffect = prepareClassAttack(fight, type, skillKey, enemy);
+  spendClassResource(fight, skillKey, type);
+  if (classEffect.barrier) {
+    addStatus(playerStatuses, "barrier", { power: Math.round(s.maxHealth * 0.15) });
+    replies.push("Your class technique shields you for 15% of your maximum health.");
+  }
+  if (classEffect.heal) healPlayer(s, Math.round(s.maxHealth * classEffect.heal), replies, "Improvise");
+  if (classEffect.power) gainPower(s, classEffect.power);
   s.power -= cost;
   if (skill?.ultimate && !releasingMeteor) {
     fight.usedUltimates = fight.usedUltimates || {};
@@ -1162,10 +1195,10 @@ export function attackRound(type, skillKey) {
   if (skill?.type === "support") {
     const self = { name: "You", stats: s, statuses: playerStatuses };
     replies.push(`You use ${skill.name}.`);
-    const support = applySupportSkill(skillKey, level, self, [self], { passives: fight.passives });
+    const support = applySupportSkill(skillKey, level, self, [self], { passives: fight.passives, classState: fight });
     replies.push(...support.lines);
     if (echo) {
-      const echoed = applySupportSkill(skillKey, level, self, [self], { echo: TEMPORAL_ECHO.power, passives: fight.passives }).lines;
+      const echoed = applySupportSkill(skillKey, level, self, [self], { echo: TEMPORAL_ECHO.power, passives: fight.passives, classState: fight }).lines;
       replies.push(echoed.length ? `Chronal Loop: ${skill.name} echoes through time!` : "Chronal Loop: the echo finds nothing to repeat.", ...echoed);
     }
     if (passiveOn("inspiration") && support.affected.length && !fight.inspired) {
@@ -1174,23 +1207,29 @@ export function attackRound(type, skillKey) {
     }
     playerStatuses = self.statuses;
     fight.combo += 1;
-    if (fight.cls === "Spellblade") {
-      fight.spellstrike = true;
-      replies.push("Your weapon crackles with energy!");
-    }
+    const gain = finishClassAttack(fight, type, skillKey);
+    if (gain.power) gainPower(s, gain.power);
+    replies.push(getClassStateLabel(fight));
     return { ...completeAction(actionType, skillKey, p, s, replies, {}, !!skill?.ultimate), used: true };
   }
 
-  const { ab, cls } = fight;
+  const { ab } = fight;
   const target = enemy;
   const targets = skill?.area && !contestContext
     ? [target, ...enemies.filter((foe) => foe !== target && foe.hp > 0)]
     : [target];
   const inspired = fight.inspired;
   const hatred = fight.hatred;
+  let landed = false;
+  let opening = classEffect.opening;
   for (const foe of targets) {
     enemy = foe;
-    strikeTarget({ s, replies, skill, skillKey, level, type, overcharged, echo, inspired, hatred });
+    const targetEffect = prepareClassAttack(fight, type, skillKey, foe);
+    const dealt = strikeTarget({ s, replies, skill, skillKey, level, type, overcharged, echo, inspired, hatred, classEffect });
+    if (dealt > 0) {
+      landed = true;
+      opening = opening || targetEffect.opening;
+    }
     if (s.health <= 0) break;
   }
   enemy = target;
@@ -1204,10 +1243,10 @@ export function attackRound(type, skillKey) {
     }
   }
   fight.combo += 1;
-  if (cls === "Spellblade" && skill) {
-    fight.spellstrike = true;
-    replies.push("Your weapon crackles with energy!");
-  }
+  const classGain = landed || fight.cls === "Spellblade"
+    ? finishClassAttack(fight, type, skillKey, target, { ...classEffect, opening }) : { power: 0 };
+  if (classGain.power) gainPower(s, classGain.power);
+  replies.push(getClassStateLabel(fight));
   if (!skill && passiveOn("battleTrance")) {
     const before = s.power;
     gainPower(s, PT.battleTrance.power);
@@ -1219,12 +1258,14 @@ export function attackRound(type, skillKey) {
   return { ...completeAction(actionType, skillKey, p, s, replies), used: true };
 }
 
-function strikeTarget({ s, replies, skill, skillKey, level, type, overcharged, echo, inspired, hatred }) {
+function strikeTarget({ s, replies, skill, skillKey, level, type, overcharged, echo, inspired, hatred, classEffect }) {
   const { ab, cls } = fight;
   const speedAdvantage =
     Math.round(s.speed * (1 + (ab.speedMult || 0))) - enemy.speed;
+  const attackType = skillKey === "fusionStrike" || skill?.strongerAttack
+    ? ((s.magicAttackMin + s.magicAttackMax) > (s.attackMin + s.attackMax) ? "magic" : "melee") : type;
   let hit =
-    type === "melee"
+    attackType === "melee"
       ? roll(s.attackMin, s.attackMax)
       : roll(s.magicAttackMin, s.magicAttackMax);
   if (skill) hit = Math.round(hit * skillMultiplier(skillKey, level));
@@ -1256,7 +1297,7 @@ function strikeTarget({ s, replies, skill, skillKey, level, type, overcharged, e
   const calculation = [];
   const baseHit = hit;
   calculation.push(
-    `${type === "melee" ? "Melee" : "Magic"} attack roll: ${baseHit} (range ${type === "melee" ? `${s.attackMin}-${s.attackMax}` : `${s.magicAttackMin}-${s.magicAttackMax}`}).`,
+    `${attackType === "melee" ? "Melee" : "Magic"} attack roll: ${baseHit} (range ${attackType === "melee" ? `${s.attackMin}-${s.attackMax}` : `${s.magicAttackMin}-${s.magicAttackMax}`}).`,
   );
   if (skill)
     calculation.push(
@@ -1293,7 +1334,9 @@ function strikeTarget({ s, replies, skill, skillKey, level, type, overcharged, e
 
   const abilityBonus = ab.damageBonus || 0;
   const skillBonus = skill?.bonus?.(ctx) || 0;
-  let bonus = 1 + abilityBonus + skillBonus;
+  let bonus = 1 + abilityBonus + skillBonus + classEffect.damageBonus;
+  if (classEffect.damageBonus)
+    calculation.push(`Class technique bonus: +${Math.round(classEffect.damageBonus * 100)}%.`);
   if (cls === "Specialist") {
     fight.kinds.add(skill ? skillKey : type);
     const adaptableBonus = Math.min(
@@ -1302,12 +1345,6 @@ function strikeTarget({ s, replies, skill, skillKey, level, type, overcharged, e
     );
     bonus += adaptableBonus;
     calculation.push(`Specialist bonus: +${adaptableBonus * 100}%.`);
-  }
-  if (cls === "Spellblade" && !skill && fight.spellstrike) {
-    bonus += SPELLSTRIKE_BONUS;
-    fight.spellstrike = false;
-    replies.push("Your spellstrike discharges!");
-    calculation.push(`Spellstrike bonus: +${SPELLSTRIKE_BONUS * 100}%.`);
   }
   if (abilityBonus)
     calculation.push(`Ability damage bonus: +${abilityBonus * 100}%.`);
@@ -1460,6 +1497,12 @@ function strikeTarget({ s, replies, skill, skillKey, level, type, overcharged, e
     }
   }
   if (dealt > 0) skill?.onHit?.(ctx);
+  if (dealt > 0 && enemy.hp > 0 && classEffect.burn)
+    inflictOnEnemy("burn", { turns: 2, power: 0.03 }, replies);
+  if (dealt > 0 && enemy.hp > 0 && classEffect.sunder)
+    inflictOnEnemy("vulnerable", { turns: 3, power: classEffect.sunder }, replies);
+  if (dealt > 0 && enemy.hp > 0 && classEffect.weaken)
+    inflictOnEnemy("weaken", { turns: 2, power: 0.2 }, replies);
   if (dealt > 0 && enemy.hp > 0) {
     if (ab.ignite && Math.random() < ab.ignite)
       inflictOnEnemy("burn", { turns: 3, power: 0.04 }, replies);
@@ -1500,6 +1543,7 @@ function strikeTarget({ s, replies, skill, skillKey, level, type, overcharged, e
         replies,
       );
   }
+  return dealt;
 }
 
 // Skipping your turn: a stun is used up, otherwise you simply wait while the enemy acts.
@@ -1527,7 +1571,10 @@ export function defendRound() {
   if (loseTurnToStun(replies))
     return { ...finishRound(p, s, replies, {}), used: true };
   playerDefending = true;
+  const gain = beginClassDefense(fight);
+  if (gain.power) gainPower(s, gain.power);
   replies.push("You brace yourself and defend.");
+  replies.push(getClassStateLabel(fight));
   return { ...completeAction("defend", null, p, s, replies), used: true };
 }
 
@@ -1597,8 +1644,14 @@ function defendContestStrike(amount, s, replies) {
     replies.push(`${enemy.name} evades the attack!`);
     return 0;
   }
-  if (state.cls === "Duelist" && Math.random() < PARRY_CHANCE) {
-    damagePlayer(s, Math.max(1, Math.round(roll(stats.attackMin, stats.attackMax) * PARRY_COUNTER - s.defense)), replies);
+  if (state.cls === "Duelist" && (state.riposteReady || Math.random() < PARRY_CHANCE)) {
+    const parry = recordClassParry(state, !!state.riposteReady);
+    damagePlayer(s, Math.max(1, Math.round(roll(stats.attackMin, stats.attackMax) * parry.counter - s.defense)), replies);
+    if (parry.heal) {
+      const healed = Math.min(Math.round(stats.maxHealth * parry.heal * healMult(enemy.statuses)), enemy.maxHp - enemy.hp);
+      enemy.hp += healed;
+      replies.push(`${enemy.name}'s Second Wind restores ${healed} health.`);
+    }
     replies.push(`${enemy.name} parries and ripostes!`);
     return 0;
   }
@@ -1632,6 +1685,7 @@ function defendContestStrike(amount, s, replies) {
     damagePlayer(s, Math.max(1, Math.round(amount * state.ab.reflect)), replies);
   if (enemy.defending && state.cls === "Swordsman")
     damagePlayer(s, Math.max(1, Math.round(roll(stats.attackMin, stats.attackMax) * BULWARK_COUNTER - s.defense)), replies);
+  if (enemy.defending) recordClassBlock(state, state.round);
   if (state.ab.uniqueEffects.includes("frozenResolve") && Math.random() < 0.1)
     inflictOnPlayer("stun", {}, replies);
   if (amount > 0 && passiveOn("revenge", state)) state.hatred = (state.hatred || 0) + amount;
@@ -1645,6 +1699,7 @@ export const playContestAction = (actor, target, action) => {
   const context = { player: attacker.player, defender, reactions: [] };
   return withContestContext(context, () => {
     fight = restoreFight({ ...attacker.combat, ab: getAbilityTotals(attacker.player) });
+    if (attacker.turnEnded !== false) fight.riposteReady = false;
     playerStatuses = attacker.statuses || [];
     playerDefending = attacker.turnEnded === false && !!attacker.defending;
     enemy = {
@@ -1660,7 +1715,9 @@ export const playContestAction = (actor, target, action) => {
     };
     let result;
     if (action.type === "melee" || action.type === "magic") result = attackRound(action.type);
-    else if (action.type === "skill" && (attacker.player.equippedSkills || []).includes(action.key))
+    else if (action.type === "skill" && (
+      (fight.equipped || attacker.player.equippedSkills || []).includes(action.key) ||
+      action.key === CLASS_TREES[fight.cls]?.signature?.key))
       result = attackRound("melee", action.key);
     else if (action.type === "defend") result = defendRound();
     else if (action.type === "pass") result = passRound();
@@ -1674,6 +1731,7 @@ export const playContestAction = (actor, target, action) => {
     defender.player.stats.health = enemy.hp;
     defender.statuses = enemy.statuses;
     defender.combat.playerStunGrace = enemy.stunGrace;
+    if (result.turnEnded) defender.combat.riposteReady = false;
     return { attacker, defender, replies: [...result.replies, ...context.reactions], turnEnded: result.turnEnded, used: result.used };
   });
 };
