@@ -301,6 +301,11 @@ test.each([false, true])("all available custom tiers match displayed values (two
           expect(itemTooltip(item).stats[0].tier).toBe(`T${tier}`);
           const scale = twoHanded ? 1.5 : 1;
           for (const [stat, value] of Object.entries(item.subStats)) {
+            if (stat === "maxPower") {
+              expect(value).toBe(Math.max(1, tier) * (twoHanded ? 2 : 1));
+              expect(item.subTiers[stat]).toBe(tier);
+              continue;
+            }
             const precision = stat === "criticalDamage" ? 100
               : ["attackPercent", "magicAttackPercent"].includes(stat) ? 1000 : 1;
             const scaled = (v) => precision > 1

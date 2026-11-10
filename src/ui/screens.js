@@ -401,7 +401,6 @@ const CombatScreen = ({ messages, data, player }) => {
         <p>Practice supplies only. Your original health, Power, and inventory are preserved.</p>
       </section>}
       <ActionSlots actions={actions} />
-      <ClassResource state={classState} />
       {round != null && <div className='combat-round'>Round {round}</div>}
       <div className='combat-arena'>
         <section className='combatant combat-enemy-column' aria-label='Encounter enemies' tabIndex={0}>
@@ -506,6 +505,7 @@ const CombatScreen = ({ messages, data, player }) => {
                 max={stats.maxPower}
                 color='#1f5fbf'
               />
+              <ClassResource state={classState} />
               {chips(playerStatuses)}
             </>
           )}
@@ -2700,6 +2700,7 @@ const SkillsTab = ({ player, inCombat, onChange }) => {
   const ultimateEquipped = equipped.filter((key) => SKILLS[key].ultimate);
   const regularSlots = maxRegularSkills(player);
   const [category, setCategory] = useState("offensive");
+  const [skillView, setSkillView] = useState("skills");
   const act = (fn, key) => {
     fn(key);
     onChange();
@@ -2712,17 +2713,20 @@ const SkillsTab = ({ player, inCombat, onChange }) => {
   });
   return (
     <>
-      <div className='inventory-tabs' role='tablist' aria-label='Skill categories'>
-        {SKILL_CATEGORIES.map((item) => (
+      <div className='inventory-tabs' role='tablist' aria-label='Skill views'>
+        {[
+          ["skills", "Skills"],
+          ["mastery", "Mastery techniques"],
+        ].map(([key, label]) => (
           <button
-            key={item.key}
+            key={key}
             type='button'
             role='tab'
-            aria-selected={category === item.key}
-            className={`inventory-tab ${category === item.key ? "active" : ""}`}
-            onClick={() => setCategory(item.key)}
+            aria-selected={skillView === key}
+            className={`inventory-tab ${skillView === key ? "active" : ""}`}
+            onClick={() => setSkillView(key)}
           >
-            {item.label}
+            {label}
           </button>
         ))}
       </div>
@@ -2749,88 +2753,106 @@ const SkillsTab = ({ player, inCombat, onChange }) => {
           onChange();
         }}
       />
-      <section aria-label='Mastery techniques'>
-        <h4>Mastery techniques</h4>
-        <p>Learn techniques through your class mastery tree, not shared skill points. Equipped techniques use regular skill slots.</p>
-        {(CLASS_TREES[player.class]?.nodes || []).filter((node) => node.skill).map((node) => {
-          const key = node.skill;
-          const learned = getSkillLevel(player, key) > 0;
-          const isEquipped = equipped.includes(key);
-          return <div className='skill-card' key={key}>
-            <strong>{SKILLS[key]?.name || node.name}</strong>
-            <span>{learned ? "Learned through mastery" : `Requires ${node.name} mastery`}</span>
-            <button type='button' className='buttons'
-              disabled={inCombat || !learned || (!isEquipped && regularEquipped.length >= regularSlots)}
-              onClick={() => act(isEquipped ? unequipSkill : equipSkill, key)}>
-              {isEquipped ? "Unequip" : "Equip"} {node.name}
-            </button>
-          </div>;
-        })}
-      </section>
-      {category === "passive" ? <PassiveList player={player} inCombat={inCombat} act={act} /> : (
-      <div className='skill-list'>
-        {skills.length ? skills.map(([key, s]) => {
-          const level = getSkillLevel(player, key);
-          const learnedLevel = getLearnedSkillLevel(player, key);
-          const isEquipped = equipped.includes(key);
-          const ultimate = !!s.ultimate;
-          const pointCost = skillPointCost(key);
-          const canEquip = ultimate
-            ? !ultimateEquipped.length
-            : regularEquipped.length < regularSlots;
-          const levelLocked = ultimate && (player.level || 1) < ULTIMATE_UNLOCK_LEVEL;
-          return (
-            <Tooltip key={key} content={skillTooltip(key, level)}>
-              <div className={`skill-card ${isEquipped ? "equipped" : ""}`}>
-                <strong>{s.name}</strong>
-                <span className='skill-level'>
-                  {level > 0 ? `Level ${level}/${s.maxLevel}` : "Not learned"}
-                </span>
-                <div className='skill-actions'>
-                  <button
-                    type='button'
-                    className='buttons class-toggle'
-                    disabled={
-                      inCombat || levelLocked || skillPoints < pointCost || learnedLevel >= s.maxLevel
-                    }
-                    onClick={() => act(levelUpSkill, key)}
-                  >
-                    {level > 0 ? `Level up (${pointCost} points)` : `Learn (${pointCost} points)`}
-                  </button>
-                  {isEquipped ? (
-                    <button
-                      type='button'
-                      className='buttons class-toggle'
-                      disabled={inCombat}
-                      onClick={() => act(unequipSkill, key)}
-                    >
-                      Unequip
-                    </button>
-                  ) : (
-                    <button
-                      type='button'
-                      className='buttons class-toggle'
-                      disabled={
-                        inCombat || level < 1 || levelLocked || !canEquip
-                      }
-                      onClick={() => act(equipSkill, key)}
-                    >
-                      Equip
-                    </button>
-                  )}
-                  {ultimate && levelLocked && (
-                    <span className='skill-level'>Unlocks at level {ULTIMATE_UNLOCK_LEVEL}</span>
-                  )}
-                </div>
-              </div>
-            </Tooltip>
-          );
-        }) : (
-          <div className='equip-empty' role='status'>
-            No {category} skills are available yet.
+      {skillView === "mastery" ? (
+        <section className='mastery-technique-list' aria-label='Mastery techniques'>
+          <h4>Mastery techniques</h4>
+          {(CLASS_TREES[player.class]?.nodes || []).filter((node) => node.skill).map((node) => {
+            const key = node.skill;
+            const learned = getSkillLevel(player, key) > 0;
+            const isEquipped = equipped.includes(key);
+            return <div className='skill-card' key={key}>
+              <strong>{SKILLS[key]?.name || node.name}</strong>
+              <span>{learned ? "Learned through mastery" : `Requires ${node.name} mastery`}</span>
+              <button type='button' className='buttons'
+                disabled={inCombat || !learned || (!isEquipped && regularEquipped.length >= regularSlots)}
+                onClick={() => act(isEquipped ? unequipSkill : equipSkill, key)}>
+                {isEquipped ? "Unequip" : "Equip"} {node.name}
+              </button>
+            </div>;
+          })}
+        </section>
+      ) : (
+        <>
+          <div className='inventory-tabs' role='tablist' aria-label='Skill categories'>
+            {SKILL_CATEGORIES.map((item) => (
+              <button
+                key={item.key}
+                type='button'
+                role='tab'
+                aria-selected={category === item.key}
+                className={`inventory-tab ${category === item.key ? "active" : ""}`}
+                onClick={() => setCategory(item.key)}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
-        )}
-      </div>
+          {category === "passive" ? <PassiveList player={player} inCombat={inCombat} act={act} /> : (
+            <div className='skill-list'>
+              {skills.length ? skills.map(([key, s]) => {
+                const level = getSkillLevel(player, key);
+                const learnedLevel = getLearnedSkillLevel(player, key);
+                const isEquipped = equipped.includes(key);
+                const ultimate = !!s.ultimate;
+                const pointCost = skillPointCost(key);
+                const canEquip = ultimate
+                  ? !ultimateEquipped.length
+                  : regularEquipped.length < regularSlots;
+                const levelLocked = ultimate && (player.level || 1) < ULTIMATE_UNLOCK_LEVEL;
+                return (
+                  <Tooltip key={key} content={skillTooltip(key, level)}>
+                    <div className={`skill-card ${isEquipped ? "equipped" : ""}`}>
+                      <strong>{s.name}</strong>
+                      <span className='skill-level'>
+                        {level > 0 ? `Level ${level}/${s.maxLevel}` : "Not learned"}
+                      </span>
+                      <div className='skill-actions'>
+                        <button
+                          type='button'
+                          className='buttons class-toggle'
+                          disabled={
+                            inCombat || levelLocked || skillPoints < pointCost || learnedLevel >= s.maxLevel
+                          }
+                          onClick={() => act(levelUpSkill, key)}
+                        >
+                          {level > 0 ? `Level up (${pointCost} points)` : `Learn (${pointCost} points)`}
+                        </button>
+                        {isEquipped ? (
+                          <button
+                            type='button'
+                            className='buttons class-toggle'
+                            disabled={inCombat}
+                            onClick={() => act(unequipSkill, key)}
+                          >
+                            Unequip
+                          </button>
+                        ) : (
+                          <button
+                            type='button'
+                            className='buttons class-toggle'
+                            disabled={
+                              inCombat || level < 1 || levelLocked || !canEquip
+                            }
+                            onClick={() => act(equipSkill, key)}
+                          >
+                            Equip
+                          </button>
+                        )}
+                        {ultimate && levelLocked && (
+                          <span className='skill-level'>Unlocks at level {ULTIMATE_UNLOCK_LEVEL}</span>
+                        )}
+                      </div>
+                    </div>
+                  </Tooltip>
+                );
+              }) : (
+                <div className='equip-empty' role='status'>
+                  No {category} skills are available yet.
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </>
   );
@@ -2839,25 +2861,31 @@ const SkillsTab = ({ player, inCombat, onChange }) => {
 const ClassesTab = ({ player }) => (
   <div className='class-grid'>
     {Object.entries(CLASSES).map(([name, c]) => (
-      <div
+      <details
         key={name}
         className={`class-card ${name === player.class ? "current" : ""}`}
+        open={name === player.class}
       >
-        <strong>
-          {name}
-          {name === player.class && (
-            <span className='class-current'> (current)</span>
+        <summary>
+          <strong>
+            {name}
+            {name === player.class && (
+              <span className='class-current'> (current)</span>
+            )}
+          </strong>
+          <em>{c.subtitle}</em>
+        </summary>
+        <div className='class-details'>
+          <p className='class-playstyle'>{c.description}</p>
+          {c.bonus && (
+            <div className='class-bonus'>
+              <strong>{c.bonus.name}</strong>
+              <ul>{(c.bonus.effects || [c.bonus.description]).map((effect) => <li key={effect}>{effect}</li>)}</ul>
+            </div>
           )}
-        </strong>
-        <em>{c.subtitle}</em>
-        <span>{c.description}</span>
-        {c.bonus && (
-          <span className='class-bonus'>
-            <strong>{c.bonus.name}:</strong> {c.bonus.description}
-          </span>
-        )}
-        <span className='class-req'>{c.requirement}</span>
-      </div>
+          <span className='class-req'>{c.requirement}</span>
+        </div>
+      </details>
     ))}
   </div>
 );

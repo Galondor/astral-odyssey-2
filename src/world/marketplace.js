@@ -2,7 +2,7 @@ import { get, onValue, push, ref } from "firebase/database";
 import { auth, db } from "../firebase";
 import { commitPlayerChange, getCharacterIdentity, getPlayer, setPlayer } from "../character/player";
 import { getEnemy } from "../combat/combat";
-import { RARITY_NAMES, SLOTS, STAT_LABELS, applyHolofoilBonuses, canEquip } from "../items/items";
+import { RARITY_NAMES, SLOTS, STAT_LABELS, applyHolofoilBonuses, canEquip, rebalanceGearPower } from "../items/items";
 import { findAbility } from "../combat/abilities";
 import { getItemGearScore } from "../items/gearScore";
 import { getItemGemstones } from "../items/sockets";
@@ -41,7 +41,7 @@ export const isMaterialListing = (item) => item?.kind === "material";
 export const isGemstoneListing = (item) => item?.kind === "gemstone";
 const restoreItem = (item) => isConsumableListing(item) || isMaterialListing(item) || isGemstoneListing(item)
   ? item
-  : { ...item, subStats: item?.subStats || {}, ability: item?.ability || null };
+  : rebalanceGearPower({ ...item, subStats: item?.subStats || {}, ability: item?.ability || null });
 // The database rejects undefined values.
 const cleanItem = (item) => JSON.parse(JSON.stringify(item));
 

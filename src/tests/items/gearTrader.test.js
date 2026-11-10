@@ -45,6 +45,11 @@ const expectTierFloor = (item, minTier) => {
   expect(item.mainStat.tier).toBeGreaterThanOrEqual(minTier);
   expect(itemTooltip(item).stats[0].tier).toBe(`T${item.mainStat.tier}`);
   for (const [key, value] of Object.entries(item.subStats)) {
+    if (key === "maxPower") {
+      expect(value).toBe(Math.max(1, item.subTiers[key]) * (item.twoHanded ? TWO_HANDED_MULT : 1));
+      expect(item.subTiers[key]).toBeGreaterThanOrEqual(minTier);
+      continue;
+    }
     const precision = SUBSTAT_PRECISION[key] || 1;
     const max = Math.max(1, Math.ceil(SUBSTAT_CAPS[key] * item.iLevel * precision));
     const unscaled = value / (item.twoHanded ? TWO_HANDED_MULT : 1) * precision;

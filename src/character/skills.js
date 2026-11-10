@@ -376,14 +376,14 @@ export function applySupportSkill(key, level, caster, targets, { echo = 0, passi
   return { lines, affected, ...totals };
 }
 
-// Spellcasters cast spells more cheaply (see CLASSES); Efficiency trims regular skill costs further.
+// Efficiency trims regular skill costs; class surcharges are added separately.
 export const computeSkillCost = (key, cls, passives = [], classState = null) => {
   const s = SKILLS[key];
   if (!s) return 0;
   if (s.signature) return 0;
   const surcharge = classPowerSurcharge(classState, s.type, key);
   if (s.ultimate) return s.powerCost + surcharge;
-  const base = cls === "Spellcaster" && s.type === "magic" ? Math.max(1, s.powerCost - 1) : s.powerCost;
+  const base = s.powerCost;
   const cost = hasPassive(passives, "efficiency") && base > 0
     ? Math.max(1, Math.round(base * (1 - PASSIVE_TUNING.efficiency.discount)))
     : base;

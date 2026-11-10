@@ -36,6 +36,49 @@ const percent = (value, digits = 1) => `${(Math.round(value * 100 * 10 ** digits
 const materialName = (key) => MATERIALS[key]?.name || key;
 const materialColor = (key) => MATERIAL_TIERS[MATERIALS[key]?.tier]?.color;
 
+function BlueprintPicker({ player, profession, level, selectedId, onPick, onClose }) {
+  const [query, setQuery] = useState("");
+  const [availability, setAvailability] = useState("");
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const blueprints = getBlueprints(profession).filter((entry) =>
+    (!availability || (level >= entry.level && hasBlueprintRecipe(player, entry))) &&
+    terms.every((term) => `${entry.name} ${entry.slotLabel || ""} ${entry.kind}`.toLowerCase().includes(term)));
+  return (
+    <CraftingDialog label='Choose blueprint' onClose={onClose} className='crafting-blueprint-picker'>
+      <h3>Choose blueprint</h3>
+      <p className='crafting-muted'>{PROFESSIONS[profession].name} · Level {level}</p>
+      <div className='crafting-blueprint-filters'>
+        <input className='input-field' type='search' aria-label='Search blueprints' placeholder='Search blueprints…' value={query} onChange={(event) => setQuery(event.target.value)} />
+        <select className='input-field' aria-label='Filter blueprints' value={availability} onChange={(event) => setAvailability(event.target.value)}>
+          <option value=''>All blueprints</option>
+          <option value='usable'>Unlocked only</option>
+        </select>
+      </div>
+      <section className='crafting-blueprint-results' aria-label='Blueprints'>
+        <div className='crafting-blueprint-list' role='region' aria-label='Available blueprints' tabIndex={0}>
+          {blueprints.map((entry) => {
+            const recipeKnown = hasBlueprintRecipe(player, entry);
+            const locked = level < entry.level || !recipeKnown;
+            return (
+              <button key={entry.id} type='button' className={`crafting-blueprint ${selectedId === entry.id ? "active" : ""} ${entry.kind}`} aria-pressed={selectedId === entry.id} disabled={locked} onClick={() => onPick(entry)}>
+                <strong>{entry.name}</strong>
+                <span className='crafting-muted'>{entry.kind === "tool" ? "Crafting / Gathering tool" : entry.kind === "unique" ? `Unique ${entry.slotLabel}` : entry.slotLabel}</span>
+                <span className='crafting-muted'>{entry.baseQty}× {entry.families.map((family) => MATERIAL_FAMILIES[family].label).join(" or ")}{entry.minTier ? ` (tier ${entry.minTier}+)` : ""}</span>
+                {getBlueprintIntrinsicDescription(entry) && <span className='crafting-muted'>{getBlueprintIntrinsicDescription(entry)}</span>}
+                {locked && <span className='crafting-warning'>{!recipeKnown ? "Extract this Unique to learn its blueprint" : `Unlocks at level ${entry.level}`}</span>}
+              </button>
+            );
+          })}
+          {!blueprints.length && <p className='crafting-muted'>No matching blueprints. Try another search or filter.</p>}
+        </div>
+      </section>
+      <div className='item-popup-actions'>
+        <button type='button' className='buttons' onClick={onClose}>Cancel</button>
+      </div>
+    </CraftingDialog>
+  );
+}
+
 function MaterialPicker({ player, blueprint, slot, used, level, onPick, onClear, onClose }) {
   const [query, setQuery] = useState("");
   const [family, setFamily] = useState("");
@@ -203,21 +246,6 @@ function CraftPreview({ analysis, book, level, materialsUsed }) {
         </div>
         <section className='crafting-preview-section crafting-odds' aria-label='Craft odds'>
           <h4>Outcome</h4>
-          {blueprint.kind === "unique" ? (
-            <div className='crafting-odds-row compact'><span style={{ color: RARITY_COLORS.Unique }}>Unique</span><span>{percent(1 - analysis.mythicChance, 2)}</span></div>
-          ) : analysis.rarityOdds.map(({ rarity, chance }) => (
-            <div key={rarity} className='crafting-odds-row'>
-              <span style={{ color: RARITY_COLORS[rarity] }}>{rarity}</span>
-              <span className='crafting-odds-bar'><span style={{ width: `${Math.round(chance * 100)}%`, background: RARITY_COLORS[rarity] }} /></span>
-              <span>{percent(chance)}</span>
-            </div>
-          ))}
-          {blueprint.kind !== "tool" && (
-            <div className='crafting-odds-row compact'>
-              <span style={{ color: RARITY_COLORS.Mythic }}>Mythic</span>
-              <span>{percent(analysis.mythicChance, 3)}</span>
-            </div>
-          )}
           <dl className='crafting-stats'>
             <dt>Craft quality</dt><dd>{analysis.quality}</dd>
             <dt>Item level</dt><dd>{analysis.iLevel === analysis.maxILevel ? analysis.iLevel : `${analysis.iLevel} - ${analysis.maxILevel}`}</dd>
@@ -226,6 +254,26 @@ function CraftPreview({ analysis, book, level, materialsUsed }) {
             <dt>Profession exp</dt><dd>{analysis.exp}{analysis.lowTierPenalty < 1 ? " (low-tier base)" : ""}</dd>
             <dt>Astra cost</dt><dd>{analysis.astraCost}</dd>
           </dl>
+          <details className='crafting-rarity-details'>
+            <summary>Rarity chances</summary>
+            <div className='crafting-rarity-list'>
+              {blueprint.kind === "unique" ? (
+                <div className='crafting-odds-row compact'><span style={{ color: RARITY_COLORS.Unique }}>Unique</span><span>{percent(1 - analysis.mythicChance, 2)}</span></div>
+              ) : analysis.rarityOdds.map(({ rarity, chance }) => (
+                <div key={rarity} className='crafting-odds-row'>
+                  <span style={{ color: RARITY_COLORS[rarity] }}>{rarity}</span>
+                  <span className='crafting-odds-bar'><span style={{ width: `${Math.round(chance * 100)}%`, background: RARITY_COLORS[rarity] }} /></span>
+                  <span>{percent(chance)}</span>
+                </div>
+              ))}
+              {blueprint.kind !== "tool" && (
+                <div className='crafting-odds-row compact'>
+                  <span style={{ color: RARITY_COLORS.Mythic }}>Mythic</span>
+                  <span>{percent(analysis.mythicChance, 3)}</span>
+                </div>
+              )}
+            </div>
+          </details>
         </section>
       </div>
     </>
@@ -242,7 +290,7 @@ export default function MaterialCrafting({ onChange }) {
   const [reagents, setReagents] = useState([]);
   const [picker, setPicker] = useState(null);
   const [bookOpen, setBookOpen] = useState(false);
-  const [blueprintQuery, setBlueprintQuery] = useState("");
+  const [blueprintOpen, setBlueprintOpen] = useState(false);
   const [result, setResult] = useState(null);
   const [note, setNote] = useState("");
 
@@ -255,9 +303,6 @@ export default function MaterialCrafting({ onChange }) {
   const selection = { blueprintId, base, reagents: chosenReagents };
   const analysis = blueprint && base ? analyzeCraft(player, selection) : null;
   const materialsUsed = [...new Set([base, ...chosenReagents].filter(Boolean))];
-  const terms = blueprintQuery.toLowerCase().split(/\s+/).filter(Boolean);
-  const blueprints = getBlueprints(profession).filter((entry) =>
-    terms.every((term) => `${entry.name} ${entry.slotLabel || ""} ${entry.kind}`.toLowerCase().includes(term)));
 
   const usedExcept = (slot) => {
     const used = {};
@@ -275,6 +320,7 @@ export default function MaterialCrafting({ onChange }) {
   };
   const chooseBlueprint = (entry) => {
     setBlueprintId(entry.id);
+    setBlueprintOpen(false);
     if (entry.kind === "part") setReagents([]);
     if (base && (!entry.families.includes(CRAFTING_MATERIALS[base].family) || CRAFTING_MATERIALS[base].tier < (entry.minTier || 1))) setBase(null);
     setNote("");
@@ -405,55 +451,34 @@ export default function MaterialCrafting({ onChange }) {
         <button type='button' className='buttons' onClick={() => setBookOpen(true)}>Crafting Book</button>
       </header>
       <div className='crafting-layout'>
-        <section className='crafting-blueprints' aria-label='Blueprints'>
-          <h4>Blueprints</h4>
-          <input className='input-field' type='search' aria-label='Search blueprints' placeholder='Search blueprints…' value={blueprintQuery} onChange={(event) => setBlueprintQuery(event.target.value)} />
-          <div className='crafting-blueprint-list' role='region' aria-label='Available blueprints' tabIndex={0}>
-            {blueprints.map((entry) => {
-              const recipeKnown = hasBlueprintRecipe(player, entry);
-              const locked = progress.level < entry.level || !recipeKnown;
-              return (
-                <button
-                  key={entry.id}
-                  type='button'
-                  className={`crafting-blueprint ${blueprintId === entry.id ? "active" : ""} ${entry.kind}`}
-                  aria-pressed={blueprintId === entry.id}
-                  disabled={locked}
-                  onClick={() => chooseBlueprint(entry)}
-                >
-                  <strong>{entry.name}</strong>
-                  {getBlueprintIntrinsicDescription(entry) && <span className='crafting-muted'>{getBlueprintIntrinsicDescription(entry)}</span>}
-                  <span className='crafting-muted'>
-                    {!recipeKnown ? "Extract this Unique to learn its blueprint" : locked ? `Unlocks at level ${entry.level}` : entry.kind === "tool" ? "Crafting / Gathering tool" : entry.kind === "unique" ? `Unique ${entry.slotLabel}` : entry.slotLabel}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
         <section className='crafting-bench' aria-label='Crafting bench'>
-          <h4>{blueprint ? blueprint.name : "Crafting bench"}</h4>
+          <h4>Materials</h4>
+          <button type='button' className={`crafting-slot crafting-blueprint-slot ${blueprint?.kind || ""}`} aria-label='Blueprint slot' aria-haspopup='dialog' aria-expanded={blueprintOpen} onClick={() => setBlueprintOpen(true)}>
+            <span className='crafting-slot-label'>1 · Blueprint <span>Choose / change</span></span>
+            <strong className={blueprint?.kind === "unique" ? "crafting-unique" : ""}>{blueprint?.name || "Choose a blueprint"}</strong>
+            <span className='crafting-muted'>{blueprint ? `${blueprint.slotLabel} · Level ${blueprint.level}` : "Browse equipment, tools & parts"}</span>
+          </button>
           {blueprint && (
             <>
               <button type='button' className='crafting-slot base' aria-label='Base material slot' onClick={() => setPicker("base")}>
-                <span className='crafting-slot-label'>Base · {blueprint.baseQty}× {blueprint.families.map((family) => MATERIAL_FAMILIES[family].label).join(" or ")}{blueprint.minTier ? ` (tier ${blueprint.minTier}+)` : ""}</span>
+                <span className='crafting-slot-label'>2 · Base · {blueprint.baseQty}× {blueprint.families.map((family) => MATERIAL_FAMILIES[family].label).join(" or ")}{blueprint.minTier ? ` (tier ${blueprint.minTier}+)` : ""}</span>
                 {base
                   ? <strong style={{ color: materialColor(base) }}>{materialName(base)} <span className='crafting-muted'>(own {getMaterialCount(player, base)})</span></strong>
                   : <span className='crafting-muted'>Choose a base material</span>}
               </button>
-              {blueprint.kind !== "part" && REAGENT_SLOT_LEVELS.map((unlock, index) => (index < slots ? (
+              {blueprint.kind !== "part" && <div className='crafting-reagent-heading'>
+                <span className='crafting-slot-label'>3 · Reagents</span>
+                <span className='crafting-muted'>{chosenReagents.length}/{slots} slots used · 1 material each</span>
+              </div>}
+              {blueprint.kind !== "part" && REAGENT_SLOT_LEVELS.slice(0, slots).map((unlock, index) => (
                 <button key={index} type='button' className='crafting-slot' aria-label={`Reagent slot ${index + 1}`} onClick={() => setPicker(index)}>
                   <span className='crafting-slot-label'>Reagent {index + 1}</span>
                   {reagents[index]
                     ? <strong style={{ color: materialColor(reagents[index]) }}>{materialName(reagents[index])} <span className='crafting-muted'>(own {getMaterialCount(player, reagents[index])})</span></strong>
                     : <span className='crafting-muted'>Empty</span>}
                 </button>
-              ) : (
-                <div key={index} className='crafting-slot locked' aria-disabled='true'>
-                  <span className='crafting-slot-label'>Reagent {index + 1}</span>
-                  <span className='crafting-muted'>Unlocks at level {unlock}</span>
-                </div>
-              )))}
+              ))}
+              {blueprint.kind !== "part" && slots < REAGENT_SLOT_LEVELS.length && <p className='crafting-muted crafting-unlocks'>Next reagent slot: level {REAGENT_SLOT_LEVELS[slots]} · {REAGENT_SLOT_LEVELS.length - slots} locked</p>}
               {blueprint.parts && <p className='crafting-muted'>Place a {blueprint.parts.join(" and a ")} in your reagent slots. Tools roll from item level 1 up to your equip profession level, capped by the parts used.</p>}
               {blueprint.requires && (
                 <div className='crafting-requires'>
@@ -469,17 +494,24 @@ export default function MaterialCrafting({ onChange }) {
               )}
             </>
           )}
-          {!blueprint && <p className='crafting-muted'>Pick a blueprint, add a base material, then experiment with reagents. Every craft may reveal more about the materials you use.</p>}
+          {!blueprint && <p className='crafting-muted'>Choose a blueprint, add a base, then experiment with reagents to discover new properties.</p>}
         </section>
         <section className='crafting-preview' aria-label='Craft preview'>
-          <h4>Preview</h4>
+          <div className='crafting-preview-header'>
+            <h4>{blueprint ? blueprint.name : "Craft preview"}</h4>
+            <span className='crafting-muted'>{(player.astra || 0).toLocaleString()} astra owned</span>
+          </div>
+          {!analysis && <p className='crafting-muted'>Your outcome, cost and known effects will appear here once a base is selected.</p>}
+          <div className='crafting-footer'>
+            <div className='recipe-note' role='status'>{status || "Ready to craft."}</div>
+            <button type='button' className='buttons crafting-craft' disabled={!analysis?.ok} onClick={craft}>Craft</button>
+          </div>
           <CraftPreview analysis={analysis} book={book} level={progress.level} materialsUsed={materialsUsed} />
-          <button type='button' className='buttons crafting-craft' disabled={!analysis?.ok} onClick={craft}>Craft</button>
-          {status && <div className='recipe-note' role='status'>{status}</div>}
         </section>
       </div>
         </>
       )}
+      {blueprintOpen && <BlueprintPicker player={player} profession={profession} level={progress.level} selectedId={blueprintId} onPick={chooseBlueprint} onClose={() => setBlueprintOpen(false)} />}
       {picker !== null && blueprint && (
         <MaterialPicker
           player={player}

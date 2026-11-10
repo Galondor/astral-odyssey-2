@@ -105,14 +105,14 @@ test.each(kits)("%s works with serialized Contest fighters", (cls, resource, sig
   expect(opponent.player.stats.health).toBeLessThan(hp - 150);
 });
 
-test("Instability costs are paid up front, reject unaffordable spells, and venting remains free with Efficiency", () => {
+test("Instability adds 3 Power per stack, rejects unaffordable spells, and venting remains free with Efficiency", () => {
   saved = hero("Spellcaster", { classMastery: { Spellcaster: ["efficientFlow", "stabilize"] }, equippedSkills: ["fireball", "stabilize"] });
   startCombat(dummy());
   soloAction("magic"); soloAction("magic"); soloAction("magic");
   const state = getCombatClassState();
-  expect(computeSkillCost("fireball", "Spellcaster", [], state)).toBe(6);
+  expect(computeSkillCost("fireball", "Spellcaster", [], state)).toBe(13);
   expect(computeSkillCost("stabilize", "Spellcaster", ["efficiency"], state)).toBe(0);
-  saved.stats.power = 5;
+  saved.stats.power = 12;
   expect(attackRound(null, "fireball")).toMatchObject({ used: false });
   expect(getCombatClassState().instability).toBe(3);
   expect(attackRound(null, "stabilize").used).toBe(true);

@@ -187,7 +187,7 @@ test("group Spellcaster skill buttons show the actual Instability surcharge", ()
   status = baseStatus({ run, active: true, inRun: true, roundRemainingMs: 20000 });
   render(<GroupRunActions />);
   fireEvent.click(screen.getByRole("button", { name: /\d+\. Skills/ }));
-  expect(screen.getByRole("button", { name: /Fireball \(7 power\)/ }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: /Fireball \(14 power\)/ }).disabled).toBe(true);
 });
 
 test("combat actions pick enemy targets and allies for guard, potions and support skills", async () => {

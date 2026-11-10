@@ -15,10 +15,10 @@ const hit = (s, type, key, target = {}) => {
 };
 
 test.each(["Tactician", "Spellcaster", "Duelist", "Trickster", "Specialist"])(
-  "%s has an immediate signature, a five-node tree, and a visible combat state",
+  "%s has an immediate signature, a six-node tree, and a visible combat state",
   (cls) => {
     const tree = CLASS_TREES[cls];
-    expect(tree.nodes).toHaveLength(5);
+    expect(tree.nodes).toHaveLength(6);
     expect(CLASS_SKILLS[tree.signature.key]).toMatchObject({ signature: true, className: cls });
     expect(tree.nodes.filter((n) => n.skill)).toHaveLength(1);
     expect(getClassStateLabel(state(cls))).not.toBe("");
@@ -42,8 +42,9 @@ test("Spellcaster chooses escalating power costs or a controlled release", () =>
   expect(classActionError(s, "arcaneRelease")).toMatch(/Instability/);
   hit(s, "magic");
   expect(s.instability).toBe(1);
-  expect(classPowerSurcharge(s, "magic", "fireball")).toBe(1);
+  expect(classPowerSurcharge(s, "magic", "fireball")).toBe(3);
   expect(prepareClassAttack(s, "magic", "fireball").damageBonus).toBeCloseTo(0.1);
+  expect(getClassStateLabel(s)).toContain("+3 spell power cost");
   hit(s, "magic"); hit(s, "magic"); hit(s, "magic");
   expect(s.instability).toBe(3);
   expect(prepareClassAttack(s, "magic", "arcaneRelease").damageBonus).toBeCloseTo(1.2);
@@ -109,7 +110,7 @@ test("the alternative capstones change burst, efficiency, recovery and protectio
   expect(prepareClassAttack(tact, "melee", "precisionStrike")).toMatchObject({ damageBonus: 0.5, weaken: true });
   const caster = state("Spellcaster", ["efficientFlow", "reclamation"]);
   caster.instability = 3;
-  expect(classPowerSurcharge(caster, "magic", "fireball")).toBe(2);
+  expect(classPowerSurcharge(caster, "magic", "fireball")).toBe(8);
   expect(prepareClassAttack(caster, "magic", "arcaneRelease").power).toBe(6);
   const overload = state("Spellcaster", ["fracturingFrost", "overload"]);
   overload.instability = 3;
@@ -129,4 +130,30 @@ test("the alternative capstones change burst, efficiency, recovery and protectio
   hit(recovery, "melee");
   expect(beginClassDefense(recovery).power).toBe(1);
   expect(beginClassDefense(recovery).power).toBe(0);
+});
+
+test("new mastery branches provide distinct class builds", () => {
+  const swordsman = state("Swordsman", ["shieldBash", "retribution"]);
+  expect(prepareClassAttack(swordsman, "melee", "resolveStrike").weaken).toBe(true);
+
+  const spellblade = state("Spellblade", ["runicGuard", "searingWeave"]);
+  finishClassAttack(spellblade, "magic", "fireball");
+  const searingStrike = prepareClassAttack(spellblade, "melee", "backstab");
+  expect(searingStrike.burn).toBe(true);
+
+  const tactician = state("Tactician", ["feint", "openingGambit"]);
+  expect(prepareClassAttack(tactician, "melee", "precisionStrike", { defending: true }).damageBonus).toBe(0.3);
+  expect(prepareClassAttack(tactician, "melee", "precisionStrike").damageBonus).toBe(0);
+
+  const caster = state("Spellcaster", ["stabilize", "arcaneAegis"]);
+  expect(prepareClassAttack(caster, "magic", "arcaneRelease").barrier).toBe(true);
+
+  const duelist = state("Duelist", ["tempoThrust", "riposteMastery"]);
+  expect(recordClassParry(duelist, true).counter).toBe(1.2);
+
+  const trickster = state("Trickster", ["sabotage", "misdirection"]);
+  expect(prepareClassAttack(trickster, "magic", "sabotage").sunder).toBe(0.2);
+
+  const specialist = state("Specialist", ["fieldMending", "adaptableCare"]);
+  expect(prepareClassAttack(specialist, "support", "improvise").heal).toBe(0.3);
 });

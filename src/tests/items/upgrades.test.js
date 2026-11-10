@@ -84,6 +84,20 @@ test("all ten upgrades have ascending costs, then upgrading stops", () => {
   expect(setPlayer).toHaveBeenCalledTimes(10);
 });
 
+test.each([0, 1, 7, 8, 9])("level upgrades preserve fixed T%i Power and Mythic Power wildcards", (tier) => {
+  const value = Math.max(1, tier) * 2;
+  player.inventory[0] = makeItem({
+    twoHanded: true, rarity: "Artifact", gearPowerVersion: 1,
+    subStats: { maxPower: value, speed: 25 }, subTiers: { maxPower: tier },
+    mythicSubStat: { stat: "maxPower", value, tier },
+  });
+  for (let i = 0; i < 10; i++) expect(upgradeInventoryItem("sword").ok).toBe(true);
+  expect(player.inventory[0].subStats.maxPower).toBe(value);
+  expect(player.inventory[0].subTiers.maxPower).toBe(tier);
+  expect(player.inventory[0].mythicSubStat).toEqual({ stat: "maxPower", value, tier });
+  expect(player.inventory[0].subStats.speed).toBeCloseTo(30);
+});
+
 test("level 99 can reach 100 but neither level 100 nor higher can upgrade", () => {
   player.inventory[0] = makeItem({ iLevel: 99, upgrades: 2 });
   expect(upgradeInventoryItem("sword").ok).toBe(true);

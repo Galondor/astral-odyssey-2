@@ -4,52 +4,108 @@
 */
 export const CLASSES = {
   Swordsman: {
-    bonus: { name: "Bulwark & Resolve", description: "Defending blocks 70% of incoming damage and counters for 50% of a melee attack. Defend or Guard gains 1 Resolve; blocking gains 1 more once per round (maximum 3). Spend 2 Resolve on Resolve Strike, a 150% melee attack. Develop protection or retaliation in your mastery tree." },
+    bonus: {
+      name: "Bulwark & Resolve",
+      description: "Defend to block and counter; build Resolve to power a melee strike.",
+      effects: [
+        "Defend blocks 70% damage and counters for 50% melee damage.",
+        "Defend grants 1 Resolve; blocking can grant 1 more per round (max 3).",
+        "Spend 2 Resolve on Resolve Strike (150% melee damage).",
+      ],
+    },
     glossary: "swordsman",
     subtitle: "Melee Fighter",
-    description: "A front-line brawler. Strength raises melee damage and vitality, making for a durable, hard-hitting fighter.",
+    description: "Durable melee fighter.",
     requirement: "When Strength is at least 60% of your total core stats.",
   },
   Tactician: {
-    bonus: { name: "Rhythm & Advantage", description: "Defend or Guard to gain 1 Advantage; attacking a defending, recovering, or debuffed enemy also grants 1 per action (maximum 3). Spend 2 on Precision Strike: 170% melee damage, ignoring 50% defense. Attacks still build +4% critical chance (up to +20%); taking damage breaks that rhythm." },
+    bonus: {
+      name: "Rhythm & Advantage",
+      description: "Exploit openings to build Advantage and critical chance.",
+      effects: [
+        "Defend, or exploit a: defending, recovering, or debuffed enemy to gain Advantage (max 3).",
+        "Spend 2 Advantage on Precision Strike (170% melee damage; ignores 50% defense).",
+        "Attacks build 4% critical chance each (max +20%); taking damage resets the bonus.",
+      ],
+    },
     glossary: "tactician",
     subtitle: "Precision Fighter",
-    description: "A swift, precise fighter. Dexterity raises melee damage and agility, improving speed and evasion.",
+    description: "Fast, evasive fighter.",
     requirement: "When Dexterity is at least 60% of your total core stats.",
   },
   Spellcaster: {
-    bonus: { name: "Arcane Flow & Instability", description: "Magic attacks build Instability (maximum 3), adding 10% magic damage and 1 power to spell costs per stack; basic magic stays free. Arcane Release vents all stacks for 100% magic damage plus 40% per stack. Recover 1 power each round; regular spells still receive their 1-power discount." },
+    bonus: {
+      name: "Arcane Flow & Instability",
+      description: "Build Instability for stronger magic, then release it in a burst.",
+      effects: [
+        "Magic attacks build Instability (max 3); each stack adds 10% magic damage and 3 power to spell costs.",
+        "Basic magic attack stays free; recover 1 power each round.",
+        "Arcane Release vents all stacks for 100% magic damage plus 40% per stack.",
+      ],
+    },
     glossary: "spellcaster",
     subtitle: "Magic Fighter",
-    description: "A master of magic. Intelligence raises magic damage.",
+    description: "Magic specialist.",
     requirement: "When Intelligence is at least 60% of your total core stats.",
   },
   Duelist: {
-    bonus: { name: "Parry & Tempo", description: "Riposte Stance spends an Action to guarantee a parry of the next ordinary hit before your next turn, countering for 60% melee damage and granting 2 Tempo. Passive parries still have a 15% chance and grant 1 Tempo. Your next melee action spends all Tempo for +35% damage per point (maximum 2). Committed group telegraphs cannot be parried." },
+    bonus: {
+      name: "Parry & Tempo",
+      description: "Parry attacks to build Tempo and empower your next melee strike.",
+      effects: [
+        "Riposte Stance guarantees a parry and 60% melee counter.",
+        "Riposte grants 2 Tempo; passive parries have a 15% chance to grant 1 (max 2).",
+        "Your next melee action spends Tempo for +35% damage per point.",
+      ],
+    },
     glossary: "duelist",
     subtitle: "Precise Melee Fighter",
-    description: "Blends strength and finesse for strong, fast melee damage.",
+    description: "Precise melee fighter combining strength and dexterity.",
     requirement: "When Strength and Dexterity are each at least 40% of your total core stats.",
   },
   Spellblade: {
-    bonus: { name: "Arcane Weave", description: "Your first melee or magic attack builds 1 Weave. Alternating attack types adds 1 Weave (maximum 2) and deals 25% more damage. Spend 2 Weave on Fusion Strike: 180% of your stronger attack, delivered as melee damage. Develop defensive weaving or explosive finishers in your mastery tree." },
+    bonus: {
+      name: "Arcane Weave",
+      description: "Alternate melee and magic attacks to build Weave and amplify damage.",
+      effects: [
+        "Your first attack builds 1 Weave; alternating melee and magic adds another (max 2).",
+        "Alternating attack types deals 25% more damage.",
+        "Spend 2 Weave on Fusion Strike (180% of your stronger attack, as melee damage).",
+      ],
+    },
     glossary: "spellblade",
     subtitle: "Magic Melee Fighter",
-    description: "Pairs heavy melee strikes with magical power.",
+    description: "Hybrid melee-and-magic fighter that rewards alternating attacks.",
     requirement: "When Strength and Intelligence are each at least 40% of your total core stats.",
   },
   Trickster: {
-    bonus: { name: "Prepared Tricks", description: "Each damaging action prepares 1 Trick (maximum 3). Cash Out spends all Tricks for 100% of your stronger attack plus 50% per Trick, delivered as magic damage. Mastery can trade Tricks for reliable control instead. Your attacks retain their 20% chance to hex an enemy with Weakened or Vulnerable for 2 rounds." },
+    bonus: {
+      name: "Prepared Tricks",
+      description: "Build Tricks with damaging actions and spend them on a finisher or control.",
+      effects: [
+        "Each damaging action builds 1 Trick (max 3).",
+        "Cash Out spends all Tricks for 100% of whichever is higher melee or magic attack plus 50% per Trick, as magic damage.",
+        "Attacks have a 20% chance to apply Weakened or Vulnerable for 2 rounds.",
+      ],
+    },
     glossary: "trickster",
     subtitle: "Cunning Fighter",
-    description: "Quick and clever, mixing agility with magic.",
+    description: "Agile fighter who mixes dexterity and magic.",
     requirement: "When Dexterity and Intelligence are each at least 40% of your total core stats.",
   },
   Specialist: {
-    bonus: { name: "Adaptation", description: "Your first role and each role change grant 1 Adaptation (maximum 3): offense, protection (Defend/Guard), or support. Spend 2 on Improvise: 170% of your stronger attack as melee damage and heal 10% maximum health. Different attacks still add 5% damage each (up to +20%); switching attack types alone does not build Adaptation." },
+    bonus: {
+      name: "Adaptation",
+      description: "Switch between offense, protection, and support to build Adaptation.",
+      effects: [
+        "Your first role and each role change grant 1 Adaptation (max 3).",
+        "Spend 2 Adaptation on Improvise (170% of whichever is higher melee or magic attack as melee damage; heal 10% max health).",
+        "Different attacks add 5% damage each (max +20%); changing attack type alone is not a role change.",
+      ],
+    },
     glossary: "specialist",
     subtitle: "Balanced Fighter",
-    description: "A well-rounded adventurer with no weak point.",
+    description: "Flexible fighter with balanced stats and adaptable roles.",
     requirement: "When all three stats are at least 15% of your total core stats and none exceeds 50%.",
   },
 };
@@ -90,7 +146,7 @@ export const classTooltip = (name) => {
   return {
     title: name,
     subtitle: c.subtitle,
-    description: [c.description, `${c.bonus.name}: ${c.bonus.description}`],
+    description: [c.description, c.bonus.name, ...(c.bonus.effects || [c.bonus.description])],
     footer: c.requirement,
   };
 };

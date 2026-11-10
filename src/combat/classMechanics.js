@@ -57,13 +57,14 @@ export const recordClassRole = (state, role) => {
 
 export const classPowerSurcharge = (state, type, key) =>
   state?.cls === "Spellcaster" && type === "magic" && key && key !== "arcaneRelease"
-    ? Math.max(0, (state.instability || 0) - (node(state, "efficientFlow") ? 1 : 0)) : 0;
+    ? Math.max(0, (state.instability || 0) * 3 - (node(state, "efficientFlow") ? 1 : 0)) : 0;
 
 export const recordClassParry = (state, prepared) => {
   state.riposteReady = false;
   state.tempo = Math.min(2, (state.tempo || 0) + (prepared ? 2 : 1));
   return {
-    counter: prepared && node(state, "measuredRiposte") ? 0.9 : 0.6,
+    counter: prepared && node(state, "riposteMastery") ? 1.2 :
+      (prepared && node(state, "measuredRiposte") ? 0.9 : 0.6),
     heal: prepared && node(state, "secondWind") ? 0.08 : 0,
   };
 };
@@ -98,30 +99,42 @@ export const spendClassResource = (state, key, type) => {
 };
 
 // Called once per action; the resulting bonuses can be applied to every AoE target.
-export const prepareClassAttack = (state, type, key, target = {}) => ({
-  damageBonus:
-    (state.cls === "Spellblade" && ["melee", "magic"].includes(type) &&
-      state.lastWeaveType && state.lastWeaveType !== type && key !== "fusionStrike" ? 0.25 : 0) +
-    (key === "resolveStrike" && node(state, "executioner") ? 0.5 : 0) +
-    (key === "fusionStrike" && node(state, "rupture") ? 0.5 : 0) +
-    (key === "precisionStrike" && node(state, "checkmate") ? 0.5 : 0) +
-    (state.cls === "Spellcaster" && type === "magic"
-      ? (state.instability || 0) * (key === "arcaneRelease" ? (node(state, "overload") ? 0.65 : 0.4) : 0.1) : 0) +
-    (state.cls === "Duelist" && type === "melee" ? (state.tempo || 0) * (node(state, "perfectTempo") ? 0.6 : 0.35) : 0) +
-    (key === "cashOut" ? (state.tricks || 0) * 0.5 + (node(state, "grandFinale") ? 0.75 : 0) : 0),
-  burn: state.cls === "Spellblade" && type === "melee" && !!state.emberReady && key !== "fusionStrike",
-  sunder: key === "cleave" && state.cls === "Swordsman" && node(state, "sundering") ? 0.3 :
+export const prepareClassAttack = (state, type, key, target = {}) => {
+  const opening = state.cls === "Tactician" && (!!target.defending || !!target.recovering ||
+    (target.statuses || []).some((status) => STATUSES[status.id]?.debuff));
+  const alternating = state.cls === "Spellblade" && ["melee", "magic"].includes(type) &&
+    !!state.lastWeaveType && state.lastWeaveType !== type;
+  const sundered = (key === "cleave" && state.cls === "Swordsman" && node(state, "sundering")) ||
     ((key === "cleave" && state.cls === "Tactician" && node(state, "exposingCleave")) ||
      (key === "frostLance" && state.cls === "Spellcaster" && node(state, "fracturingFrost")) ||
      (key === "backstab" && state.cls === "Duelist" && node(state, "exposingBackstab")) ||
-     (key === "cashOut" && state.cls === "Trickster" && node(state, "cruelTricks"))) ? 0.2 : 0,
-  weaken: key === "precisionStrike" && node(state, "checkmate"),
-  barrier: (key === "resolveStrike" && node(state, "bastion")) || (key === "improvise" && node(state, "contingency")),
-  heal: key === "improvise" ? (node(state, "versatileRecovery") ? 0.2 : 0.1) : 0,
-  power: key === "arcaneRelease" && node(state, "reclamation") ? (state.instability || 0) * 2 : 0,
-  opening: state.cls === "Tactician" && (!!target.defending || !!target.recovering ||
-    (target.statuses || []).some((status) => STATUSES[status.id]?.debuff)),
-});
+     (key === "cashOut" && state.cls === "Trickster" && node(state, "cruelTricks")) ||
+     (key === "sabotage" && state.cls === "Trickster" && node(state, "misdirection")));
+  return {
+    damageBonus:
+      (alternating && key !== "fusionStrike" ? 0.25 : 0) +
+      (key === "resolveStrike" && node(state, "executioner") ? 0.5 : 0) +
+      (key === "fusionStrike" && node(state, "rupture") ? 0.5 : 0) +
+      (key === "precisionStrike" && node(state, "checkmate") ? 0.5 : 0) +
+      (key === "precisionStrike" && node(state, "openingGambit") && opening ? 0.3 : 0) +
+      (state.cls === "Spellcaster" && type === "magic"
+        ? (state.instability || 0) * (key === "arcaneRelease" ? (node(state, "overload") ? 0.65 : 0.4) : 0.1) : 0) +
+      (state.cls === "Duelist" && type === "melee" ? (state.tempo || 0) * (node(state, "perfectTempo") ? 0.6 : 0.35) : 0) +
+      (key === "cashOut" ? (state.tricks || 0) * 0.5 + (node(state, "grandFinale") ? 0.75 : 0) : 0),
+    burn: state.cls === "Spellblade" && type === "melee" && key !== "fusionStrike" &&
+      (!!state.emberReady || (node(state, "searingWeave") && alternating)),
+    sunder: sundered ? (key === "cleave" && state.cls === "Swordsman" ? 0.3 : 0.2) : 0,
+    weaken: (key === "precisionStrike" && node(state, "checkmate")) ||
+      (key === "resolveStrike" && node(state, "retribution")),
+    barrier: (key === "resolveStrike" && node(state, "bastion")) ||
+      (key === "arcaneRelease" && node(state, "arcaneAegis")) ||
+      (key === "improvise" && node(state, "contingency")),
+    heal: key === "improvise"
+      ? (node(state, "adaptableCare") ? 0.3 : node(state, "versatileRecovery") ? 0.2 : 0.1) : 0,
+    power: key === "arcaneRelease" && node(state, "reclamation") ? (state.instability || 0) * 2 : 0,
+    opening,
+  };
+};
 
 export const finishClassAttack = (state, type, key, target = {}, effect = prepareClassAttack(state, type, key, target)) => {
   if (state.cls === "Tactician" && key !== "precisionStrike" && ["melee", "magic"].includes(type) && effect.opening)

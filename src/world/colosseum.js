@@ -6,7 +6,7 @@ export const COLOSSEUM_MIN_LEVEL = 5;
 export const COLOSSEUM_COOLDOWN_MS = 15 * 60 * 1000;
 
 const WAVE_PATTERN = ["basic", "elite", "basic", "elite", "boss"];
-const ENEMY_STAT_MULTIPLIER = 0.25;
+const ENEMY_STAT_MULTIPLIER = 1;
 const BASE_STATS = { maxHealth: 100, attackMax: 10, defense: 5, speed: 10 };
 const NAMES = {
   basic: ["Pit Recruit", "Arena Swordsman", "Bronze Shieldbearer"],

@@ -1,9 +1,9 @@
-import { get, update } from "firebase/database";
+import { get, onValue, update } from "firebase/database";
 import { commitPlayerChange, getCharacterIdentity, getPlayer, setPlayer } from "../../character/player";
 import { auth } from "../../firebase";
 import { CONSUMABLES } from "../../items/consumables";
 import { createSkillGemstone, generateRandomGemstone } from "../../items/items";
-import { DEFAULT_FILTERS, buyListing, cancelListing, filterListings, listItem, sortListings } from "../../world/marketplace";
+import { DEFAULT_FILTERS, buyListing, cancelListing, filterListings, listItem, sortListings, subscribeListings } from "../../world/marketplace";
 
 jest.mock("../../firebase", () => ({ db: {}, auth: { currentUser: { uid: "seller" } } }));
 jest.mock("../../character/player", () => ({
@@ -45,6 +45,31 @@ test("selling a consumable removes exactly one and keeps gear untouched", async 
     "marketplace/listing": expect.objectContaining({ item: elixir, price: 101 }),
   });
 
+});
+
+test("legacy marketplace Power is rebalanced for previews and returned gear without changing sale prices", async () => {
+  const legacy = {
+    ...gear, iLevel: 100, price: 1000, twoHanded: true,
+    subStats: { maxPower: 30 }, subTiers: { maxPower: 7 },
+  };
+  const stored = listing(legacy);
+  onValue.mockImplementationOnce((path, callback) => {
+    callback({ val: () => ({ listing: stored }) });
+    return () => {};
+  });
+  const onListings = jest.fn();
+  subscribeListings(onListings);
+  expect(onListings).toHaveBeenCalledWith([
+    expect.objectContaining({
+      price: 101, item: expect.objectContaining({
+        price: 1000, subStats: { maxPower: 14 }, subTiers: { maxPower: 7 },
+      }),
+    }),
+  ]);
+  get.mockResolvedValue({ val: () => stored });
+  expect(await cancelListing(stored)).toMatchObject({ ok: true });
+  expect(player.inventory.at(-1).subStats.maxPower).toBe(14);
+  expect(legacy.subStats.maxPower).toBe(30);
 });
 
 test.each(["fireball", "mendingLight", "meteor"])("exact %s Skill Gems can be listed, cancelled and purchased", async (key) => {

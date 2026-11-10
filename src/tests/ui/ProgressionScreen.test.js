@@ -124,11 +124,27 @@ test("mastery techniques are separate from shared learning and signatures need n
   const hero = { ...player, class: "Swordsman", classMastery: { Swordsman: ["shieldBash"] } };
   render(<ProgressionScreen player={hero} onChange={jest.fn()} />);
   fireEvent.click(screen.getByRole("tab", { name: /^Skills/ }));
+  fireEvent.click(screen.getByRole("tab", { name: "Mastery techniques" }));
   const techniques = within(screen.getByRole("region", { name: "Mastery techniques" }));
   expect(techniques.getByRole("button", { name: "Equip Shield Bash" }).disabled).toBe(false);
   expect(techniques.queryByRole("button", { name: /Learn|Level up/ })).toBeNull();
   expect(screen.queryByText("Resolve Strike")).toBeNull();
   expect(screen.queryByText("Fusion Strike")).toBeNull();
+});
+
+test("class descriptions expand on demand while the current class stays open", () => {
+  render(<ProgressionScreen player={player} onChange={jest.fn()} />);
+  fireEvent.click(screen.getByRole("tab", { name: "Classes" }));
+  const classCards = document.querySelectorAll(".class-grid > details");
+  expect(classCards).toHaveLength(7);
+  expect(document.querySelector(".class-card.current").open).toBe(true);
+  const tacticianCard = screen.getByText("Tactician").closest("details");
+  expect(tacticianCard.open).toBe(false);
+  fireEvent.click(tacticianCard.querySelector("summary"));
+  expect(document.querySelector(".class-card.current").open).toBe(true);
+  expect(tacticianCard.open).toBe(true);
+  expect(screen.getByText(/Fast, evasive fighter/)).toBeTruthy();
+  expect(tacticianCard.querySelectorAll(".class-bonus li")).toHaveLength(3);
 });
 
 test("stat allocation shows a class preview before committing and refreshes the displayed class on confirmation", () => {

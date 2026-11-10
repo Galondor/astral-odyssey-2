@@ -288,7 +288,7 @@ const EnemyCard = ({ enemy }) => (
     </div>
     <Bar label='HP' value={Math.max(0, enemy.hp)} max={enemy.maxHp} color='#c0392b' />
     {enemy.immune && !enemy.dead && <div className='group-tag immune'>Immune to {enemy.immune} damage</div>}
-    {enemy.pending && !enemy.dead && <div className='group-tag telegraph'>Preparing {enemy.pending.name}! Defend or Guard!</div>}
+    {enemy.pending && !enemy.dead && <div className='group-tag telegraph'>Preparing {enemy.pending.name}! Defend!</div>}
     {enemy.recovering && !enemy.dead && <div className='group-tag'>Recovering from {enemy.recovering.name}: next action is recovery.</div>}
     {enemy.channel && !enemy.dead && (
       <div className='group-tag channel'>
@@ -323,11 +323,11 @@ const MemberCard = ({ member, run, intentIn, me }) => {
         <>
           <Bar label='Health' value={Math.max(0, member.stats.health)} max={member.stats.maxHealth} color='#1e8449' />
           <Bar label='Power' value={member.stats.power} max={member.stats.maxPower} color='#1f5fbf' />
+          {run.combat && <ClassResource state={member} />}
           {member.downed && <div className='group-tag downed'>Fallen, revived at the next checkpoint</div>}
           {member.defending && <div className='group-tag'>Defending</div>}
           {guarding && <div className='group-tag'>Guarding {guarding.name}</div>}
           <StatusChips list={member.statuses} />
-          {run.combat && <ClassResource state={member} />}
         </>
       )}
     </div>
@@ -675,7 +675,6 @@ export const GroupRunActions = ({ navigationModal }) => {
         {waitingFor.length ? `Waiting for ${waitingFor.map((id) => (id === identity ? "you" : run.names[id])).join(", ")}.` : "Resolving..."}
       </p>
       {prompt && <p>{prompt}</p>}
-      {run.combat && me && !me.downed && <ClassResource state={me} />}
       {(run.puzzle?.kind === "dials" || run.puzzle?.kind === "rings") && (
         <PuzzleSetter
           key={roundKey}

@@ -252,7 +252,7 @@ const SUBSTAT_CAPS = { // DO NOT CHANGE
   attackMax: 2.4, // Maximum Roll: 252
   magicAttackMin: 2.2, // Maximum Roll: 231.0
   magicAttackMax: 3.4, // Maximum Roll: 357.0
-  maxPower: 0.15, // Maximum Roll: 15.75
+  maxPower: 0.15, // Legacy cap, retained only to recover tiers from old Power rolls.
   criticalDamage: 0.006, // Maximum Roll: 0.63
   attackPercent: 0.001, // Maximum Roll: 0.105
   magicAttackPercent: 0.001, // Maximum Roll: 0.105
@@ -694,11 +694,48 @@ const rollSubStatValue = (key, iLevel, minTier = 0, scale = 1, maxTier = SUBSTAT
   return randInt(cap);
 };
 
+const getPowerValue = (tier, scale) => scaleValue("maxPower", Math.max(1, tier), scale);
+
+const rollGearSubStat = (key, iLevel, minTier = 0, scale = 1, maxTier = SUBSTAT_MAX_TIER) => {
+  if (key === "maxPower") {
+    const tier = minTier + randInt(maxTier - minTier + 1) - 1;
+    return { value: getPowerValue(tier, scale), tier };
+  }
+  const roll = rollSubStatValue(key, iLevel, minTier, scale, maxTier);
+  return {
+    value: scaleValue(key, roll, scale),
+    tier: rollTier(key, roll, iLevel, scale, maxTier),
+  };
+};
+
+export const rebalanceGearPower = (item) => {
+  if (!item || item.twoHandedOf || isToolItem(item) || item.gearPowerVersion === 1 ||
+      (item.subStats?.maxPower === undefined && item.mythicSubStat?.stat !== "maxPower"))
+    return item;
+  const scale = item.twoHanded ? TWO_HANDED_MULT : 1;
+  const maxTier = getItemStatTierCap(item);
+  const recoverTier = (value, tier) =>
+    Number.isInteger(tier) && tier >= 0 && tier <= maxTier
+      ? tier
+      : rollTier("maxPower", value / scale, item.iLevel || 1, scale, maxTier);
+  const updated = { ...item, gearPowerVersion: 1 };
+  if (item.subStats?.maxPower !== undefined) {
+    const tier = recoverTier(item.subStats.maxPower, item.subTiers?.maxPower);
+    updated.subStats = { ...item.subStats, maxPower: getPowerValue(tier, scale) };
+    updated.subTiers = { ...item.subTiers, maxPower: tier };
+  }
+  if (item.mythicSubStat?.stat === "maxPower") {
+    const tier = recoverTier(item.mythicSubStat.value, item.mythicSubStat.tier);
+    updated.mythicSubStat = { ...item.mythicSubStat, tier, value: getPowerValue(tier, scale) };
+  }
+  return updated;
+};
+
 export const HOLOFOIL_MIN_TIER = 5;
 
 // The marker prevents reapplying value/stat bonuses on color rerolls or reloads.
 export const applyHolofoilBonuses = (item) => {
-  item = normalizeHolofoilEffect(item);
+  item = rebalanceGearPower(normalizeHolofoilEffect(item));
   if (isToolItem(item)) return applyToolHolofoilBonuses(item);
   if (!item || item.twoHandedOf || !isHolofoilColors(item.holofoil) || item.holofoilBonusVersion === 1)
     return item;
@@ -730,6 +767,15 @@ export const applyHolofoilBonuses = (item) => {
     for (const [stat, current] of Object.entries(item.subStats)) {
       if (!SUBSTAT_NAMES.includes(stat))
         throw new Error(`Cannot apply Holofoil bonuses to unsupported substat ${stat}.`);
+      if (stat === "maxPower") {
+        const tier = item.subTiers.maxPower;
+        const roll = tier < HOLOFOIL_MIN_TIER
+          ? rollGearSubStat(stat, iLevel, HOLOFOIL_MIN_TIER, scale, maxTier)
+          : { value: current, tier };
+        upgraded.subStats[stat] = roll.value;
+        upgraded.subTiers[stat] = roll.tier;
+        continue;
+      }
       const value = rollTier(stat, current / scale, iLevel, scale, maxTier) < HOLOFOIL_MIN_TIER
         ? scaleValue(stat, rollSubStatValue(stat, iLevel, HOLOFOIL_MIN_TIER, scale, maxTier), scale)
         : current;
@@ -740,6 +786,7 @@ export const applyHolofoilBonuses = (item) => {
   return upgraded;
 };
 
+// Also rebalances saved Power rolls, including plain gear and Mythic wildcard lines.
 export const migrateHolofoilItems = (player) => {
   if (!player) return player;
   let changed = false;
@@ -835,9 +882,9 @@ const generateItem = (
   const count = Math.min(rarity.substats, pool.length);
   for (let i = 0; i < count; i++) {
     const key = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
-    const roll = rollSubStatValue(key, iLevel, minTier, scale);
-    subTiers[key] = rollTier(key, roll, iLevel, scale);
-    subStats[key] = scaleValue(key, roll, scale);
+    const roll = rollGearSubStat(key, iLevel, minTier, scale);
+    subTiers[key] = roll.tier;
+    subStats[key] = roll.value;
   }
 
   const abilityPool = ABILITIES.filter((a) => a.slots.includes(slot));
@@ -936,9 +983,15 @@ export const createUniqueItem = (def, iLevel = 1, holofoil) => {
   for (const key of def.subStats || []) {
     if (!allowedSubStats.has(key)) continue;
     if (!SUBSTAT_CAPS[key]) continue;
-    const value = rollHighSubStat(key, level);
-    subTiers[key] = rollTier(key, value, level, scale);
-    subStats[key] = scaleValue(key, value, scale);
+    if (key === "maxPower") {
+      const roll = rollGearSubStat(key, level, UNIQUE_MIN_TIER, scale);
+      subTiers[key] = roll.tier;
+      subStats[key] = roll.value;
+    } else {
+      const value = rollHighSubStat(key, level);
+      subTiers[key] = rollTier(key, value, level, scale);
+      subStats[key] = scaleValue(key, value, scale);
+    }
   }
   const subValue = Object.entries(subStats).reduce(
     (sum, [k, v]) => sum + v * SUBSTAT_PRICE[k],
@@ -1023,9 +1076,9 @@ export const createCraftedItem = (spec) => {
   const subTiers = {};
   for (const key of chosen) {
     const statMin = Math.min(SUBSTAT_MAX_TIER, Math.max(minTier, spec.subTierMins?.[key] || 0));
-    const roll = rollSubStatValue(key, iLevel, statMin, scale);
-    subTiers[key] = rollTier(key, roll, iLevel, scale);
-    subStats[key] = scaleValue(key, roll, scale);
+    const roll = rollGearSubStat(key, iLevel, statMin, scale);
+    subTiers[key] = roll.tier;
+    subStats[key] = roll.value;
   }
 
   const abilityPool = ABILITIES.filter((a) => a.slots.includes(spec.slot));
@@ -1168,9 +1221,9 @@ export const upgradeItemQuality = (item, field) => {
     const additions = Math.min(nextRarity.substats - rarity.substats, pool.length);
     for (let i = 0; i < additions; i += 1) {
       const stat = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
-      const roll = rollSubStatValue(stat, item.iLevel, item.holofoil ? HOLOFOIL_MIN_TIER : 0, scale);
-      updated.subStats[stat] = scaleValue(stat, roll, scale);
-      updated.subTiers[stat] = rollTier(stat, roll, item.iLevel, scale);
+      const roll = rollGearSubStat(stat, item.iLevel, item.holofoil ? HOLOFOIL_MIN_TIER : 0, scale);
+      updated.subStats[stat] = roll.value;
+      updated.subTiers[stat] = roll.tier;
     }
     const abilityPool = ABILITIES.filter((ability) => ability.slots.includes(item.slot));
     if (!item.ability && abilityPool.length && Math.random() < nextRarity.abilityChance) {
@@ -1216,6 +1269,10 @@ const getTierRollRange = (first, last, tier, getTier) => {
 };
 
 const getCustomSubStatRange = (stat, iLevel, tier, scale, maxTier = SUBSTAT_MAX_TIER) => {
+  if (stat === "maxPower") {
+    const value = Math.max(1, tier);
+    return { min: value, max: value, precision: 1 };
+  }
   const { min, max } = getSubStatRollRange(stat, iLevel, maxTier);
   const precision = getSubStatPrecision(stat);
   const range = getTierRollRange(
@@ -1254,6 +1311,9 @@ export const getSubStatTier = (stat, value, iLevel, twoHanded = false, maxTier =
   )
     return null;
   const scale = twoHanded ? TWO_HANDED_MULT : 1;
+  // T0 and T1 share a value; retain saved tiers whenever available.
+  if (stat === "maxPower")
+    return Math.min(maxTier, Math.max(1, Math.round(value / scale)));
   return rollTier(stat, value / scale, iLevel, scale, maxTier);
 };
 

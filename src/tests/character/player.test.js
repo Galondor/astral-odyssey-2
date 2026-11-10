@@ -197,6 +197,36 @@ test.each([true, false])("loading legacy holofoils persists bonuses once with sa
   expect(getPlayer().baseStats).toEqual(baseStats);
 });
 
+test.each([true, false])("loading persists fixed gear Power once with saved base stats: %s", async (hasBaseStats) => {
+  const player = existingPlayer();
+  const baseStats = { strength: 2, dexterity: 2, intelligence: 2 };
+  if (hasBaseStats) player.baseStats = baseStats;
+  player.powerLevelVersion = 1;
+  player.stats = {
+    ...player.stats, strength: 2, dexterity: 2, intelligence: 2,
+    maxPower: 32, power: 32,
+  };
+  const gear = {
+    id: "power", name: "Power Sword", rarity: "Rare", slot: "weapon",
+    iLevel: 100, price: 100, subStats: { maxPower: 15 }, subTiers: { maxPower: 7 },
+  };
+  player.inventory = [{ ...gear, id: "inventory-power" }];
+  player.equipment = { mainHand: gear };
+  records["users/alice"] = { player, saveRevision: 1 };
+  await loadPlayer("alice");
+  const migrated = getPlayer();
+  expect(migrated.equipment.mainHand.subStats.maxPower).toBe(7);
+  expect(migrated.inventory[0].subStats.maxPower).toBe(7);
+  expect(migrated.equipment.mainHand.subTiers.maxPower).toBe(7);
+  expect(migrated.stats.maxPower).toBe(24);
+  expect(migrated.stats.power).toBeLessThanOrEqual(24);
+  expect(records["users/alice"].player.equipment.mainHand).toEqual(migrated.equipment.mainHand);
+  await loadPlayer("alice");
+  expect(getPlayer().equipment.mainHand).toEqual(migrated.equipment.mainHand);
+  expect(getPlayer().stats.maxPower).toBe(24);
+  expect(getPlayer().baseStats).toEqual(baseStats);
+});
+
 test("a new name is reserved and saved immediately before allocating stats", async () => {
   expect(await savePlayerName("  Nova  ")).toMatchObject({ ok: true });
   expect(records["characterNames/Nova"]).toBe("alice");

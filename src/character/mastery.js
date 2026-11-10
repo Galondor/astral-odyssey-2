@@ -7,7 +7,7 @@ import { hasPassive, PASSIVE_TUNING } from "./passives";
 export const CLASS_TREES = {
   Swordsman: {
     name: "Swordsman",
-    description: "Defending or guarding grants 1 Resolve. Blocking a hit grants 1 more, at most once per round (maximum 3 Resolve).",
+    description: "Defending grants 1 Resolve. Blocking a hit grants 1 more, at most once per round (maximum 3 Resolve).",
     signature: {
       key: "resolveStrike",
       name: "Resolve Strike",
@@ -17,8 +17,9 @@ export const CLASS_TREES = {
       { id: "brace", name: "Brace", description: "Your first blocked hit each round grants 2 Resolve instead of 1 (maximum 3 Resolve).", cost: 1 },
       { id: "sundering", name: "Sundering", description: "Cleave applies enhanced Vulnerable (+30% damage taken) for 3 rounds.", cost: 1 },
       { id: "shieldBash", name: "Shield Bash", description: "Unlock Shield Bash: deal 90% melee damage and weaken the enemy by 20% for 2 rounds. Costs 3 power.", cost: 1, skill: "shieldBash" },
-      { id: "bastion", name: "Bastion", description: "Resolve Strike also grants a barrier absorbing 15% of your maximum health.", cost: 2, requires: ["brace"], excludes: ["executioner"] },
-      { id: "executioner", name: "Executioner", description: "Resolve Strike gains +50% damage.", cost: 2, requires: ["sundering"], excludes: ["bastion"] },
+      { id: "bastion", name: "Bastion", description: "Resolve Strike also grants a barrier absorbing 15% of your maximum health.", cost: 2, requires: ["brace"], excludes: ["executioner", "retribution"] },
+      { id: "executioner", name: "Executioner", description: "Resolve Strike gains +50% damage.", cost: 2, requires: ["sundering"], excludes: ["bastion", "retribution"] },
+      { id: "retribution", name: "Retribution", description: "Resolve Strike also weakens its target by 20% for 2 rounds.", cost: 2, requires: ["shieldBash"], excludes: ["bastion", "executioner"] },
     ],
   },
   Spellblade: {
@@ -33,44 +34,48 @@ export const CLASS_TREES = {
       { id: "emberWeave", name: "Ember Weave", description: "Fireball primes your next melee attack to burn for 3% of the enemy's maximum health each round for 2 rounds.", cost: 1 },
       { id: "flowingWeave", name: "Flowing Weave", description: "Alternating melee and magic refunds 1 power, at most once per action.", cost: 1 },
       { id: "runicGuard", name: "Runic Guard", description: "Unlock Runic Guard: spend 3 power and 1 Weave to shield yourself for 15% of maximum health.", cost: 1, skill: "runicGuard" },
-      { id: "continuity", name: "Continuity", description: "Fusion Strike retains 1 Weave after use.", cost: 2, requires: ["flowingWeave"], excludes: ["rupture"] },
-      { id: "rupture", name: "Rupture", description: "Fusion Strike gains +50% damage.", cost: 2, requires: ["emberWeave"], excludes: ["continuity"] },
+      { id: "continuity", name: "Continuity", description: "Fusion Strike retains 1 Weave after use.", cost: 2, requires: ["flowingWeave"], excludes: ["rupture", "searingWeave"] },
+      { id: "rupture", name: "Rupture", description: "Fusion Strike gains +50% damage.", cost: 2, requires: ["emberWeave"], excludes: ["continuity", "searingWeave"] },
+      { id: "searingWeave", name: "Searing Weave", description: "Alternating from magic to melee burns the target for 3% of its maximum health each round for 2 rounds.", cost: 2, requires: ["runicGuard"], excludes: ["continuity", "rupture"] },
     ],
   },
   Tactician: {
     name: "Tactician",
-    description: "Defend or Guard to survey the enemy and gain 1 Advantage. Attacking a defending, recovering, or debuffed enemy also grants 1, once per action (maximum 3).",
+    description: "Defend to survey the enemy and gain 1 Advantage. Attacking a defending, recovering, or debuffed enemy also grants 1, once per action (maximum 3).",
     signature: { key: "precisionStrike", name: "Precision Strike", description: "Spend 2 Advantage for a 170% melee strike that ignores 50% of defense." },
     nodes: [
-      { id: "survey", name: "Survey", description: "Defend and Guard grant 2 Advantage instead of 1.", cost: 1 },
+      { id: "survey", name: "Survey", description: "Defend grants 2 Advantage instead of 1.", cost: 1 },
       { id: "exposingCleave", name: "Exposing Cleave", description: "Cleave applies Vulnerable (+20% damage taken) for 3 rounds.", cost: 1 },
-      { id: "feint", name: "Feint", description: "Unlock Feint: 70% melee damage and Vulnerable for 3 rounds. Costs 2 power.", cost: 1, skill: "feint" },
-      { id: "strategist", name: "Strategist", description: "Precision Strike spends only 1 Advantage, but still requires 2 to use.", cost: 2, requires: ["survey"], excludes: ["checkmate"] },
-      { id: "checkmate", name: "Checkmate", description: "Precision Strike gains +50% damage and weakens its target by 20% for 2 rounds.", cost: 2, requires: ["exposingCleave"], excludes: ["strategist"] },
+      { id: "feint", name: "Feint", description: "Unlock Feint: 70% melee damage and Vulnerable for 3 rounds.", cost: 1, skill: "feint" },
+      { id: "strategist", name: "Strategist", description: "Precision Strike spends only 1 Advantage, but still requires 2 to use.", cost: 2, requires: ["survey"], excludes: ["checkmate", "openingGambit"] },
+      { id: "checkmate", name: "Checkmate", description: "Precision Strike gains +50% damage and weakens its target by 20% for 2 rounds.", cost: 2, requires: ["exposingCleave"], excludes: ["strategist", "openingGambit"] },
+      { id: "openingGambit", name: "Opening Gambit", description: "Precision Strike deals 30% more damage to a defending, recovering, or debuffed enemy.", cost: 2, requires: ["feint"], excludes: ["strategist", "checkmate"] },
     ],
   },
   Spellcaster: {
     name: "Spellcaster",
-    description: "Magic attacks build 1 Instability (maximum 3). Each stack adds 10% magic damage and 1 power to spell costs. Basic magic remains free. Release the buildup or keep escalating.",
-    signature: { key: "arcaneRelease", name: "Arcane Release", description: "Vent all Instability (requires 1) for 100% magic damage, plus 40% per stack spent. Costs no power." },
+    description: "Magic attacks build 1 Instability (maximum 3). Each stack adds 10% magic damage and 3 power to spell costs. Basic magic remains free. Release the buildup or keep escalating.",
+    signature: { key: "arcaneRelease", name: "Arcane Release", description: "Vent all Instability (requires 1) for 100% magic damage, plus 40% per stack spent." },
     nodes: [
       { id: "efficientFlow", name: "Efficient Flow", description: "Reduce the Instability surcharge on spells by 1 power.", cost: 1 },
       { id: "fracturingFrost", name: "Fracturing Frost", description: "Frost Lance also applies Vulnerable (+20% damage taken) for 3 rounds.", cost: 1 },
-      { id: "stabilize", name: "Stabilize", description: "Unlock Stabilize: vent all Instability (requires 1) for a barrier worth 20% maximum health for 3 rounds. Costs no power.", cost: 1, skill: "stabilize" },
-      { id: "reclamation", name: "Reclamation", description: "Arcane Release restores 2 power per stack vented.", cost: 2, requires: ["efficientFlow"], excludes: ["overload"] },
-      { id: "overload", name: "Overload", description: "Arcane Release gains another +25% damage per stack vented.", cost: 2, requires: ["fracturingFrost"], excludes: ["reclamation"] },
+      { id: "stabilize", name: "Stabilize", description: "Unlock Stabilize: vent all Instability (requires 1) for a barrier worth 20% maximum health for 3 rounds.", cost: 1, skill: "stabilize" },
+      { id: "reclamation", name: "Reclamation", description: "Arcane Release restores 2 power per stack vented.", cost: 2, requires: ["efficientFlow"], excludes: ["overload", "arcaneAegis"] },
+      { id: "overload", name: "Overload", description: "Arcane Release gains another +25% damage per stack vented.", cost: 2, requires: ["fracturingFrost"], excludes: ["reclamation", "arcaneAegis"] },
+      { id: "arcaneAegis", name: "Arcane Aegis", description: "Arcane Release also grants a barrier absorbing 15% of your maximum health.", cost: 2, requires: ["stabilize"], excludes: ["reclamation", "overload"] },
     ],
   },
   Duelist: {
     name: "Duelist",
-    description: "Prepare a riposte stance to guarantee a parry of the next ordinary hit before your next turn. It grants 2 Tempo; passive parries grant 1 (maximum 2). Your next melee action spends all Tempo for +35% damage per point. Committed group telegraphs cannot be parried.",
+    description: "Prepare a riposte stance to guarantee a parry of the next ordinary hit before your next turn. It grants 2 Tempo; passive parries grant 1 (maximum 2). Your next melee action spends all Tempo for +35% damage per point.",
     signature: { key: "riposteStance", name: "Riposte Stance", description: "Spend an Action preparing a guaranteed parry and 60% melee counter. A missed read forfeits the attack opportunity." },
     nodes: [
       { id: "measuredRiposte", name: "Measured Riposte", description: "Prepared parry counters deal 90% melee damage instead of 60%.", cost: 1 },
       { id: "exposingBackstab", name: "Exposing Backstab", description: "Backstab also applies Vulnerable (+20% damage taken) for 3 rounds.", cost: 1 },
-      { id: "tempoThrust", name: "Tempo Thrust", description: "Unlock Tempo Thrust: requires 2 Tempo, deals 180% melee damage plus your Tempo bonus and ignores 30% defense. Costs 3 power.", cost: 1, skill: "tempoThrust" },
-      { id: "secondWind", name: "Second Wind", description: "A prepared parry heals 8% of your maximum health.", cost: 2, requires: ["measuredRiposte"], excludes: ["perfectTempo"] },
-      { id: "perfectTempo", name: "Perfect Tempo", description: "Tempo adds 60% damage per point instead of 35%.", cost: 2, requires: ["exposingBackstab"], excludes: ["secondWind"] },
+      { id: "tempoThrust", name: "Tempo Thrust", description: "Unlock Tempo Thrust: requires 2 Tempo, deals 180% melee damage plus your Tempo bonus and ignores 30% defense.", cost: 1, skill: "tempoThrust" },
+      { id: "secondWind", name: "Second Wind", description: "A prepared parry heals 8% of your maximum health.", cost: 2, requires: ["measuredRiposte"], excludes: ["perfectTempo", "riposteMastery"] },
+      { id: "perfectTempo", name: "Perfect Tempo", description: "Tempo adds 60% damage per point instead of 35%.", cost: 2, requires: ["exposingBackstab"], excludes: ["secondWind", "riposteMastery"] },
+      { id: "riposteMastery", name: "Riposte Mastery", description: "Prepared parry counters deal 120% melee damage instead of 60%.", cost: 2, requires: ["tempoThrust"], excludes: ["secondWind", "perfectTempo"] },
     ],
   },
   Trickster: {
@@ -81,20 +86,22 @@ export const CLASS_TREES = {
       { id: "loadedVenom", name: "Loaded Venom", description: "Venom Strike prepares 2 Tricks instead of 1.", cost: 1 },
       { id: "cruelTricks", name: "Cruel Tricks", description: "Cash Out also applies Vulnerable (+20% damage taken) for 3 rounds.", cost: 1 },
       { id: "sabotage", name: "Sabotage", description: "Unlock Sabotage: spend 1 Trick and 2 power for 70% magic damage, weakening the enemy by 30% for 3 rounds. Does not prepare Tricks.", cost: 1, skill: "sabotage" },
-      { id: "salvage", name: "Salvage", description: "Cash Out refunds 1 Trick when at least 2 were spent.", cost: 2, requires: ["loadedVenom"], excludes: ["grandFinale"] },
-      { id: "grandFinale", name: "Grand Finale", description: "Cash Out gains +75% damage.", cost: 2, requires: ["cruelTricks"], excludes: ["salvage"] },
+      { id: "salvage", name: "Salvage", description: "Cash Out refunds 1 Trick when at least 2 were spent.", cost: 2, requires: ["loadedVenom"], excludes: ["grandFinale", "misdirection"] },
+      { id: "grandFinale", name: "Grand Finale", description: "Cash Out gains +75% damage.", cost: 2, requires: ["cruelTricks"], excludes: ["salvage", "misdirection"] },
+      { id: "misdirection", name: "Misdirection", description: "Sabotage also makes its target take 20% more damage for 3 rounds.", cost: 2, requires: ["sabotage"], excludes: ["salvage", "grandFinale"] },
     ],
   },
   Specialist: {
     name: "Specialist",
-    description: "Your first role and each role change grant 1 Adaptation (maximum 3). Roles are offense (melee/magic), protection (Defend/Guard), and support. Changing attack types alone is not a role change.",
+    description: "Your first role and each role change grant 1 Adaptation (maximum 3). Roles are offense (melee/magic), protection (Defend), and support. Changing attack types alone is not a role change.",
     signature: { key: "improvise", name: "Improvise", description: "Spend 2 Adaptation for 170% of your stronger attack, delivered as melee damage, and heal yourself for 10% maximum health. Does not build Adaptation." },
     nodes: [
       { id: "resourceful", name: "Resourceful", description: "Role changes restore 1 power (not the first role).", cost: 1 },
       { id: "rallyingHymn", name: "Rallying Hymn", description: "Battle Hymn also shields each affected ally for 10% of their maximum health for 3 rounds.", cost: 1 },
-      { id: "fieldMending", name: "Field Mending", description: "Unlock Field Mending: heal an ally (yourself in solo combat) for 20% of their maximum health. Costs 3 power and counts as support.", cost: 1, skill: "fieldMending" },
-      { id: "versatileRecovery", name: "Versatile Recovery", description: "Improvise heals 20% maximum health instead of 10%.", cost: 2, requires: ["resourceful"], excludes: ["contingency"] },
-      { id: "contingency", name: "Contingency", description: "Improvise also grants a barrier worth 15% maximum health for 3 rounds.", cost: 2, requires: ["rallyingHymn"], excludes: ["versatileRecovery"] },
+      { id: "fieldMending", name: "Field Mending", description: "Unlock Field Mending: heal an ally (yourself in solo combat) for 20% of their maximum health.", cost: 1, skill: "fieldMending" },
+      { id: "versatileRecovery", name: "Versatile Recovery", description: "Improvise heals 20% maximum health instead of 10%.", cost: 2, requires: ["resourceful"], excludes: ["contingency", "adaptableCare"] },
+      { id: "contingency", name: "Contingency", description: "Improvise also grants a barrier worth 15% maximum health for 3 rounds.", cost: 2, requires: ["rallyingHymn"], excludes: ["versatileRecovery", "adaptableCare"] },
+      { id: "adaptableCare", name: "Adaptable Care", description: "Improvise heals 30% maximum health instead of 10%.", cost: 2, requires: ["fieldMending"], excludes: ["versatileRecovery", "contingency"] },
     ],
   },
 };
@@ -148,7 +155,7 @@ export const CLASS_SKILLS = {
     name: "Riposte Stance", description: CLASS_TREES.Duelist.signature.description,
     type: "support", target: "self", powerCost: 0, maxLevel: 1,
     signature: true, className: "Duelist", support: () => {},
-    describe: () => ["Lasts until your next turn or the first parry. Cannot parry committed group telegraphs.", "Always uses a normal Action."],
+    describe: () => ["Lasts until your next turn or the first parry.", "Always uses a normal Action."],
   },
   cashOut: {
     name: "Cash Out", description: CLASS_TREES.Trickster.signature.description,
@@ -237,7 +244,7 @@ export function validateClassLoadout(player) {
 
 export const masteryBudget = (player) => {
   const level = Number.isFinite(player?.level) ? Math.max(1, player.level) : 1;
-  return 1 + Math.floor((level - 1) / 5);
+  return 1 + Math.floor((level - 1) / 10);
 };
 
 export function getClassNodes(player, cls = player?.class) {
@@ -271,7 +278,7 @@ export const getClassStateLabel = (state) => {
   if (state?.cls === "Spellblade")
     return `Weave ${state.weave || 0}/2${state.lastWeaveType ? ` · Last: ${state.lastWeaveType}` : ""}`;
   if (state?.cls === "Tactician") return `Advantage ${state.advantage || 0}/3 · Survey or exploit defense, recovery, or debuffs`;
-  if (state?.cls === "Spellcaster") return `Instability ${state.instability || 0}/3 · +${(state.instability || 0) * 10}% magic damage · +${Math.max(0, (state.instability || 0) - (hasClassNode(state.classNodes || [], "efficientFlow") ? 1 : 0))} spell power cost`;
+  if (state?.cls === "Spellcaster") return `Instability ${state.instability || 0}/3 · +${(state.instability || 0) * 10}% magic damage · +${Math.max(0, (state.instability || 0) * 3 - (hasClassNode(state.classNodes || [], "efficientFlow") ? 1 : 0))} spell power cost`;
   if (state?.cls === "Duelist") return `Tempo ${state.tempo || 0}/2 · ${state.riposteReady ? "Riposte prepared" : "No prepared riposte"}`;
   if (state?.cls === "Trickster") return `Tricks ${state.tricks || 0}/3`;
   if (state?.cls === "Specialist") return `Adaptation ${state.adaptation || 0}/3 · Last role: ${state.lastRole || "none"}`;

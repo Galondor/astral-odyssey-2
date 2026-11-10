@@ -50,6 +50,10 @@ export function upgradeInventoryItem(itemId) {
   const maxStatTier = getItemStatTierCap(item);
   const scaleUp = (value) => Math.round(value * status.nextLevel / item.iLevel * 1e6) / 1e6;
   for (const [stat, value] of Object.entries(item.subStats || {})) {
+    if (stat === "maxPower") {
+      subStats[stat] = value;
+      continue;
+    }
     // Keep fractional gains so rounding cannot strand low rolls across repeated upgrades.
     subStats[stat] = scaleUp(value);
     const tier = isToolItem(item)
@@ -67,7 +71,7 @@ export function upgradeInventoryItem(itemId) {
     ...(isGatheringToolSlot(item.slot) && item.mainStat?.stat === "gatheringPower"
       ? { mainStat: { ...item.mainStat, value: Math.min(50, item.mainStat.value + 1) } } : {}),
   };
-  if (item.mythicSubStat && Number.isFinite(item.mythicSubStat.value)) {
+  if (item.mythicSubStat && item.mythicSubStat.stat !== "maxPower" && Number.isFinite(item.mythicSubStat.value)) {
     const value = scaleUp(item.mythicSubStat.value);
     const tier = getSubStatTier(item.mythicSubStat.stat, value, status.nextLevel, item.twoHanded, maxStatTier);
     upgraded.mythicSubStat = { ...item.mythicSubStat, value, ...(tier !== null ? { tier } : {}) };

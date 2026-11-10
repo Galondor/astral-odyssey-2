@@ -47,11 +47,68 @@ const chooseMaterial = (slot, name) => {
   if (slot.startsWith("Reagent")) fireEvent.click(screen.getByRole("button", { name: "Select reagent" }));
 };
 
+const openBlueprints = () => {
+  fireEvent.click(screen.getByRole("button", { name: "Blueprint slot" }));
+  return screen.getByRole("region", { name: "Blueprints" });
+};
+
+const chooseBlueprint = (name = /^Sword/) => {
+  fireEvent.click(within(openBlueprints()).getByRole("button", { name }));
+};
+
+test("a single blueprint slot opens a searchable picker and restores focus on selection or dismissal", () => {
+  openCrafting();
+  const slot = screen.getByRole("button", { name: "Blueprint slot" });
+  expect(screen.queryByRole("region", { name: "Blueprints" })).toBeNull();
+  expect(screen.queryByRole("searchbox", { name: "Search blueprints" })).toBeNull();
+  slot.focus();
+  openBlueprints();
+  let picker = screen.getByRole("dialog", { name: "Choose blueprint" });
+  fireEvent.change(within(picker).getByLabelText("Filter blueprints"), { target: { value: "usable" } });
+  expect(within(picker).queryByRole("button", { name: /^Greatsword/ })).toBeNull();
+  fireEvent.change(within(picker).getByRole("searchbox"), { target: { value: "no matching blueprint" } });
+  expect(within(picker).getByText(/No matching blueprints/)).toBeTruthy();
+  fireEvent.change(within(picker).getByRole("searchbox"), { target: { value: "sword" } });
+  fireEvent.click(within(picker).getByRole("button", { name: /^Sword/ }));
+  expect(slot.textContent).toContain("Sword");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(slot);
+  chooseMaterial("Base material slot", "Metal Scraps");
+  chooseMaterial("Reagent slot 1", "Slime Gel");
+  openBlueprints();
+  picker = screen.getByRole("dialog", { name: "Choose blueprint" });
+  expect(within(picker).getByRole("button", { name: /^Sword/ }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(within(picker).getByRole("button", { name: "Cancel" }));
+  expect(screen.getByRole("button", { name: "Base material slot" }).textContent).toContain("Metal Scraps");
+  expect(screen.getByRole("button", { name: "Reagent slot 1" }).textContent).toContain("Slime Gel");
+  openBlueprints();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(slot);
+  expect(setPlayer).not.toHaveBeenCalled();
+});
+
+test("changing blueprints preserves compatible materials and clears incompatible bases or part reagents", () => {
+  player.professions.weaponry.level = 10;
+  openCrafting();
+  chooseBlueprint();
+  chooseMaterial("Base material slot", "Metal Scraps");
+  chooseMaterial("Reagent slot 1", "Slime Gel");
+  chooseBlueprint(/^Dagger/);
+  expect(screen.getByRole("button", { name: "Base material slot" }).textContent).toContain("Metal Scraps");
+  expect(screen.getByRole("button", { name: "Reagent slot 1" }).textContent).toContain("Slime Gel");
+  chooseBlueprint(/^Bow/);
+  expect(screen.getByRole("button", { name: "Base material slot" }).textContent).toContain("Choose a base material");
+  chooseBlueprint(/^Crude Pickaxe Head Tool Part/);
+  chooseBlueprint();
+  expect(screen.getByRole("button", { name: "Reagent slot 1" }).textContent).toContain("Empty");
+});
+
 test("reagent grid filters, sorts, shows details, and selects without revealing unknown properties", () => {
   player.materials = { slime_gel: 2, primal_essence: 9, frost_diamond: 4, binding_resin: 3 };
   player.craftingBook = { materials: { slime_gel: 1 }, reactions: [] };
   openCrafting();
-  fireEvent.click(within(screen.getByRole("region", { name: "Blueprints" })).getByRole("button", { name: /^Sword/ }));
+  chooseBlueprint();
   fireEvent.click(screen.getByRole("button", { name: "Reagent slot 1" }));
   let picker = screen.getByRole("dialog", { name: "Choose reagent 1" });
   const names = () => Array.from(picker.querySelectorAll(".crafting-picker-option strong")).map((entry) => entry.textContent);
@@ -94,7 +151,7 @@ test("extracted recipes appear as usable blueprints while unknown recipes stay l
   player.craftingBook = { recipes: ["unique:maldrathPhylactery"] };
   openCrafting();
   fireEvent.click(screen.getByRole("tab", { name: "Jewelry" }));
-  const blueprints = screen.getByRole("region", { name: "Blueprints" });
+  const blueprints = openBlueprints();
   expect(within(blueprints).getByRole("button", { name: /^Maldrath/ }).disabled).toBe(false);
   expect(within(blueprints).getByRole("button", { name: /^Zug/ }).disabled).toBe(true);
 });
@@ -115,7 +172,7 @@ test("Material Transmutation displays level and resource gates, crafts, and retu
   expect(screen.getByRole("status").textContent).toContain("Converted 3 Metal Scraps into 1 Bog Iron");
   expect(screen.getByRole("button", { name: "Craft Bog Iron" }).disabled).toBe(true);
   fireEvent.click(screen.getByRole("tab", { name: "Armor" }));
-  expect(screen.getByRole("region", { name: "Blueprints" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Blueprint slot" })).toBeTruthy();
   expect(screen.queryByRole("region", { name: "Material transmutation" })).toBeNull();
 });
 
@@ -167,7 +224,7 @@ test("the preview groups all material effects and keeps reactions readable as mo
     reactions: ["thermal_shock", "volatile_mixture"],
   };
   openCrafting();
-  fireEvent.click(within(screen.getByRole("region", { name: "Blueprints" })).getByRole("button", { name: /^Sword/ }));
+  chooseBlueprint();
   chooseMaterial("Base material slot", MATERIALS[keys[0]].name);
   keys.slice(1, -1).forEach((key, index) => chooseMaterial(`Reagent slot ${index + 1}`, MATERIALS[key].name));
 
@@ -196,7 +253,7 @@ test("locked effects show their requirement separately without revealing undisco
   player.materials.living_thatch = 1;
   player.craftingBook = { materials: { living_thatch: 2 }, reactions: [] };
   openCrafting();
-  fireEvent.click(within(screen.getByRole("region", { name: "Blueprints" })).getByRole("button", { name: /^Sword/ }));
+  chooseBlueprint();
   chooseMaterial("Base material slot", "Metal Scraps");
   chooseMaterial("Reagent slot 1", "Living Thatch");
   const effects = screen.getByRole("region", { name: "Known effects" });
@@ -215,12 +272,13 @@ test("Material Crafting is available in the Forge and crafts with chosen materia
     .toEqual(["Material Crafting", "Relic Crafting", "Upgrading"]);
   expect(screen.getByRole("tab", { name: "Material Crafting" }).getAttribute("aria-selected")).toBe("true");
   expect(screen.getByRole("tab", { name: "Weapons & Tools" }).getAttribute("aria-selected")).toBe("true");
-  const blueprints = screen.getByRole("region", { name: "Blueprints" });
+  const blueprints = openBlueprints();
   expect(within(blueprints).getByRole("button", { name: /^Greatsword/ }).disabled).toBe(true);
   expect(within(blueprints).getByText("Unlocks at level 14")).toBeTruthy();
 
   fireEvent.click(within(blueprints).getByRole("button", { name: /^Sword/ }));
-  expect(screen.getByText("Reagent 2").parentElement.textContent).toContain("Unlocks at level 5");
+  expect(screen.getByText("Next reagent slot: level 5 · 4 locked")).toBeTruthy();
+  expect(screen.queryByText("Reagent 2")).toBeNull();
   expect(screen.getByRole("button", { name: "Craft" }).disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Base material slot" }));
   const basePicker = screen.getByRole("dialog", { name: "Choose base material" });
@@ -235,6 +293,10 @@ test("Material Crafting is available in the Forge and crafts with chosen materia
   expect(within(preview).getByText("Intrinsic (Sword): +3% Increased attack")).toBeTruthy();
   expect(within(preview).getByText("10 - 15")).toBeTruthy();
   expect(within(preview).getAllByText(/\?\?\? \(2 undiscovered\)/)).toHaveLength(2);
+  const rarityDetails = within(preview).getByText("Rarity chances").closest("details");
+  expect(rarityDetails.open).toBe(false);
+  fireEvent.click(within(preview).getByText("Rarity chances"));
+  expect(rarityDetails.open).toBe(true);
   expect(within(preview).getByRole("region", { name: "Craft odds" }).textContent).toContain("Mythic");
   fireEvent.click(screen.getByRole("button", { name: "Craft" }));
 
@@ -283,13 +345,13 @@ test("switching professions resets the bench and shows the tool requirement", ()
   fireEvent.click(screen.getByRole("tab", { name: "Jewelry" }));
   expect(screen.getByText("No Precision Tools equipped")).toBeTruthy();
   expect(screen.getByText("Jewelry level 1")).toBeTruthy();
-  expect(screen.getByRole("button", { name: /Precision Tools/ }).disabled).toBe(true);
+  expect(within(openBlueprints()).getByRole("button", { name: /Precision Tools/ }).disabled).toBe(true);
 });
 
 test("Weaponry crafts gathering heads as materials rather than gear", () => {
   player.professions.weaponry.level = 5;
   openCrafting();
-  const blueprints = screen.getByRole("region", { name: "Blueprints" });
+  const blueprints = openBlueprints();
   expect(within(blueprints).getByRole("button", { name: /^Pickaxe Crafting/ }).disabled).toBe(false);
   fireEvent.click(within(blueprints).getByRole("button", { name: /^Crude Pickaxe Head Tool Part/ }));
   expect(screen.queryByRole("button", { name: "Reagent slot 1" })).toBeNull();
@@ -311,8 +373,7 @@ test.each([
   player.gathering = { [profession]: { level: 5 } };
   player.materials = { metal_scraps: 6, [head]: 1, haft_i: 1 };
   openCrafting();
-  fireEvent.click(within(screen.getByRole("region", { name: "Blueprints" }))
-    .getByRole("button", { name: new RegExp(`^${name} Crafting`) }));
+  chooseBlueprint(new RegExp(`^${name} Crafting`));
   chooseMaterial("Base material slot", MATERIALS.metal_scraps.name);
   chooseMaterial("Reagent slot 1", MATERIALS[head].name);
   chooseMaterial("Reagent slot 2", MATERIALS.haft_i.name);
@@ -329,7 +390,6 @@ test("crafting dialogs shrink their scroll area without squeezing material cards
   style.textContent = fs.readFileSync(path.join(process.cwd(), "src", "App.css"), "utf8");
   openCrafting();
   const bookButton = screen.getByRole("button", { name: "Crafting Book" });
-  const swordButton = within(screen.getByRole("region", { name: "Blueprints" })).getByRole("button", { name: /^Sword/ });
   document.head.append(style);
   try {
     fireEvent.click(bookButton);
@@ -346,12 +406,13 @@ test("crafting dialogs shrink their scroll area without squeezing material cards
     expect(getComputedStyle(bookEntry).overflowWrap).toBe("anywhere");
     fireEvent.click(book.querySelector('[aria-label="Close Crafting Book"]'));
 
+    openBlueprints();
     const blueprintGrid = document.querySelector('[aria-label="Available blueprints"]');
     expect(blueprintGrid.tabIndex).toBe(0);
     expect(getComputedStyle(blueprintGrid).display).toBe("grid");
     expect(getComputedStyle(blueprintGrid).overflowY).toBe("auto");
     expect(getComputedStyle(document.querySelector('[aria-label="Crafting bench"]')).display).toBe("grid");
-    fireEvent.click(swordButton);
+    fireEvent.click(within(blueprintGrid).getByRole("button", { name: /^Sword/ }));
     fireEvent.click(document.querySelector('[aria-label="Base material slot"]'));
     const picker = document.querySelector('[aria-label="Choose base material"][role="dialog"]');
     expect(getComputedStyle(picker.querySelector('input[type="search"]')).flexShrink).toBe("0");

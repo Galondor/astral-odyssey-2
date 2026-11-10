@@ -20,28 +20,40 @@ beforeEach(() => {
 test("current and inactive mastery trees show independent budgets; inactive editing is disabled", () => {
   render(<ClassMastery player={player} onChange={jest.fn()} />);
   const active = within(screen.getByRole("region", { name: "Swordsman mastery" }));
+  const inactiveCard = screen.getByText("Spellblade (inactive, saved)").closest("details");
+  expect(inactiveCard.open).toBe(false);
+  fireEvent.click(inactiveCard.querySelector("summary"));
+  expect(inactiveCard.open).toBe(true);
   const inactive = within(screen.getByRole("region", { name: "Spellblade mastery" }));
-  expect(active.getByText("Mastery: 1/5 points spent")).toBeTruthy();
-  expect(inactive.getByText("Mastery: 1/5 points spent")).toBeTruthy();
+  expect(screen.getByRole("status", { name: "Mastery points available" }).textContent).toContain("2 Mastery Points available");
+  expect(screen.getAllByText(/1\/3 spent/)).toHaveLength(2);
   expect(inactive.getByRole("button", { name: "Remove Ember Weave" }).disabled).toBe(true);
-  fireEvent.click(active.getByRole("button", { name: "Allocate Shield Bash" }));
+  fireEvent.click(active.getByRole("button", { name: "Unlock Shield Bash" }));
   expect(player.classMastery.Swordsman).toEqual(["brace", "shieldBash"]);
   expect(player.classMastery.Spellblade).toEqual(["emberWeave"]);
 });
 
-test("prerequisites, exclusive capstones and exhausted budgets report errors instead of saving", () => {
+test("mastery tree explains locked nodes, prerequisites, conflicts and point costs", () => {
+  player.level = 50;
   player.classMastery.Swordsman = ["brace", "bastion", "sundering"];
   const { rerender } = render(<ClassMastery player={player} />);
-  fireEvent.click(screen.getByRole("button", { name: "Allocate Executioner" }));
-  expect(screen.getByRole("alert").textContent).toContain("cannot combine");
-  expect(setPlayer).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Remove Brace" }));
-  expect(screen.getByRole("alert").textContent).toContain("requires brace");
+  expect(screen.getByText("Required by Bastion")).toBeTruthy();
+  const executioner = screen.getByRole("button", { name: "Unlock Executioner" }).closest(".mastery-tree-node");
+  expect(executioner.textContent).toContain("Bastion");
+  expect(executioner.querySelector("button").disabled).toBe(true);
   expect(setPlayer).not.toHaveBeenCalled();
   player = { ...player, level: 1, classMastery: { Swordsman: ["brace"] } };
   rerender(<ClassMastery player={player} />);
-  fireEvent.click(screen.getByRole("button", { name: "Allocate Shield Bash" }));
-  expect(screen.getByRole("alert").textContent).toContain("Not enough mastery points");
+  expect(screen.getAllByText("Need 1 more Mastery Point").length).toBeGreaterThan(0);
+  expect(screen.getByRole("button", { name: "Unlock Shield Bash" }).disabled).toBe(true);
+});
+
+test("mastery nodes are grouped into prerequisite branches", () => {
+  render(<ClassMastery player={player} />);
+  const tree = screen.getByRole("region", { name: "Swordsman mastery" }).querySelector(".mastery-tree");
+  expect(tree.querySelectorAll(".mastery-tree-row")).toHaveLength(2);
+  expect(tree.querySelectorAll(".mastery-tree-row:first-child > .mastery-tree-node")).toHaveLength(3);
+  expect(tree.querySelectorAll(".mastery-tree-branch > .mastery-tree-node")).toHaveLength(3);
 });
 
 test("free resets remove equipped techniques but preserve inactive mastery, and combat locks editing", () => {
@@ -53,22 +65,25 @@ test("free resets remove equipped techniques but preserve inactive mastery, and 
   expect(player.classMastery.Spellblade).toEqual(["emberWeave"]);
   expect(player.equippedSkills).toEqual([]);
   rerender(<ClassMastery player={player} inCombat />);
-  expect(screen.getByRole("button", { name: "Allocate Brace" }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Unlock Brace" }).disabled).toBe(true);
 });
 
 test("save failures are visible and do not masquerade as success", () => {
   setPlayer.mockImplementation(() => { throw new Error("Offline save failed"); });
   render(<ClassMastery player={player} />);
-  fireEvent.click(screen.getByRole("button", { name: "Allocate Shield Bash" }));
+  fireEvent.click(screen.getByRole("button", { name: "Unlock Shield Bash" }));
   expect(screen.getByRole("alert").textContent).toBe("Offline save failed");
 });
 
 test("resource meters show both caps, last weave type and signature readiness", () => {
   const { rerender } = render(<ClassResource state={{ cls: "Swordsman", resolve: 1 }} />);
-  expect(screen.getByRole("status").textContent).toContain("Resolve 1/3");
+  expect(screen.getByRole("status").textContent).toContain("Resolve");
+  expect(screen.getByRole("status").textContent).toContain("1/3");
   expect(screen.getByRole("status").textContent).toContain("need 2 Resolve");
+  expect(screen.getByRole("status").querySelector(".bar-fill").style.width).toBe("33.33333333333333%");
   rerender(<ClassResource state={{ cls: "Spellblade", weave: 2, lastWeaveType: "magic" }} />);
-  expect(screen.getByRole("status").textContent).toContain("Weave 2/2");
+  expect(screen.getByRole("status").textContent).toContain("Weave");
+  expect(screen.getByRole("status").textContent).toContain("2/2");
   expect(screen.getByRole("status").textContent).toContain("Last: magic");
   expect(screen.getByRole("status").textContent).toContain("Ready (Action)");
 });
@@ -84,7 +99,7 @@ test.each([
   const tree = CLASS_TREES[cls];
   const { rerender } = render(<ClassMastery player={player} />);
   const active = within(screen.getByRole("region", { name: `${cls} mastery` }));
-  fireEvent.click(active.getByRole("button", { name: `Allocate ${tree.nodes[0].name}` }));
+  fireEvent.click(active.getByRole("button", { name: `Unlock ${tree.nodes[0].name}` }));
   expect(player.classMastery[cls]).toEqual([tree.nodes[0].id]);
   expect(player.classMastery.Swordsman).toEqual(["brace"]);
   rerender(<ClassResource state={{ cls, [resource]: 2 }} />);

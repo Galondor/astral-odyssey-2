@@ -3,14 +3,14 @@ import {
   hasClassNode, masteryBudget,
 } from "../../character/mastery";
 
-test.each([[undefined, 1], [1, 1], [5, 1], [6, 2], [11, 3], [26, 6]])(
+test.each([[undefined, 1], [1, 1], [10, 1], [11, 2], [21, 3], [26, 3]])(
   "level %s has a global mastery budget of %s",
   (level, budget) => expect(masteryBudget({ level })).toBe(budget),
 );
 
 test("each saved tree independently spends the global budget without mutating saved preferences", () => {
   const player = {
-    level: 11,
+    level: 21,
     class: "Swordsman",
     classMastery: {
       Swordsman: ["brace", "bastion", "executioner", "unknown", "brace"],
@@ -50,7 +50,7 @@ test("missing and malformed mastery data and foreign nodes have no active nodes"
   expect(CLASS_TREES.Swordsman.signature.key).toBe("resolveStrike");
   expect(CLASS_TREES.Spellblade.signature.key).toBe("fusionStrike");
   for (const tree of Object.values(CLASS_TREES)) {
-    expect(tree.nodes).toHaveLength(5);
+    expect(tree.nodes).toHaveLength(6);
     for (const node of tree.nodes) {
       expect(node).toEqual(expect.objectContaining({
         id: expect.any(String), name: expect.any(String), description: expect.any(String),

@@ -45,13 +45,14 @@ test("enemy stats scale against the 150 gear-score-per-level target across every
     const danger = REGIONS[template.regions[0]].danger;
     const highLevelBossAdjustment =
       template.tier === "boss" && template.level >= 40 ? 0.9 : 1;
+    const postLevel30Difficulty = 1 + Math.max(0, enemy.level - 30) * 0.05;
 
     expect(enemy.level).toBe(template.level);
-    expect(enemy.maxHp).toBe(Math.round(template.maxHp * growth(template, enemy.level, 0.5) * tier.hp * danger * highLevelBossAdjustment));
+    expect(enemy.maxHp).toBe(Math.round(template.maxHp * growth(template, enemy.level, 0.5) * tier.hp * danger * highLevelBossAdjustment * postLevel30Difficulty));
     expect(enemy.attack).toEqual(
-      template.attack.map((value) => Math.round(value * growth(template, enemy.level, 0.4) * tier.attack * danger * highLevelBossAdjustment)),
+      template.attack.map((value) => Math.round(value * growth(template, enemy.level, 0.4) * tier.attack * danger * highLevelBossAdjustment * postLevel30Difficulty)),
     );
-    expect(enemy.defense).toBe(Math.round(template.defense * growth(template, enemy.level, 0.3) * tier.defense * danger * highLevelBossAdjustment));
+    expect(enemy.defense).toBe(Math.round(template.defense * growth(template, enemy.level, 0.3) * tier.defense * danger * highLevelBossAdjustment * postLevel30Difficulty));
     expect(enemy.maxHp).toBeGreaterThan(0);
   }
 });
@@ -84,6 +85,46 @@ test("enemy stats grow more strongly above the template level", () => {
   );
   expect(enemy.speed).toBe(
     Math.round(template.speed * (1 + levelDifference * 0.3)),
+  );
+});
+
+test.each([
+  [30, 1],
+  [31, 1.05],
+  [40, 1.5],
+  [100, 4.5],
+])("level %s enemies get a post-30 combat stat multiplier of %s", (level, multiplier) => {
+  const template = ENEMIES.find((enemy) =>
+    enemy.id === (level <= 40 ? "cinderHound" : "trenchScavenger"),
+  );
+  const enemy = getRandomEnemy(
+    template.tier,
+    template.regions[0],
+    level + 1,
+    (level + 1) * 150,
+    template.id,
+  );
+  const statLevel = template.statLevel ?? template.level;
+  const hpGrowth = 1 + (enemy.level - statLevel) * 0.5;
+  const attackGrowth = 1 + (enemy.level - statLevel) * 0.4;
+  const defenseGrowth = 1 + (enemy.level - statLevel) * 0.3;
+  const tierHp = { basic: 1.1, elite: 2.2, boss: 4.5 }[template.tier];
+  const tierAttack = { basic: 2.4, elite: 3, boss: 3.8 }[template.tier];
+  const tierDefense = { basic: 5, elite: 6.5, boss: 7.5 }[template.tier];
+  const danger = REGIONS[template.regions[0]].danger;
+  const bossAdjustment = template.tier === "boss" && template.level >= 40 ? 0.9 : 1;
+
+  expect(enemy.level).toBe(level);
+  expect(enemy.maxHp).toBe(
+    Math.round(template.maxHp * hpGrowth * tierHp * danger * bossAdjustment * multiplier),
+  );
+  expect(enemy.attack).toEqual(
+    template.attack.map((value) =>
+      Math.round(value * attackGrowth * tierAttack * danger * bossAdjustment * multiplier),
+    ),
+  );
+  expect(enemy.defense).toBe(
+    Math.round(template.defense * defenseGrowth * tierDefense * danger * bossAdjustment * multiplier),
   );
 });
 

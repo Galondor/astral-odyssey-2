@@ -63,10 +63,10 @@ test("each successive wave has greater health", () => {
 });
 
 test.each([
-  [1, { level: 1, maxHp: 25, attack: [1, 2], defense: 1, speed: 2, astra: 20, exp: 24 }],
-  [2, { level: 2, maxHp: 34, attack: [1, 3], defense: 1, speed: 2, astra: 38, exp: 45 }],
-  [5, { level: 5, maxHp: 69, attack: [2, 5], defense: 2, speed: 3, astra: 83, exp: 99 }],
-])("wave %s has quarter-strength core stats without reduced rewards", (wave, expected) => {
+  [1, { level: 1, maxHp: 100, attack: [3, 6], defense: 2, speed: 7, astra: 20, exp: 24 }],
+  [2, { level: 2, maxHp: 137, attack: [5, 9], defense: 4, speed: 8, astra: 38, exp: 45 }],
+  [5, { level: 5, maxHp: 275, attack: [10, 17], defense: 9, speed: 11, astra: 83, exp: 99 }],
+])("wave %s has full-strength core stats without reduced rewards", (wave, expected) => {
   expect(createColosseumEnemy(wave)).toMatchObject(expected);
 });
 

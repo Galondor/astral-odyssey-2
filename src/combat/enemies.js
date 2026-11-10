@@ -1374,6 +1374,7 @@ const rollSpawnLevel = (region, effectiveLevel) =>
 
 // Picks and scales a random enemy of the tier for the region. Returns null if none are available.
 // Stats are written for the template's `statLevel` and grow with the spawn level, then the region's danger applies.
+// Health, attack, and defense gain an additional 5% per level above 30.
 export const getRandomEnemy = (
   tier = "basic",
   region,
@@ -1408,12 +1409,13 @@ export const getRandomEnemy = (
   const weak = getUndergearFactor(playerLevel, gearScore);
   const highLevelBossAdjustment =
     template.tier === "boss" && template.level >= 40 ? 0.9 : 1;
+  const postLevel30Difficulty = 1 + Math.max(0, level - 30) * 0.05;
 
   const round = Math.round;
   const levelScaled = {
-    maxHp: template.maxHp * grow(0.5) * t.hp * danger * weak * highLevelBossAdjustment,
-    attack: template.attack.map((v) => v * grow(0.4) * t.attack * danger * weak * highLevelBossAdjustment),
-    defense: template.defense * grow(0.3) * t.defense * danger * weak * highLevelBossAdjustment,
+    maxHp: template.maxHp * grow(0.5) * t.hp * danger * weak * highLevelBossAdjustment * postLevel30Difficulty,
+    attack: template.attack.map((v) => v * grow(0.4) * t.attack * danger * weak * highLevelBossAdjustment * postLevel30Difficulty),
+    defense: template.defense * grow(0.3) * t.defense * danger * weak * highLevelBossAdjustment * postLevel30Difficulty,
     speed: template.speed * grow(0.3) * (0.5 + 0.5 * weak),
   };
   return {
